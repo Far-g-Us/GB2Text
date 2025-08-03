@@ -1,5 +1,5 @@
 ---
-name: Bug report
+name: Bug report [EN]
 about: Create a report that will help us improve the program
 title: "[Bug]"
 labels: bug
@@ -24,23 +24,23 @@ Clearly describe what the problem is
 
 (Run the script with the --verbose flag for a detailed log)
 
-🧩 Configuration <br>
--Software version: gb2text vX.X.X <br>
--OS: Windows 11 / Ubuntu 22.04 / macOS 14 <br>
--Launch options: [Your flags and arguments] <br>
--Related files: <br>
--config.ini (if used) <br>
--Character table: [charmap.json/custom_map.txt] <br>
+🧩 Configuration
+-Software version: gb2text vX.X.X
+-OS: Windows 11 / Ubuntu 22.04 / macOS 14
+-Launch options: [Your flags and arguments]
+-Related files:
+-config.ini (if used)
+-Character table: [charmap.json/custom_map.txt]
 
-💡 Suggestions <br>
-Do you have any ideas about what could have caused the problem? <br>
-🖼️ Visual evidence <br>
-*Screenshot* <br>
+💡 Suggestions
+Do you have any ideas about what could have caused the problem?
+🖼️ Visual evidence
+*Screenshot*
 
-🚧 Additional context <br> 
--First occurrence: [Date/version] <br>
--Frequency: Always/Sometimes/Once <br>
-Related issues: #123, #456 <br>
+🚧 Additional context
+-First occurrence: [Date/version]
+-Frequency: Always/Sometimes/Once
+Related issues: #123, #456
 
 
 ---
