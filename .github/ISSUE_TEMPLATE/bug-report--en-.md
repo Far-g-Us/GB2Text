@@ -42,7 +42,6 @@ Do you have any ideas about what could have caused the problem?
 -Frequency: Always/Sometimes/Once
 Related issues: #123, #456
 
-
 ---
 
 ### 📂 How to add to the repository:
