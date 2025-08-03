@@ -41,10 +41,10 @@ Have you considered other approaches?
 # Example of a command with a new feature
 gb2text extract --game="METROID2" --format=json
 
-🌐 Additional context
--Related games: [Game name]
--Technical limitations: [Known issues]
--Analogues in other tools: [bgb, no$gmb, etc]
+🌐 Additional context <br>
+-Related games: [Game name] <br>
+-Technical limitations: [Known issues] <br>
+-Analogues in other tools: [bgb, no$gmb, etc] <br>
 
 ---
 
