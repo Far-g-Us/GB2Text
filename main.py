@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 from core.extractor import TextExtractor
+from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 
 
@@ -22,12 +23,15 @@ def load_plugins_from_dir(plugin_dir: str) -> list:
 
 def main():
     parser = argparse.ArgumentParser(description='Game Boy Text Extractor')
-    parser.add_argument('rom', help='Путь к ROM-файлу')
+    parser.add_argument('rom', nargs='?', help='Путь к ROM-файлу')
     parser.add_argument('--output', default='text', choices=['text', 'json', 'csv'],
                         help='Формат вывода')
     parser.add_argument('--plugin-dir', default='plugins',
                         help='Каталог с конфигурационными плагинами')
     parser.add_argument('--gui', action='store_true', help='Запустить графический интерфейс')
+    parser.add_argument('--inject', action='store_true', help='Внедрить текст обратно в ROM')
+    parser.add_argument('--translations', help='Файл с переводами')
+    parser.add_argument('--output-rom', help='Выходной файл ROM')
     args = parser.parse_args()
 
     if args.gui:
@@ -35,8 +39,34 @@ def main():
         try:
             from gui.main_window import run_gui
             run_gui(args.rom, args.plugin_dir)
-        except ImportError:
-            print("Ошибка: GUI не установлен. Установите зависимости или запустите без --gui")
+        except ImportError as e:
+            print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {str(e)}")
+        return
+
+    if args.inject:
+        if not args.translations or not args.output_rom:
+            print("Для внедрения текста необходимы параметры --translations и --output-rom")
+            return
+
+        try:
+            # Загружаем переводы
+            with open(args.translations, 'r', encoding='utf-8') as f:
+                translations = json.load(f)
+
+            # Создаем инжектор
+            injector = TextInjector(args.rom)
+
+            # Внедряем переводы
+            for segment_name, entries in translations.items():
+                texts = [entry['translation'] for entry in entries]
+                injector.inject_segment(segment_name, texts, injector.plugin)
+
+            # Сохраняем результат
+            injector.save(args.output_rom)
+            print(f"Текст успешно внедрен. Новый ROM сохранен в {args.output_rom}")
+
+        except Exception as e:
+            print(f"Ошибка при внедрении текста: {str(e)}")
         return
 
     # Расширение менеджера плагинов конфигурационными плагинами
@@ -51,7 +81,8 @@ def main():
             for seg_name, messages in results.items():
                 print(f"\n== {seg_name.upper()} ==")
                 for msg in messages:
-                    print(f"0x{msg['offset']:04X}: {msg['text']}")
+                    print(f"Offset: 0x{msg['offset']:04X}")
+                    print(f"{msg['text']}\n")
 
         elif args.output == 'json':
             print(json.dumps(results, indent=2, ensure_ascii=False))

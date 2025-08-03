@@ -1,10 +1,11 @@
 """
-Модуль для работы с ROM-файлами Game Boy
+Модуль для работы с ROM-файлами Game Boy, Game Boy Color и Game Boy Advance
 """
 
 import re
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Literal
+
 
 class GameBoyROM:
     """Загрузка и базовый анализ ROM-файла"""
@@ -40,7 +41,25 @@ class GameBoyROM:
         return ''.join(chr(b) for b in self.data[start:start + length]
                        if 0x20 <= b <= 0x7E).strip()
 
+    def _detect_system(self) -> Literal['gb', 'gbc', 'gba']:
+        """Определение системы по сигнатуре ROM"""
+        # Проверка на Game Boy Advance
+        if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
+            return 'gba'
+
+        # Проверка на Game Boy Color
+        if self.header['cgb_flag'] == 0x80 or self.header['cgb_flag'] == 0xC0:
+            return 'gbc'
+
+        return 'gb'
+
     def get_game_id(self) -> str:
         """Генерация уникального ID игры для поиска конфигурации"""
         title = re.sub(r'\W+', '', self.header['title']).upper()
-        return f"{title}_{self.header['cartridge_type']:02X}"
+        return f"{title}_{self.system.upper()}_{self.header['cartridge_type']:02X}"
+
+    def is_gba(self) -> bool:
+        return self.system == 'gba'
+
+    def is_gbc(self) -> bool:
+        return self.system == 'gbc'
