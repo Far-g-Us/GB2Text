@@ -10,9 +10,9 @@ import json
 import re
 from pathlib import Path
 from typing import List, Optional, Dict
-from .plugin import GamePlugin
+from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from .decoder import CharMapDecoder, LZ77Handler
+from core.decoder import CharMapDecoder, LZ77Handler
 
 
 class PluginManager:

@@ -4,7 +4,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, List
-from .rom import GameBoyROM
+from core.rom import GameBoyROM
 
 
 class GamePlugin(ABC):

@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import Dict, Any
 
-
 class GameBoyROM:
     """Загрузка и базовый анализ ROM-файла"""
 
@@ -14,6 +13,7 @@ class GameBoyROM:
         self.path = rom_path
         self.data = self._load_rom(rom_path)
         self.header = self._parse_header()
+        self.system = self._detect_system()
 
     def _load_rom(self, path: str) -> bytearray:
         with open(path, 'rb') as f:

@@ -3,8 +3,8 @@
 """
 
 from typing import Dict, List
-from .rom import GameBoyROM
-from .plugin_manager import PluginManager
+from core.rom import GameBoyROM
+from core.plugin_manager import PluginManager
 
 
 class TextExtractor:

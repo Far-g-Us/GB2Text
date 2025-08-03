@@ -3,7 +3,7 @@
 """
 
 from typing import List, Tuple
-from .rom import GameBoyROM
+from core.rom import GameBoyROM
 
 class PointerScanner:
     """Поиск указателей на текст в ROM"""
