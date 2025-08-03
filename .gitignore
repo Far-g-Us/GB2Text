@@ -1,4 +1,5 @@
 .vscode/
 .idea/
 .venv/
+1.txt
 */**/__pycache__/*

@@ -3,7 +3,52 @@
 """
 
 from core.rom import GameBoyROM
-from core.decoder import CharMapDecoder
+from core.decoder import CompressionHandler
+from typing import Tuple
+
+
+class GBALZ77Handler(CompressionHandler):
+    """Обработчик LZ77 сжатия для Pokemon игр на GBA"""
+
+    def decompress(self, data: bytes, start: int) -> Tuple[bytes, int]:
+        """
+        Декомпрессия данных, сжатых с использованием LZ77 в Pokemon GBA игр.
+        Формат LZ77 для GBA немного отличается от классического.
+        """
+        output = []
+        i = start
+
+        while i < len(data):
+            flags = data[i]
+            i += 1
+
+            for j in range(8):
+                if i >= len(data):
+                    break
+
+                if flags & (0x80 >> j):
+                    # Ссылка
+                    b1 = data[i]
+                    b2 = data[i + 1]
+                    i += 2
+
+                    # В GBA формате смещение и длина закодированы иначе
+                    dist = ((b1 & 0x0F) << 8) | b2
+                    length = (b1 >> 4) + 3
+
+                    # Корректировка для GBA
+                    dist += 1
+
+                    pos = len(output) - dist
+                    for k in range(length):
+                        if pos + k >= 0 and pos + k < len(output):
+                            output.append(output[pos + k])
+                else:
+                    # Литерал
+                    output.append(data[i])
+                    i += 1
+
+        return bytes(output), i
 
 
 def analyze_gba_text_regions(rom: GameBoyROM) -> list:

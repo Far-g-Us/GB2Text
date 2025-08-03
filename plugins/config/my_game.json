@@ -2,7 +2,7 @@
   "game_id_pattern": "^MYGAME_.*$",
   "segments": [
     {
-      "name": "main_dialogues",
+      "name": "dialogues",
       "start": "0x5000",
       "end": "0x7000",
       "charmap": {
