@@ -1,100 +1,35 @@
 """
+GB Text Extraction Framework
+
+ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
+Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
+законно принадлежащих пользователю. Использование этого инструмента для
+нелегального копирования, распространения или модификации защищенных
+авторским правом материалов строго запрещено.
+
+Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
+защищенные авторским правом материалы. Все ROM-файлы должны быть
+законно приобретены пользователем самостоятельно.
+
+Этот инструмент разработан исключительно для исследовательских целей,
+обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+"""
+
+"""
 Менеджер плагинов для динамической загрузки
 """
 import importlib
 import pkgutil
 import os
-from pathlib import Path
-
 import json
 import re
 from pathlib import Path
+
+from core.encoding import auto_detect_charmap
 from typing import List, Optional, Dict
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 from core.decoder import CharMapDecoder, LZ77Handler
-
-
-class PluginManager:
-    """Менеджер плагинов"""
-
-    def __init__(self, plugins_dir: str = "plugins"):
-        self.plugins = []
-        self.plugins_dir = plugins_dir
-        self.load_plugins()
-
-    def load_plugins(self) -> None:
-        """Загружает все плагины из указанной директории"""
-        # Загружаем встроенные плагины
-        self._load_builtin_plugins()
-
-        # Загружаем конфигурационные плагины
-        self._load_config_plugins()
-
-    def _load_builtin_plugins(self) -> None:
-        """Загружает встроенные плагины"""
-        try:
-            from plugins.pokemon import PokemonPlugin
-            self.plugins.append(PokemonPlugin())
-        except ImportError:
-            pass
-
-        try:
-            from plugins.zelda import ZeldaPlugin
-            self.plugins.append(ZeldaPlugin())
-        except ImportError:
-            pass
-
-    def _load_config_plugins(self) -> None:
-        """Загружает конфигурационные плагины из JSON-файлов"""
-        config_dir = Path(self.plugins_dir) / "config"
-        if not config_dir.exists():
-            config_dir.mkdir(parents=True, exist_ok=True)
-            return
-
-        for json_file in config_dir.glob("*.json"):
-            try:
-                with open(json_file) as f:
-                    config = json.load(f)
-                self.plugins.append(ConfigurablePlugin(config))
-            except Exception:
-                pass
-
-    def get_plugin(self, game_id: str) -> Optional[GamePlugin]:
-        """Находит подходящий плагин для игры"""
-        for plugin in self.plugins:
-            if re.match(plugin.game_id_pattern, game_id):
-                return plugin
-        return None
-
-
-class ConfigurablePlugin(GamePlugin):
-    """Плагин на основе конфигурационного файла"""
-
-    def __init__(self, config: Dict):
-        self.config = config
-
-    @property
-    def game_id_pattern(self) -> str:
-        return self.config['game_id_pattern']
-
-    def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
-        segments = []
-        for seg in self.config['segments']:
-            decoder = CharMapDecoder(seg['charmap'])
-            compression = None
-            if 'compression' in seg and seg['compression'] == 'lz77':
-                compression = LZ77Handler()
-
-            segments.append({
-                'name': seg['name'],
-                'start': int(seg['start'], 16),
-                'end': int(seg['end'], 16),
-                'decoder': decoder,
-                'compression': compression
-            })
-        return segments
-from .plugin import GamePlugin
 
 
 class PluginManager:
@@ -143,15 +78,33 @@ class PluginManager:
         if not config_dir.exists():
             config_dir.mkdir(parents=True, exist_ok=True)
             return
-
+            
         for json_file in config_dir.glob("*.json"):
             try:
                 with open(json_file) as f:
                     config = json.load(f)
+                
+                # Проверяем структуру конфигурации
+                if not self._is_valid_config(config):
+                    print(f"Пропущен некорректный конфиг: {json_file.name}")
+                    continue
+                    
                 self.plugins.append(ConfigurablePlugin(config))
                 print(f"Загружена конфигурация: {json_file.name}")
             except Exception as e:
                 print(f"Ошибка загрузки конфигурации {json_file.name}: {str(e)}")
+
+    def _is_valid_config(self, config: dict) -> bool:
+        """Проверяет, что конфигурация имеет правильную структуру"""
+        if 'game_id_pattern' not in config:
+            return False
+            
+        segments = config.get('segments', [])
+        for seg in segments:
+            if 'name' not in seg or 'start' not in seg or 'end' not in seg:
+                return False
+                
+        return True
 
     def _create_example_plugin(self, path: Path) -> None:
         """Создает пример конфигурации плагина"""
@@ -178,3 +131,51 @@ class PluginManager:
             if re.match(plugin.game_id_pattern, game_id):
                 return plugin
         return None
+
+
+class ConfigurablePlugin(GamePlugin):
+    """Плагин на основе конфигурационного файла"""
+
+    def __init__(self, config: Dict):
+        self.config = config
+
+    @property
+    def game_id_pattern(self) -> str:
+        return self.config['game_id_pattern']
+
+    def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
+        segments = []
+        for seg in self.config['segments']:
+            # Проверяем обязательные поля
+            if 'start' not in seg or 'end' not in seg:
+                continue  # Пропускаем сегменты без обязательных полей
+                
+            # Автоматическое определение таблицы символов, если не предоставлена
+            charmap = seg.get('charmap', {})
+            if not charmap:
+                try:
+                    charmap = auto_detect_charmap(rom.data, int(seg['start'], 16))
+                except (ValueError, TypeError):
+                    charmap = {}  # Или используйте стандартную таблицу
+            
+            decoder = None
+            if charmap:
+                decoder = CharMapDecoder(charmap)
+            
+            compression = None
+            if 'compression' in seg and seg['compression'] == 'lz77':
+                compression = LZ77Handler()
+            
+            try:
+                segments.append({
+                    'name': seg['name'],
+                    'start': int(seg['start'], 16),
+                    'end': int(seg['end'], 16),
+                    'decoder': decoder,
+                    'compression': compression
+                })
+            except (ValueError, KeyError) as e:
+                print(f"Ошибка обработки сегмента: {e}")
+                continue
+        
+        return segments

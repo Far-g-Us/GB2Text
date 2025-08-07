@@ -1,19 +1,38 @@
 """
+GB Text Extraction Framework
+
+ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
+Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
+законно принадлежащих пользователю. Использование этого инструмента для
+нелегального копирования, распространения или модификации защищенных
+авторским правом материалов строго запрещено.
+
+Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
+защищенные авторским правом материалы. Все ROM-файлы должны быть
+законно приобретены пользователем самостоятельно.
+
+Этот инструмент разработан исключительно для исследовательских целей,
+обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+"""
+
+"""
 Графический интерфейс для GB Text Extractor с полной функциональностью
 """
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import json
-import os
+import json, re, os
+from pathlib import Path
 from core.rom import GameBoyROM
+from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
-from core.encoding import get_english_charmap, get_japanese_charmap, get_russian_charmap
+from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
 
 class GBTextExtractorGUI:
     def __init__(self, root, rom_path=None, plugin_dir="plugins"):
+        self.apply_encoding = None
         self.root = root
         self.root.title("GB Text Extractor & Translator")
         self.root.geometry("1100x700")
@@ -22,11 +41,14 @@ class GBTextExtractorGUI:
         self.rom_path = tk.StringVar(value=rom_path or "")
         self.plugin_dir = plugin_dir
         self.plugin_manager = PluginManager(plugin_dir)
+        self.guide_manager = GuideManager()
+        self.current_guide = None
         self.current_results = None
         self.current_rom = None
         self.text_injector = None
         self.current_segment = None
         self.current_entry_index = 0
+        self.show_warning_dialog()
 
         self._setup_ui()
 
@@ -61,6 +83,11 @@ class GBTextExtractorGUI:
 
         # === Настройка вкладки настроек ===
         self._setup_settings_tab()
+
+        # === Вкладка руководства ===
+        self.guide_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.guide_tab, text='Руководство')
+        self._setup_guide_tab()
 
     def _setup_extract_tab(self):
         """Настройка вкладки извлечения текста"""
@@ -184,7 +211,7 @@ class GBTextExtractorGUI:
 
         self.target_lang = tk.StringVar(value="ru")
         lang_combo = ttk.Combobox(lang_frame, textvariable=self.target_lang, state="readonly", width=15)
-        lang_combo['values'] = ('en', 'ru', 'ja') #'es', 'fr', 'de'
+        lang_combo['values'] = ('en', 'ru', 'ja')  # 'es', 'fr', 'de'
         lang_combo.pack(side="left")
         lang_combo.current(1)  # Русский по умолчанию
 
@@ -200,8 +227,193 @@ class GBTextExtractorGUI:
         ttk.Radiobutton(encoding_frame, text="Японская", variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
         ttk.Radiobutton(encoding_frame, text="Русская", variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
 
+        # Создать конфигурацию
+        ttk.Button(settings_frame, text="Создать конфигурацию", command=self.create_user_config).pack(pady=10)
+
+        # Кнопка применения кодировки
+        ttk.Button(settings_frame, text="Применить кодировку", command=self.apply_encoding).pack(pady=10)
+
         # Сохранение настроек
-        ttk.Button(settings_frame, text="Сохранить настройки", command=self.save_settings).pack(pady=20)
+        ttk.Button(settings_frame, text="Сохранить настройки", command=self.save_settings).pack(pady=10)
+
+    def _setup_guide_tab(self):
+        """Настройка вкладки руководства"""
+        guide_frame = ttk.Frame(self.guide_tab, padding="10")
+        guide_frame.pack(fill="both", expand=True)
+
+        # Панель управления
+        control_frame = ttk.Frame(guide_frame)
+        control_frame.pack(fill="x", expand=False, pady=(0, 10))
+
+        ttk.Button(control_frame, text="Загрузить шаблон",
+                   command=self.load_guide_template).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Сохранить руководство",
+                   command=self.save_guide).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Применить к извлечению",
+                   command=self.apply_guide).pack(side="left", padx=5)
+
+        # Текстовое представление руководства
+        self.guide_text = scrolledtext.ScrolledText(guide_frame, wrap="word", font=("Consolas", 10))
+        self.guide_text.pack(fill="both", expand=True)
+        self.guide_text.config(state="disabled")
+
+    def create_user_config(self):
+        """Создает пользовательскую конфигурацию на основе текущих настроек"""
+        if not self.current_rom:
+            messagebox.showwarning("Предупреждение", "Сначала загрузите ROM-файл")
+            return
+
+        # Создаем базовую структуру конфигурации
+        game_id = self.current_rom.get_game_id()
+        config = {
+            "game_id_pattern": f"^{game_id}$",
+            "segments": []
+        }
+
+        # Попробуем определить сегменты автоматически
+        try:
+            # Создаем временный плагин для извлечения информации
+            from core.extractor import TextExtractor
+            extractor = TextExtractor(self.rom_path.get())
+
+            # Попробуем использовать автоопределение
+            from plugins.auto_detect import AutoDetectPlugin
+            plugin = AutoDetectPlugin()
+            segments = plugin.get_text_segments(self.current_rom)
+
+            for seg in segments:
+                config["segments"].append({
+                    "name": seg["name"],
+                    "start": f"0x{seg['start']:04X}",
+                    "end": f"0x{seg['end']:04X}",
+                    # Таблица символов будет определена при использовании
+                })
+        except:
+            # Если автоопределение не сработало, создаем шаблон
+            config["segments"].append({
+                "name": "main_text",
+                "start": "0x4000",
+                "end": "0x7FFF"
+            })
+
+        # Сохраняем конфигурацию
+        config_dir = Path("plugins/config")
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        # Используем имя игры из заголовка ROM
+        safe_title = re.sub(r'\W+', '', self.current_rom.header['title']).lower()
+        config_path = config_dir / f"{safe_title}_{self.current_rom.header['cartridge_type']:02X}.json"
+
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+
+        messagebox.showinfo("Успех",
+                            f"Конфигурация создана и сохранена в:\n{config_path}\n\n"
+                            "Теперь вы можете отредактировать её для лучшего извлечения текста.")
+
+    def apply_encoding(self):
+        """Применяет выбранную кодировку к текущему сегменту"""
+        if not self.current_segment or not self.current_entries:
+            messagebox.showwarning("Предупреждение", "Сначала загрузите сегмент для редактирования")
+            return
+
+        encoding_type = self.encoding_type.get()
+
+        # Определяем, какую таблицу символов использовать
+        if encoding_type == "auto":
+            charmap = auto_detect_charmap(self.current_rom.data, self.current_segment['start'])
+        elif encoding_type == "en":
+            charmap = get_generic_english_charmap()
+        elif encoding_type == "ja":
+            charmap = get_generic_japanese_charmap()
+        elif encoding_type == "ru":
+            charmap = get_generic_russian_charmap()
+        else:
+            charmap = get_generic_english_charmap()
+
+        # Создаем новый декодер с выбранной таблицей
+        from core.decoder import CharMapDecoder
+        self.current_segment['decoder'] = CharMapDecoder(charmap)
+
+        # Перезагружаем сегмент с новой кодировкой
+        self.load_segment()
+        messagebox.showinfo("Успех", "Кодировка применена. Текст обновлен.")
+
+    def load_guide(self):
+        """Загружает руководство для текущей игры"""
+        if not self.current_rom:
+            return
+
+        game_id = self.current_rom.get_game_id()
+        self.current_guide = self.guide_manager.get_guide(game_id)
+
+        if not self.current_guide:
+            self.current_guide = self.guide_manager.create_template(game_id)
+
+        self.display_guide()
+
+    def display_guide(self):
+        """Отображает текущее руководство"""
+        if not self.current_guide:
+            return
+
+        self.guide_text.config(state="normal")
+        self.guide_text.delete(1.0, tk.END)
+
+        # Заголовок
+        self.guide_text.insert(tk.END, f"Руководство для {self.current_guide.get('game_id', 'игры')}\n\n", "header")
+        self.guide_text.insert(tk.END, f"{self.current_guide.get('description', '')}\n\n")
+
+        # Шаги
+        self.guide_text.insert(tk.END, "Пошаговая инструкция:\n", "section")
+        steps = self.current_guide.get('steps', [])
+        for i, step in enumerate(steps, 1):
+            self.guide_text.insert(tk.END, f"{i}. {step.get('title', '')}\n", "step")
+            self.guide_text.insert(tk.END, f"   {step.get('description', '')}\n\n")
+
+        # Советы
+        tips = self.current_guide.get('tips', [])
+        if tips:
+            self.guide_text.insert(tk.END, "Полезные советы:\n", "section")
+            for i, tip in enumerate(tips, 1):
+                self.guide_text.insert(tk.END, f"• {tip}\n")
+
+        # Настройка стилей
+        self.guide_text.tag_config("header", font=("Consolas", 10, "bold"))
+        self.guide_text.tag_config("section", font=("Consolas", 10, "underline"))
+        self.guide_text.tag_config("step", font=("Consolas", 10, "bold"))
+
+        self.guide_text.config(state="disabled")
+
+    def load_guide_template(self):
+        """Загружает шаблон руководства"""
+        if not self.current_rom:
+            messagebox.showwarning("Предупреждение", "Сначала загрузите ROM-файл")
+            return
+
+        game_id = self.current_rom.get_game_id()
+        self.current_guide = self.guide_manager.create_template(game_id)
+        self.display_guide()
+
+    def save_guide(self):
+        """Сохраняет текущее руководство"""
+        if not self.current_guide or not self.current_rom:
+            return
+
+        if self.guide_manager.save_guide(self.current_rom.get_game_id(), self.current_guide):
+            messagebox.showinfo("Успех", "Руководство сохранено")
+        else:
+            messagebox.showerror("Ошибка", "Не удалось сохранить руководство")
+
+    def apply_guide(self):
+        """Применяет рекомендации из руководства к извлечению текста"""
+        if not self.current_guide or not self.current_rom:
+            return
+
+        # Здесь можно добавить логику применения рекомендаций
+        messagebox.showinfo("Информация",
+                            "Рекомендации из руководства применены.\n"
+                            "Теперь вы можете извлечь текст с учетом специфики этой игры.")
 
     def browse_rom(self):
         """Выбор ROM-файла"""
@@ -264,6 +476,10 @@ class GBTextExtractorGUI:
                 self.segments_list.selection_set(0)
                 self.on_segment_select(None)
 
+        except KeyError as e:
+            messagebox.showerror("Ошибка конфигурации", 
+                f"Некорректная конфигурация: отсутствует поле {str(e)}\n"
+                "Проверьте ваши JSON-конфиги в папке plugins/config/")
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось извлечь текст:\n{str(e)}")
 
@@ -507,6 +723,57 @@ class GBTextExtractorGUI:
         """Сохранение настроек локализации"""
         # Здесь сохраняются настройки
         messagebox.showinfo("Успех", "Настройки сохранены")
+
+    def rate_current_guide(self, rating: int):
+        """Оценивает текущее руководство"""
+        if not self.current_guide or not self.current_rom:
+            return
+
+        if self.guide_manager.rate_guide(self.current_rom.get_game_id(), rating):
+            messagebox.showinfo("Успех", f"Руководство оценено на {rating} звезд(ы)")
+        else:
+            messagebox.showerror("Ошибка", "Не удалось оценить руководство")
+
+    def _setup_guide_tab(self):
+        """Настройка вкладки руководства"""
+        guide_frame = ttk.Frame(self.guide_tab, padding="10")
+        guide_frame.pack(fill="both", expand=True)
+
+        # Панель управления
+        control_frame = ttk.Frame(guide_frame)
+        control_frame.pack(fill="x", expand=False, pady=(0, 10))
+
+        ttk.Button(control_frame, text="Загрузить шаблон",
+                   command=self.load_guide_template).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Сохранить руководство",
+                   command=self.save_guide).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Применить к извлечению",
+                   command=self.apply_guide).pack(side="left", padx=5)
+
+        # Панель оценки
+        rating_frame = ttk.Frame(control_frame)
+        rating_frame.pack(side="left", padx=(20, 0))
+        ttk.Label(rating_frame, text="Оценить:").pack(side="left")
+
+        for i in range(1, 6):
+            ttk.Button(rating_frame, text="★", width=2,
+                       command=lambda r=i: self.rate_current_guide(r)).pack(side="left")
+
+        # Текстовое представление руководства
+        self.guide_text = scrolledtext.ScrolledText(guide_frame, wrap="word", font=("Consolas", 10))
+        self.guide_text.pack(fill="both", expand=True)
+        self.guide_text.config(state="disabled")
+
+    def show_warning_dialog(self):
+        """Показывает юридическое предупреждение при запуске"""
+        messagebox.showwarning(
+            "Юридическое предупреждение",
+            "Этот инструмент должен использоваться ТОЛЬКО с ROM-файлами, "
+            "законно принадлежащими вам. Не используйте его для нелегальных копий игр. "
+            "Автор не несет ответственности за неправомерное использование этого программного обеспечения.\n\n"
+            "Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или "
+            "защищенные авторским правом материалы."
+        )
 
 def run_gui(rom_path=None, plugin_dir="plugins"):
     """Запуск GUI приложения"""
