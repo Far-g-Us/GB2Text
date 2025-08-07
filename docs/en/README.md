@@ -34,8 +34,8 @@ Nintendo, Pokémon, The Legend of Zelda, and all related trademarks are the prop
 
 ### Setup
 ```bash
-git clone https://github.com/yourusername/gb-text-extractor.git
-cd gb-text-extractor
+git clone https://github.com/Far-g-Us/GB2Text.git
+cd GB2Text
 pip install -r requirements.txt
 ```
 ### 🖥️ Usage

@@ -1,5 +1,14 @@
 .vscode/
 .idea/
 .venv/
+env/
+*.pyc
 1.txt
 */**/__pycache__/*
+settings/
+# Диагностические каталоги
+diagnostics_*
+
+# Временные файлы
+*.log
+*.tmp

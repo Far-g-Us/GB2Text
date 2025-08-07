@@ -36,6 +36,12 @@ def load_plugins_from_dir(plugin_dir: str) -> list:
             plugins.append(config)
     return plugins
 
+def get_version():
+    try:
+        with open('VERSION', 'r') as f:
+            return f.read().strip()
+    except:
+        return "1.0.0"
 
 def main():
     parser = argparse.ArgumentParser(description='Game Boy Text Extractor')
@@ -45,18 +51,23 @@ def main():
     parser.add_argument('--plugin-dir', default='plugins',
                         help='Каталог с конфигурационными плагинами')
     parser.add_argument('--gui', action='store_true', help='Запустить графический интерфейс')
+    parser.add_argument('--version', action='store_true', help='Показать версию')
+    parser.add_argument('--verbose', action='store_true', help='Подробный вывод')
     parser.add_argument('--inject', action='store_true', help='Внедрить текст обратно в ROM')
     parser.add_argument('--translations', help='Файл с переводами')
     parser.add_argument('--output-rom', help='Выходной файл ROM')
+    parser.add_argument('--lang', default='en', choices=['en', 'ru', 'ja'],
+                        help='Язык интерфейса')
     args = parser.parse_args()
 
     if args.gui:
         try:
             from gui.main_window import run_gui
-            run_gui(args.rom, args.plugin_dir)
+            run_gui(args.rom, args.plugin_dir, lang="en")
             return
-        except ImportError:
-            print("Ошибка: GUI не установлен. Установите зависимости или запустите без --gui")
+        except ImportError as e:
+            print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {str(e)}")
+        return
 
     try:
         from core.plugin_manager import get_safe_plugin_manager
@@ -80,6 +91,10 @@ def main():
     except Exception as e:
         print(f"Ошибка: {str(e)}")
         print("Подсказка: Вы можете создать свою конфигурацию с помощью --auto-config")
+
+    if args.version:
+        print(f"GB Text Extraction Framework v{get_version()}")
+        return
 
     if args.inject:
         if not args.translations or not args.output_rom:
@@ -128,7 +143,6 @@ def main():
     except Exception as e:
         print(f"Ошибка: {str(e)}")
         print("Подсказка: Попробуйте добавить конфигурацию для этой игры в папку plugins/")
-
 
 if __name__ == "__main__":
     main()
