@@ -22,8 +22,10 @@ GB Text Extraction Framework
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import json, re, os
+from datetime import time
 from pathlib import Path
 from core.rom import GameBoyROM
+from core.i18n import I18N
 from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
@@ -31,10 +33,13 @@ from core.plugin_manager import PluginManager
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
 
 class GBTextExtractorGUI:
-    def __init__(self, root, rom_path=None, plugin_dir="plugins"):
-        self.apply_encoding = None
+    def __init__(self, root, rom_path=None, plugin_dir="plugins", lang="en"):
+        # Загружаем сохраненные настройки
+        self.load_saved_settings()
+
+        self.i18n = I18N(default_lang=self.ui_lang.get())
         self.root = root
-        self.root.title("GB Text Extractor & Translator")
+        self.root.title(self.i18n.t("app.title"))
         self.root.geometry("1100x700")
 
         # Инициализация компонентов
@@ -47,9 +52,17 @@ class GBTextExtractorGUI:
         self.current_rom = None
         self.text_injector = None
         self.current_segment = None
+        self.current_entries = None
         self.current_entry_index = 0
-        self.show_warning_dialog()
+        #self.apply_encoding = None
 
+        # Обработчик закрытия окна
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Добавляем переменную для текущего языка интерфейса
+        self.ui_lang = tk.StringVar(value=lang)
+
+        self.show_warning_dialog()
         self._setup_ui()
 
         # Если указан ROM при запуске, сразу загружаем
@@ -58,22 +71,38 @@ class GBTextExtractorGUI:
 
     def _setup_ui(self):
         """Настройка пользовательского интерфейса"""
+
         # Создаем вкладки
         self.tab_control = ttk.Notebook(self.root)
 
         # Вкладка извлечения текста
         self.extract_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.extract_tab, text='Извлечение текста')
+        self.tab_control.add(self.extract_tab, text=self.i18n.t("tab.extract"))
 
         # Вкладка редактирования и локализации
         self.edit_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.edit_tab, text='Редактирование текста')
+        self.tab_control.add(self.edit_tab, text=self.i18n.t("tab.edit"))
 
         # Вкладка настроек
         self.settings_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.settings_tab, text='Настройки')
+        self.tab_control.add(self.settings_tab, text=self.i18n.t("tab.settings"))
+        self.tab_control.pack(expand=1, fill="both", padx=10, pady=10)
+
+        # Вкладка руководства
+        self.guide_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))
 
         self.tab_control.pack(expand=1, fill="both", padx=10, pady=10)
+
+        # Добавляем статус-бар
+        self.status_bar = ttk.Frame(self.root, relief=tk.SUNKEN, borderwidth=1)
+        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.status_label = ttk.Label(self.status_bar, text=self.i18n.t("status.ready"), relief=tk.SUNKEN, anchor=tk.W)
+        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.progress_bar = ttk.Progressbar(self.status_bar, mode='determinate', maximum=100)
+        self.progress_bar.pack(side=tk.RIGHT, padx=5)
 
         # === Настройка вкладки извлечения ===
         self._setup_extract_tab()
@@ -84,10 +113,11 @@ class GBTextExtractorGUI:
         # === Настройка вкладки настроек ===
         self._setup_settings_tab()
 
-        # === Вкладка руководства ===
-        self.guide_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.guide_tab, text='Руководство')
+        # === Настройка вкладки руководства ===
         self._setup_guide_tab()
+
+        # Инициализируем статус
+        self.set_status(self.i18n.t("status.ready"))
 
     def _setup_extract_tab(self):
         """Настройка вкладки извлечения текста"""
@@ -95,22 +125,42 @@ class GBTextExtractorGUI:
         top_frame = ttk.Frame(self.extract_tab, padding="10")
         top_frame.pack(fill="x", expand=False)
 
-        ttk.Label(top_frame, text="ROM файл:").pack(side="left", padx=(0, 5))
+        ttk.Label(top_frame, text=self.i18n.t("rom.file")).pack(side="left", padx=(0, 5))
         ttk.Entry(top_frame, textvariable=self.rom_path, width=50).pack(side="left", padx=(0, 5))
-        ttk.Button(top_frame, text="Обзор", command=self.browse_rom).pack(side="left", padx=(0, 10))
-        ttk.Button(top_frame, text="Извлечь текст", command=self.extract_text).pack(side="left")
+        ttk.Button(top_frame, text=self.i18n.t("browse"), command=self.browse_rom).pack(side="left", padx=(0, 10))
+        ttk.Button(top_frame, text=self.i18n.t("extract.text"), command=self.extract_text).pack(side="left")
 
         # Информационная панель
-        info_frame = ttk.LabelFrame(self.extract_tab, text="Информация об игре", padding="10")
+        info_frame = ttk.LabelFrame(self.extract_tab, text=self.i18n.t("game.info"), padding="10")
         info_frame.pack(fill="x", expand=False, padx=10, pady=(0, 10))
 
-        self.game_info = {}
-        for i, label in enumerate(["Название:", "Система:", "Тип картриджа:", "Размер ROM:", "Поддерживаемый плагин:"]):
+        self.game_info_labels = {}
+
+        info_items = [
+            ("game.title", "title"),
+            ("system", "system"),
+            ("cartridge.type", "cartridge_type"),
+            ("rom.size", "rom_size"),
+            ("supported.plugin", "supported_plugin")
+        ]
+
+        for i18n_key, data_key in info_items:
             row = ttk.Frame(info_frame)
             row.pack(fill="x", expand=True)
-            ttk.Label(row, text=label, width=20).pack(side="left")
-            self.game_info[label] = ttk.Label(row, text="---", wraplength=600)
-            self.game_info[label].pack(side="left", fill="x", expand=True)
+
+            # Создаем метку с названием
+            label = ttk.Label(row, text=self.i18n.t(i18n_key) + ":", width=20)
+            label.pack(side="left")
+
+            # Создаем метку с данными
+            value_label = ttk.Label(row, text="---", wraplength=600)
+            value_label.pack(side="left", fill="x", expand=True)
+
+            # Сохраняем метку для последующего обновления
+            self.game_info_labels[data_key] = {
+                "label": label,
+                "value": value_label
+            }
 
         # Основная панель с результатами
         main_frame = ttk.Frame(self.extract_tab, padding="10")
@@ -120,7 +170,7 @@ class GBTextExtractorGUI:
         left_frame = ttk.Frame(main_frame)
         left_frame.pack(side="left", fill="y", padx=(0, 10))
 
-        ttk.Label(left_frame, text="Текстовые сегменты:").pack(anchor="w")
+        ttk.Label(left_frame, text=self.i18n.t("text.segments")).pack(anchor="w")
         self.segments_list = tk.Listbox(left_frame, width=25, height=20)
         self.segments_list.pack(fill="y", expand=True)
         self.segments_list.bind('<<ListboxSelect>>', self.on_segment_select)
@@ -129,15 +179,15 @@ class GBTextExtractorGUI:
         right_frame = ttk.Frame(main_frame)
         right_frame.pack(side="right", fill="both", expand=True)
 
-        ttk.Label(right_frame, text="Содержимое сегмента:").pack(anchor="w")
+        ttk.Label(right_frame, text=self.i18n.t("segment.content")).pack(anchor="w")
 
         # Панель инструментов для просмотра
         toolbar = ttk.Frame(right_frame)
         toolbar.pack(fill="x", expand=False)
 
-        ttk.Button(toolbar, text="Экспорт в JSON", command=self.export_json).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Экспорт в TXT", command=self.export_txt).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="К редактированию", command=self.switch_to_edit_tab).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("export.json"), command=self.export_json).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("export.txt"), command=self.export_txt).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("extract.text"), command=self.switch_to_edit_tab).pack(side="left", padx=2)
 
         # Текстовая область с прокруткой
         text_frame = ttk.Frame(right_frame)
@@ -146,19 +196,22 @@ class GBTextExtractorGUI:
         self.text_output = scrolledtext.ScrolledText(text_frame, wrap="word", font=("Consolas", 10))
         self.text_output.pack(side="left", fill="both", expand=True)
 
+        scrollbar = ttk.Scrollbar(text_frame, command=self.text_output.yview)
+        scrollbar.pack(side="right", fill="y")
+
+        self.text_output.config(yscrollcommand=scrollbar.set)
+
     def _setup_edit_tab(self):
         """Настройка вкладки редактирования текста"""
-        # Панель выбора ROM
-        rom_frame = ttk.LabelFrame(self.edit_tab, text="Выбор ROM файла", padding="10")
+        rom_frame = ttk.LabelFrame(self.edit_tab, text=self.i18n.t("rom.file"), padding="10")
         rom_frame.pack(fill="x", expand=False, padx=10, pady=10)
 
-        ttk.Label(rom_frame, text="ROM файл:").pack(side="left", padx=(0, 5))
         ttk.Entry(rom_frame, textvariable=self.rom_path, width=50).pack(side="left", padx=(0, 5))
-        ttk.Button(rom_frame, text="Обзор", command=self.browse_rom).pack(side="left", padx=(0, 10))
-        ttk.Button(rom_frame, text="Загрузить", command=self.load_for_editing).pack(side="left")
+        ttk.Button(rom_frame, text=self.i18n.t("browse"), command=self.browse_rom).pack(side="left", padx=(0, 10))
+        ttk.Button(rom_frame, text=self.i18n.t("extract.text"), command=self.load_for_editing).pack(side="left")
 
         # Панель выбора сегмента
-        segment_frame = ttk.LabelFrame(self.edit_tab, text="Выбор сегмента", padding="10")
+        segment_frame = ttk.LabelFrame(self.edit_tab, text=self.i18n.t("text.segments"), padding="10")
         segment_frame.pack(fill="x", expand=False, padx=10, pady=(0, 10))
 
         self.segment_var = tk.StringVar()
@@ -166,21 +219,21 @@ class GBTextExtractorGUI:
         self.segment_combo.pack(side="left", padx=(0, 10))
         self.segment_combo.bind("<<ComboboxSelected>>", self.on_segment_combo_select)
 
-        ttk.Button(segment_frame, text="Загрузить сегмент", command=self.load_segment).pack(side="left")
+        ttk.Button(segment_frame, text=self.i18n.t("extract.text"), command=self.load_segment).pack(side="left")
 
         # Панель редактирования
         edit_frame = ttk.Frame(self.edit_tab, padding="10")
         edit_frame.pack(fill="both", expand=True)
 
         # Левая панель: оригинал
-        left_frame = ttk.LabelFrame(edit_frame, text="Оригинальный текст", padding="5")
+        left_frame = ttk.LabelFrame(edit_frame, text=self.i18n.t("original.text"), padding="5")
         left_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
 
         self.original_text = scrolledtext.ScrolledText(left_frame, wrap="word", font=("Consolas", 10), state="disabled")
         self.original_text.pack(fill="both", expand=True)
 
         # Правая панель: перевод
-        right_frame = ttk.LabelFrame(edit_frame, text="Перевод", padding="5")
+        right_frame = ttk.LabelFrame(edit_frame, text=self.i18n.t("translated.text"), padding="5")
         right_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
 
         self.translated_text = scrolledtext.ScrolledText(right_frame, wrap="word", font=("Consolas", 10))
@@ -190,51 +243,64 @@ class GBTextExtractorGUI:
         nav_frame = ttk.Frame(self.edit_tab, padding="10")
         nav_frame.pack(fill="x", expand=False)
 
-        self.entry_info = ttk.Label(nav_frame, text="Запись: 0 из 0")
+        self.entry_info = ttk.Label(nav_frame, text=self.i18n.t("entry", current=0, total=0))
         self.entry_info.pack(side="left", padx=(0, 20))
 
-        ttk.Button(nav_frame, text="← Предыдущий", command=self.prev_entry).pack(side="left", padx=5)
-        ttk.Button(nav_frame, text="Следующий →", command=self.next_entry).pack(side="left", padx=5)
-        ttk.Button(nav_frame, text="Сохранить перевод", command=self.save_translation).pack(side="left", padx=20)
-        ttk.Button(nav_frame, text="Внедрить в ROM", command=self.inject_translation).pack(side="left", padx=5)
+        ttk.Button(nav_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry).pack(side="left", padx=5)
+        ttk.Button(nav_frame, text=self.i18n.t("next.entry"), command=self.next_entry).pack(side="left", padx=5)
+        ttk.Button(nav_frame, text=self.i18n.t("save.translation"), command=self.save_translation).pack(side="left", padx=20)
+        ttk.Button(nav_frame, text=self.i18n.t("inject.translation"), command=self.inject_translation).pack(side="left", padx=5)
 
     def _setup_settings_tab(self):
         """Настройка вкладки настроек"""
-        settings_frame = ttk.LabelFrame(self.settings_tab, text="Настройки локализации", padding="20")
+        settings_frame = ttk.LabelFrame(self.settings_tab, text=self.i18n.t("settings.localization"), padding="20")
         settings_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # Язык перевода
-        lang_frame = ttk.LabelFrame(settings_frame, text="Язык перевода", padding="10")
-        lang_frame.pack(fill="x", expand=False, pady=10)
+        # Язык интерфейса
+        ui_lang_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("ui.language"), padding="10")
+        ui_lang_frame.pack(fill="x", expand=False, pady=10)
 
-        ttk.Label(lang_frame, text="Целевой язык:").pack(side="left", padx=(0, 10))
+        ttk.Label(ui_lang_frame, text=self.i18n.t("ui.language")).pack(side="left", padx=(0, 10))
+
+        self.ui_lang = tk.StringVar(value=self.i18n.current_lang)
+        lang_combo = ttk.Combobox(ui_lang_frame, textvariable=self.ui_lang, state="readonly", width=15)
+        lang_combo['values'] = list(self.i18n.get_available_languages().keys())
+        lang_combo.pack(side="left")
+        lang_combo.current(list(self.i18n.get_available_languages().keys()).index(self.i18n.current_lang))
+        lang_combo.bind("<<ComboboxSelected>>", self.change_ui_language)
+
+        # Язык перевода
+        translation_lang_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("target.language"), padding="10")
+        translation_lang_frame.pack(fill="x", expand=False, pady=10)
+
+        ttk.Label(translation_lang_frame, text=self.i18n.t("target.language")).pack(side="left", padx=(0, 10))
 
         self.target_lang = tk.StringVar(value="ru")
-        lang_combo = ttk.Combobox(lang_frame, textvariable=self.target_lang, state="readonly", width=15)
+        lang_combo = ttk.Combobox(translation_lang_frame, textvariable=self.target_lang, state="readonly", width=15)
         lang_combo['values'] = ('en', 'ru', 'ja')  # 'es', 'fr', 'de'
         lang_combo.pack(side="left")
         lang_combo.current(1)  # Русский по умолчанию
 
         # Настройки кодировки
-        encoding_frame = ttk.LabelFrame(settings_frame, text="Настройки кодировки", padding="10")
+        encoding_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("encoding.type"), padding="10")
         encoding_frame.pack(fill="x", expand=False, pady=10)
 
-        ttk.Label(encoding_frame, text="Тип кодировки:").grid(row=0, column=0, sticky="w", padx=(0, 10), pady=5)
+        ttk.Label(encoding_frame, text=self.i18n.t("encoding.type")).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=5)
 
         self.encoding_type = tk.StringVar(value="auto")
-        ttk.Radiobutton(encoding_frame, text="Автоопределение", variable=self.encoding_type, value="auto").grid(row=0, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text="Английская", variable=self.encoding_type, value="en").grid(row=1, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text="Японская", variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text="Русская", variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text=self.i18n.t("auto.detect"), variable=self.encoding_type, value="auto").grid(row=0, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text=self.i18n.t("english"), variable=self.encoding_type, value="en").grid(row=1, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text=self.i18n.t("japanese"), variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text=self.i18n.t("russian"), variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
 
         # Создать конфигурацию
-        ttk.Button(settings_frame, text="Создать конфигурацию", command=self.create_user_config).pack(pady=10)
+        ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config).pack(pady=10)
 
         # Кнопка применения кодировки
-        ttk.Button(settings_frame, text="Применить кодировку", command=self.apply_encoding).pack(pady=10)
+        ttk.Button(settings_frame, text=self.i18n.t("apply.encoding"), command=self.apply_encoding).pack(pady=10)
 
         # Сохранение настроек
-        ttk.Button(settings_frame, text="Сохранить настройки", command=self.save_settings).pack(pady=10)
+        ttk.Button(settings_frame, text=self.i18n.t("save.settings"), command=self.save_settings).pack(pady=10)
 
     def _setup_guide_tab(self):
         """Настройка вкладки руководства"""
@@ -245,22 +311,31 @@ class GBTextExtractorGUI:
         control_frame = ttk.Frame(guide_frame)
         control_frame.pack(fill="x", expand=False, pady=(0, 10))
 
-        ttk.Button(control_frame, text="Загрузить шаблон",
-                   command=self.load_guide_template).pack(side="left", padx=5)
-        ttk.Button(control_frame, text="Сохранить руководство",
-                   command=self.save_guide).pack(side="left", padx=5)
-        ttk.Button(control_frame, text="Применить к извлечению",
-                   command=self.apply_guide).pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template).pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide).pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide).pack(side="left", padx=5)
 
         # Текстовое представление руководства
         self.guide_text = scrolledtext.ScrolledText(guide_frame, wrap="word", font=("Consolas", 10))
         self.guide_text.pack(fill="both", expand=True)
         self.guide_text.config(state="disabled")
 
+    def refresh_guide_tab(self):
+        """Обновляет текст вкладки руководства"""
+        if hasattr(self, 'load_template_btn'):
+            self.load_template_btn.config(text=self.i18n.t("load.template"))
+        if hasattr(self, 'save_guide_btn'):
+            self.save_guide_btn.config(text=self.i18n.t("save.guide"))
+        if hasattr(self, 'apply_guide_btn'):
+            self.apply_guide_btn.config(text=self.i18n.t("apply.guide"))
+
     def create_user_config(self):
         """Создает пользовательскую конфигурацию на основе текущих настроек"""
         if not self.current_rom:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите ROM-файл")
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
             return
 
         # Создаем базовую структуру конфигурации
@@ -307,15 +382,22 @@ class GBTextExtractorGUI:
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
-        messagebox.showinfo("Успех",
-                            f"Конфигурация создана и сохранена в:\n{config_path}\n\n"
-                            "Теперь вы можете отредактировать её для лучшего извлечения текста.")
+        self.set_status(self.i18n.t("config.created"))
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            self.i18n.t("config.created", path=config_path)
+        )
 
     def apply_encoding(self):
         """Применяет выбранную кодировку к текущему сегменту"""
         if not self.current_segment or not self.current_entries:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите сегмент для редактирования")
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("warning.no.segment")
+            )
             return
+
+        self.set_status(self.i18n.t("status.processing"), 50)
 
         encoding_type = self.encoding_type.get()
 
@@ -337,7 +419,11 @@ class GBTextExtractorGUI:
 
         # Перезагружаем сегмент с новой кодировкой
         self.load_segment()
-        messagebox.showinfo("Успех", "Кодировка применена. Текст обновлен.")
+        self.set_status(self.i18n.t("encoding.applied"))
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            self.i18n.t("encoding.applied")
+        )
 
     def load_guide(self):
         """Загружает руководство для текущей игры"""
@@ -415,10 +501,38 @@ class GBTextExtractorGUI:
                             "Рекомендации из руководства применены.\n"
                             "Теперь вы можете извлечь текст с учетом специфики этой игры.")
 
+    def set_status(self, status: str, progress: int = 0):
+        """Устанавливает статус в статус-баре"""
+        self.status_label.config(text=status)
+        self.progress_bar['value'] = progress
+        self.root.update_idletasks()
+
+    def start_progress(self, message: str, max_value: int = 100):
+        """Начинает индикацию прогресса"""
+        self.set_status(message, 0)
+        self.progress_bar['maximum'] = max_value
+        self.root.update_idletasks()
+
+    def update_progress(self, value: int, message: str = None):
+        """Обновляет прогресс"""
+        self.progress_bar['value'] = value
+        if message:
+            self.status_label.config(text=message)
+        self.root.update_idletasks()
+
+    def end_progress(self, message: str = None):
+        """Завершает индикацию прогресса"""
+        if message:
+            self.set_status(message)
+        else:
+            self.set_status(self.i18n.t("status.ready"))
+        self.progress_bar['value'] = 0
+        self.root.update_idletasks()
+
     def browse_rom(self):
         """Выбор ROM-файла"""
         path = filedialog.askopenfilename(
-            title="Выберите Game Boy ROM файл",
+            title=self.i18n.t("file.select.rom"),
             filetypes=[
                 ("GB/GBC/GBA ROM files", "*.gb *.gbc *.sgb *.gba"),
                 ("All files", "*.*")
@@ -426,7 +540,9 @@ class GBTextExtractorGUI:
         )
         if path:
             self.rom_path.set(path)
+            self.set_status(self.i18n.t("rom.loading"))
             self.update_game_info()
+            self.set_status(self.i18n.t("rom.loaded"))
 
     def update_game_info(self):
         """Обновление информации об игре"""
@@ -438,29 +554,32 @@ class GBTextExtractorGUI:
             self.current_rom = rom
 
             # Обновляем информацию
-            self.game_info["Название:"].config(text=rom.header['title'])
-            self.game_info["Система:"].config(text=rom.system.upper())
-            self.game_info["Тип картриджа:"].config(text=f"0x{rom.header['cartridge_type']:02X}")
-            self.game_info["Размер ROM:"].config(text=f"{len(rom.data)//1024} KB")
+            self.game_info_labels["title"]["value"].config(text=rom.header['title'])
+            self.game_info_labels["system"]["value"].config(text=rom.system.upper())
+            self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
+            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
 
             # Проверяем поддержку игры
             game_id = rom.get_game_id()
             plugin = self.plugin_manager.get_plugin(game_id)
             if plugin:
-                self.game_info["Поддерживаемый плагин:"].config(text=plugin.__class__.__name__)
+                self.game_info_labels["supported_plugin"]["value"].config(text=plugin.__class__.__name__)
             else:
-                self.game_info["Поддерживаемый плагин:"].config(text="Не найден")
+                self.game_info_labels["supported_plugin"]["value"].config(text=self.i18n.t("not_found"))
 
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить ROM:\n{str(e)}")
+            messagebox.showerror(self.i18n.t("error.title"),
+                                 self.i18n.t("rom.load.error", error=str(e)))
 
     def extract_text(self):
         """Извлечение текста из ROM"""
         if not self.rom_path.get():
-            messagebox.showwarning("Предупреждение", "Сначала выберите ROM-файл")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
             return
 
         try:
+            self.set_status(self.i18n.t("text.extracting"), 0)
+
             extractor = TextExtractor(self.rom_path.get())
             self.current_results = extractor.extract()
 
@@ -476,12 +595,15 @@ class GBTextExtractorGUI:
                 self.segments_list.selection_set(0)
                 self.on_segment_select(None)
 
-        except KeyError as e:
-            messagebox.showerror("Ошибка конфигурации", 
-                f"Некорректная конфигурация: отсутствует поле {str(e)}\n"
-                "Проверьте ваши JSON-конфиги в папке plugins/config/")
+            self.set_status(self.i18n.t("text.extracted"))
+            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("extraction.success"))
+
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось извлечь текст:\n{str(e)}")
+            self.set_status(self.i18n.t("status.error"))
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("extraction.error", error=str(e))
+            )
 
     def on_segment_select(self, event):
         """Обработка выбора сегмента"""
@@ -585,6 +707,26 @@ class GBTextExtractorGUI:
         except Exception as e:
             messagebox.showerror("Ошибка", f"Не удалось загрузить ROM:\n{str(e)}")
 
+    def load_saved_settings(self):
+        """Загружает сохраненные настройки"""
+        settings_path = Path("settings/settings.json")
+        if settings_path.exists():
+            try:
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                self.ui_lang = tk.StringVar(value=settings.get("ui_language", "en"))
+                self.target_lang = tk.StringVar(value=settings.get("target_language", "ru"))
+                self.encoding_type = tk.StringVar(value=settings.get("encoding_type", "auto"))
+            except Exception as e:
+                print(f"Ошибка загрузки настроек: {str(e)}")
+                self.ui_lang = tk.StringVar(value="en")
+                self.target_lang = tk.StringVar(value="ru")
+                self.encoding_type = tk.StringVar(value="auto")
+        else:
+            self.ui_lang = tk.StringVar(value="en")
+            self.target_lang = tk.StringVar(value="ru")
+            self.encoding_type = tk.StringVar(value="auto")
+
     def on_segment_combo_select(self, event):
         """Обработка выбора сегмента в комбобоксе"""
         pass
@@ -592,7 +734,7 @@ class GBTextExtractorGUI:
     def load_segment(self):
         """Загрузка выбранного сегмента для редактирования"""
         if not self.current_rom or not self.text_injector:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите ROM-файл")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
             return
 
         segment_name = self.segment_var.get()
@@ -600,17 +742,27 @@ class GBTextExtractorGUI:
             return
 
         try:
+            self.set_status(self.i18n.t("status.loading"), 0)
+
             # Получаем плагин для текущей игры
             plugin = self.plugin_manager.get_plugin(self.current_rom.get_game_id())
             if not plugin:
-                messagebox.showerror("Ошибка", "Не найден подходящий плагин для этой игры")
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("plugin.not.found")
+                )
+                self.set_status(self.i18n.t("status.error"))
                 return
 
             # Получаем сегмент
             segments = plugin.get_text_segments(self.current_rom)
             segment = next((s for s in segments if s['name'] == segment_name), None)
             if not segment:
-                messagebox.showerror("Ошибка", "Сегмент не найден")
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("extraction.error", error="Segment not found")
+                )
+                self.set_status(self.i18n.t("status.error"))
                 return
 
             self.current_segment = segment
@@ -620,15 +772,26 @@ class GBTextExtractorGUI:
             results = extractor.extract()
 
             if segment_name not in results:
-                messagebox.showerror("Ошибка", "Не удалось извлечь текст из этого сегмента")
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("extraction.error", error="Failed to extract text from this segment")
+                )
+                self.set_status(self.i18n.t("status.error"))
                 return
 
             self.current_entries = results[segment_name]
             self.current_entry_index = 0
             self._display_current_entry()
 
+            self.set_status(self.i18n.t("text.extracted"))
+
+
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить сегмент:\n{str(e)}")
+            self.set_status(self.i18n.t("status.error"))
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("extraction.error", error=str(e))
+            )
 
     def _display_current_entry(self):
         """Отображение текущей записи для редактирования"""
@@ -650,12 +813,18 @@ class GBTextExtractorGUI:
 
     def prev_entry(self):
         """Переход к предыдущей записи"""
+        if not self.current_entries:
+            return
+
         if self.current_entry_index > 0:
             self.current_entry_index -= 1
             self._display_current_entry()
 
     def next_entry(self):
         """Переход к следующей записи"""
+        if not self.current_entries:
+            return
+
         if self.current_entry_index < len(self.current_entries) - 1:
             self.current_entry_index += 1
             self._display_current_entry()
@@ -667,8 +836,13 @@ class GBTextExtractorGUI:
 
         translation = self.translated_text.get(1.0, tk.END).strip()
         if not translation:
-            messagebox.showwarning("Предупреждение", "Введите перевод")
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("warning.no.translation")
+            )
             return
+
+        self.set_status(self.i18n.t("text.saving"), 50)
 
         # Здесь сохраняем перевод
         entry = self.current_entries[self.current_entry_index]
@@ -677,15 +851,107 @@ class GBTextExtractorGUI:
         # Сохранение в файл или базу данных
         # ...
 
-        messagebox.showinfo("Успех", "Перевод сохранен")
+        self.set_status(self.i18n.t("text.saved"))
+        messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("translation.saved"))
+
+    def _refresh_ui(self):
+        """Полностью обновляет интерфейс с новым языком"""
+        # Сохраняем текущее состояние
+        current_rom = self.rom_path.get()
+        current_results = self.current_results
+        current_segment = self.current_segment
+        current_entry_index = self.current_entry_index
+
+        # Пересоздаем интерфейс
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        # Пересоздаем UI с новым языком
+        self._setup_ui()
+
+        # Обновляем вкладку руководства
+        self.refresh_guide_tab()
+
+        # Восстанавливаем состояние
+        if current_rom:
+            self.rom_path.set(current_rom)
+            self.update_game_info()
+
+        if current_results:
+            self.current_results = current_results
+            # Заполняем список сегментов
+            self.segments_list.delete(0, tk.END)
+            for segment_name in self.current_results.keys():
+                self.segments_list.insert(tk.END, segment_name)
+            if self.segments_list.size() > 0:
+                self.segments_list.selection_set(0)
+                self.on_segment_select(None)
+
+        if current_segment and current_entry_index >= 0:
+            self.current_segment = current_segment
+            self.current_entry_index = current_entry_index
+            self._display_current_entry()
+
+        self.set_status(self.i18n.t("status.ready"))
+
+    def change_ui_language(self, event=None):
+        """Изменяет язык интерфейса приложения"""
+        new_lang = self.ui_lang.get()
+        self.i18n.change_language(new_lang)
+
+        # Обновляем все тексты в интерфейсе
+        self.root.title(self.i18n.t("app.title"))
+
+        # Обновляем названия вкладок
+        self.tab_control.tab(self.extract_tab, text=self.i18n.t("tab.extract"))
+        self.tab_control.tab(self.edit_tab, text=self.i18n.t("tab.edit"))
+        self.tab_control.tab(self.settings_tab, text=self.i18n.t("tab.settings"))
+        self.tab_control.tab(self.guide_tab, text=self.i18n.t("guide.tab"))
+
+        # Обновляем все метки
+        self._refresh_ui()
+        self._refresh_labels()
+
+        messagebox.showinfo(self.i18n.t("settings.saved"), self.i18n.t("settings.saved"))
+
+    def _refresh_labels(self):
+        """Обновляет все текстовые метки в интерфейсе"""
+        # Обновляем названия вкладок
+        self.tab_control.tab(self.extract_tab, text=self.i18n.t("tab.extract"))
+        self.tab_control.tab(self.edit_tab, text=self.i18n.t("tab.edit"))
+        self.tab_control.tab(self.settings_tab, text=self.i18n.t("tab.settings"))
+        self.tab_control.tab(self.guide_tab, text=self.i18n.t("guide.tab"))
+
+        # Обновляем заголовок информационной панели
+        for widget in self.extract_tab.winfo_children():
+            if isinstance(widget, ttk.LabelFrame) and widget.cget("text") == self.i18n.t("game.info"):
+                widget.config(text=self.i18n.t("game.info"))
+
+        # Обновляем метки в информационной панели
+        info_items = [
+            ("game.title", "title"),
+            ("system", "system"),
+            ("cartridge.type", "cartridge_type"),
+            ("rom.size", "rom_size"),
+            ("supported.plugin", "supported_plugin")
+        ]
+
+        for i18n_key, data_key in info_items:
+            if data_key in self.game_info_labels:
+                self.game_info_labels[data_key]["label"].config(text=self.i18n.t(i18n_key) + ":")
 
     def inject_translation(self):
         """Внедрение перевода в ROM"""
         if not self.current_segment or not self.current_entries:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите сегмент для редактирования")
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("warning.no.segment")
+            )
             return
 
         try:
+            self.set_status(self.i18n.t("text.injecting"), 0)
+
             # Получаем переводы
             translations = []
             for i in range(len(self.current_entries)):
@@ -700,6 +966,8 @@ class GBTextExtractorGUI:
             )
 
             if success:
+                self.set_status(self.i18n.t("status.saving"), 75)
+
                 # Сохраняем измененный ROM
                 output_path = filedialog.asksaveasfilename(
                     defaultextension=".gb",
@@ -707,22 +975,53 @@ class GBTextExtractorGUI:
                         ("GB/GBC/GBA ROM files", "*.gb *.gbc *.sgb *.gba"),
                         ("All files", "*.*")
                     ],
-                    title="Сохранить измененный ROM"
+                    title=self.i18n.t("file.save.rom")
                 )
 
                 if output_path:
                     self.text_injector.save(output_path)
-                    messagebox.showinfo("Успех", f"Измененный ROM сохранен в {output_path}")
+                    self.set_status(self.i18n.t("text.injected"))
+                    messagebox.showinfo(
+                        self.i18n.t("success.title"),
+                        self.i18n.t("inject.success", path=output_path)
+                    )
             else:
-                messagebox.showerror("Ошибка", "Не удалось внедрить текст. Возможно, перевод слишком длинный.")
+                self.set_status(self.i18n.t("status.error"))
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("inject.error")
+                )
+
 
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось внедрить перевод:\n{str(e)}")
+            self.set_status(self.i18n.t("status.error"))
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("inject.error.detail", error=str(e))
+            )
 
     def save_settings(self):
         """Сохранение настроек локализации"""
-        # Здесь сохраняются настройки
-        messagebox.showinfo("Успех", "Настройки сохранены")
+        # Сохраняем выбранный язык интерфейса
+        settings = {
+            "ui_language": self.ui_lang.get(),
+            "target_language": self.target_lang.get(),
+            "encoding_type": self.encoding_type.get()
+        }
+
+        # Сохраняем в файл
+        settings_dir = Path("settings")
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        with open(settings_dir / "settings.json", "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2, ensure_ascii=False)
+
+        # Обновляем текущий язык интерфейса
+        self.i18n.change_language(self.ui_lang.get())
+
+        # Обновляем интерфейс
+        self._refresh_ui()
+
+        messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("settings.saved"))
 
     def rate_current_guide(self, rating: int):
         """Оценивает текущее руководство"""
@@ -743,12 +1042,14 @@ class GBTextExtractorGUI:
         control_frame = ttk.Frame(guide_frame)
         control_frame.pack(fill="x", expand=False, pady=(0, 10))
 
-        ttk.Button(control_frame, text="Загрузить шаблон",
-                   command=self.load_guide_template).pack(side="left", padx=5)
-        ttk.Button(control_frame, text="Сохранить руководство",
-                   command=self.save_guide).pack(side="left", padx=5)
-        ttk.Button(control_frame, text="Применить к извлечению",
-                   command=self.apply_guide).pack(side="left", padx=5)
+        self.load_template_btn = ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template)
+        self.load_template_btn.pack(side="left", padx=5)
+
+        self.save_guide_btn = ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide)
+        self.save_guide_btn.pack(side="left", padx=5)
+
+        self.apply_guide_btn = ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide)
+        self.apply_guide_btn.pack(side="left", padx=5)
 
         # Панель оценки
         rating_frame = ttk.Frame(control_frame)
@@ -767,16 +1068,20 @@ class GBTextExtractorGUI:
     def show_warning_dialog(self):
         """Показывает юридическое предупреждение при запуске"""
         messagebox.showwarning(
-            "Юридическое предупреждение",
-            "Этот инструмент должен использоваться ТОЛЬКО с ROM-файлами, "
-            "законно принадлежащими вам. Не используйте его для нелегальных копий игр. "
-            "Автор не несет ответственности за неправомерное использование этого программного обеспечения.\n\n"
-            "Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или "
-            "защищенные авторским правом материалы."
+            self.i18n.t("warning.title"),
+            self.i18n.t("legal.warning")
         )
 
-def run_gui(rom_path=None, plugin_dir="plugins"):
+    def on_closing(self):
+        """Обработка закрытия окна"""
+        if messagebox.askyesno(
+                self.i18n.t("confirm.title"),
+                self.i18n.t("confirm.exit")
+        ):
+            self.root.destroy()
+
+def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""
     root = tk.Tk()
-    app = GBTextExtractorGUI(root, rom_path, plugin_dir)
+    app = GBTextExtractorGUI(root, rom_path, plugin_dir, lang)
     root.mainloop()

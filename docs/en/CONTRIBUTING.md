@@ -98,6 +98,37 @@ This project:
 - Specify which games (if any) are supported by your contribution
 - Confirm that you are following all the rules in this document.
 
+## 🐞 Debugging and diagnostics
+
+If you encounter a problem, please collect diagnostic information before creating an issue:
+
+1. Make sure that you have the `sha1sum` utility installed (usually included in the coreutils package)
+2. Run the diagnostic script:
+```bash
+chmod +x scripts/diagnostics.sh
+./scripts/diagnostics.sh your_file.gb
+or
+./scripts/diagnostics.bat your_file.gb
+```
+3. Attach the resulting directory to your issue on GitHub
+This will significantly speed up the problem resolution process. 
+
+### In README.md add:
+
+```
+## 🐞 Debugging
+
+If you encounter a problem, use a diagnostic script to collect information.:
+
+```bash
+# Make the script executable
+by chmod +x scripts/diagnostics.sh
+
+# Run diagnostics (replace your_game.gb to your ROM file)
+./scripts/diagnostics.sh your_game.gb
+```
+The script will create a directory with diagnostic information that you can attach to an issue on GitHub.
+
 ### An example of a secure deposit 
 
 A good example of a contribution: 

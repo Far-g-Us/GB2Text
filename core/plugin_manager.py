@@ -148,34 +148,48 @@ class ConfigurablePlugin(GamePlugin):
         for seg in self.config['segments']:
             # Проверяем обязательные поля
             if 'start' not in seg or 'end' not in seg:
-                continue  # Пропускаем сегменты без обязательных полей
-                
+                continue
+
+            # Безопасное преобразование start и end
+            try:
+                start_value = seg['start']
+                if isinstance(start_value, str) and start_value.startswith("0x"):
+                    start_addr = int(start_value, 16)
+                else:
+                    start_addr = int(start_value)
+
+                end_value = seg['end']
+                if isinstance(end_value, str) and end_value.startswith("0x"):
+                    end_addr = int(end_value, 16)
+                else:
+                    end_addr = int(end_value)
+            except (ValueError, TypeError) as e:
+                print(f"Ошибка преобразования адресов: {e}")
+                continue
+
             # Автоматическое определение таблицы символов, если не предоставлена
             charmap = seg.get('charmap', {})
             if not charmap:
                 try:
-                    charmap = auto_detect_charmap(rom.data, int(seg['start'], 16))
-                except (ValueError, TypeError):
-                    charmap = {}  # Или используйте стандартную таблицу
-            
+                    charmap = auto_detect_charmap(rom.data, start_addr)
+                except Exception as e:
+                    print(f"Ошибка автоопределения таблицы символов: {e}")
+                    charmap = {}
+
             decoder = None
             if charmap:
                 decoder = CharMapDecoder(charmap)
-            
+
             compression = None
             if 'compression' in seg and seg['compression'] == 'lz77':
                 compression = LZ77Handler()
-            
-            try:
-                segments.append({
-                    'name': seg['name'],
-                    'start': int(seg['start'], 16),
-                    'end': int(seg['end'], 16),
-                    'decoder': decoder,
-                    'compression': compression
-                })
-            except (ValueError, KeyError) as e:
-                print(f"Ошибка обработки сегмента: {e}")
-                continue
-        
+
+            segments.append({
+                'name': seg['name'],
+                'start': start_addr,
+                'end': end_addr,
+                'decoder': decoder,
+                'compression': compression
+            })
+
         return segments

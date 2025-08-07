@@ -7,7 +7,7 @@ assignees: Far-g-Us
 
 ---
 
-### 🚀 Short description
+## 🚀 Short description
 Clearly name the new feature in one phrase
 
 ### 📖 Detailed description
@@ -33,18 +33,18 @@ def new_feature(rom):
         return extract_zelda_text(rom)
 ```
 
-🔍 Alternatives
+### 🔍 Alternatives
 Have you considered other approaches?
 
-🎮 Examples of use
+### 🎮 Examples of use
 
-# Example of a command with a new feature
-gb2text extract --game="METROID2" --format=json
+#### Example of a command with a new feature
+`gb2text extract --game="METROID2" --format=json`
 
-🌐 Additional context
--Related games: [Game name]
--Technical limitations: [Known issues]
--Analogues in other tools: [bgb, no$gmb, etc]
+### 🌐 Additional context <br>
+-Related games: [Game name] <br>
+-Technical limitations: [Known issues] <br>
+-Analogues in other tools: [bgb, no$gmb, etc] <br>
 
 ---
 
@@ -53,7 +53,7 @@ gb2text extract --game="METROID2" --format=json
 2. Paste the contents above
 3. Add to `README.md`:
 
-## 🌟 Feature requests
+### 🌟 Feature requests
 
 Would you like to suggest an improvement?
 1. Check [existing queries](https://github.com/Far-g-Us/gb2text/issues?q=is%3Aopen+is%3Aissue+label%3Aenhancement)
