@@ -1,6 +1,6 @@
 # GB Text Extraction Framework
 
-[![Лицензия](https://img.shields.io/badge/License-Custom-blue.svg)](ЛИЦЕНЗИЯ)
+[![License](https://img.shields.io/badge/License-Custom-blue.svg)](../../LICENSE.md)
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 
 Универсальная платформа для извлечения и перевода текста из файлов Game Boy, Game Boy Color и Game Boy Advance ROM с поддержкой плагинов.

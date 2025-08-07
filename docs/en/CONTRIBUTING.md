@@ -4,7 +4,7 @@ Thank you for wanting to contribute to GB Text Extraction Framework! This docume
 
 ## ⚠️ Important legal warning
 
-**Please review our before making a contribution [LICENSE](LICENSE.md)**.
+**Please review our before making a contribution [LICENSE](../../LICENSE.md)**.
 
 This project:
 - DOES NOT contain or distribute any ROM files of commercial games
