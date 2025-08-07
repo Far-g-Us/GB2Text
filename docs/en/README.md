@@ -1,6 +1,6 @@
 # GB Text Extraction Framework
 
-[![License](https://img.shields.io/badge/License-Custom-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Custom-blue.svg)](../../LICENSE.md)
 [![Python](https://img.shields.io/badge/Python-3.11-blue)](https://python.org)
 
 A universal framework for extracting and translating text from Game Boy, Game Boy Color, and Game Boy Advance ROM files with plugin support.
