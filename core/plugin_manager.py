@@ -98,12 +98,25 @@ class PluginManager:
         """Проверяет, что конфигурация имеет правильную структуру"""
         if 'game_id_pattern' not in config:
             return False
-            
+
         segments = config.get('segments', [])
         for seg in segments:
             if 'name' not in seg or 'start' not in seg or 'end' not in seg:
                 return False
-                
+
+            # Проверяем, что адреса валидны
+            start_valid = isinstance(seg['start'], (int, str)) and (
+                    (isinstance(seg['start'], str) and re.match(r'^0x[0-9A-Fa-f]+$', seg['start']))
+                    or isinstance(seg['start'], int)
+            )
+            end_valid = isinstance(seg['end'], (int, str)) and (
+                    (isinstance(seg['end'], str) and re.match(r'^0x[0-9A-Fa-f]+$', seg['end']))
+                    or isinstance(seg['end'], int)
+            )
+
+            if not (start_valid and end_valid):
+                return False
+
         return True
 
     def _create_example_plugin(self, path: Path) -> None:
@@ -154,17 +167,24 @@ class ConfigurablePlugin(GamePlugin):
             try:
                 start_value = seg['start']
                 if isinstance(start_value, str) and start_value.startswith("0x"):
+                    # Проверяем, что после "0x" идут только шестнадцатеричные цифры
+                    hex_pattern = re.compile(r'^0x[0-9A-Fa-f]+$')
+                    if not hex_pattern.match(start_value):
+                        continue  # Пропускаем недопустимые шаблоны
                     start_addr = int(start_value, 16)
                 else:
                     start_addr = int(start_value)
 
                 end_value = seg['end']
                 if isinstance(end_value, str) and end_value.startswith("0x"):
+                    hex_pattern = re.compile(r'^0x[0-9A-Fa-f]+$')
+                    if not hex_pattern.match(end_value):
+                        continue  # Пропускаем недопустимые шаблоны
                     end_addr = int(end_value, 16)
                 else:
                     end_addr = int(end_value)
             except (ValueError, TypeError) as e:
-                print(f"Ошибка преобразования адресов: {e}")
+                print(f"Пропущен сегмент с недопустимыми адресами: {e}")
                 continue
 
             # Автоматическое определение таблицы символов, если не предоставлена
