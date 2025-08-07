@@ -1,0 +1,22 @@
+name: Legal Protection
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [opened, edited]
+
+jobs:
+  scan-content:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copyright scan
+        uses: your-username/copyright-scanner-action@v1
+        with:
+          keywords: "nintendo,pokemon,zelda,mario"
+          
+      - name: Lock issue if needed
+        if: ${{ failure() }}
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Логика блокировки

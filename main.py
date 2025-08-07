@@ -1,12 +1,28 @@
 """
 GB Text Extraction Framework
+
+ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
+Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
+законно принадлежащих пользователю. Использование этого инструмента для
+нелегального копирования, распространения или модификации защищенных
+авторским правом материалов строго запрещено.
+
+Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
+защищенные авторским правом материалы. Все ROM-файлы должны быть
+законно приобретены пользователем самостоятельно.
+
+Этот инструмент разработан исключительно для исследовательских целей,
+обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+"""
+
+"""
+GB Text Extraction Framework
 Универсальный фреймворк для извлечения текста из Game Boy ROM с поддержкой плагинов
 """
 
 import argparse
 import json
 from pathlib import Path
-from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 
@@ -35,13 +51,35 @@ def main():
     args = parser.parse_args()
 
     if args.gui:
-        # Запуск GUI версии
         try:
             from gui.main_window import run_gui
             run_gui(args.rom, args.plugin_dir)
-        except ImportError as e:
-            print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {str(e)}")
-        return
+            return
+        except ImportError:
+            print("Ошибка: GUI не установлен. Установите зависимости или запустите без --gui")
+
+    try:
+        from core.plugin_manager import get_safe_plugin_manager
+        from core.extractor import TextExtractor
+
+        plugin_manager = get_safe_plugin_manager(args.plugin_dir)
+        extractor = TextExtractor(args.rom, plugin_manager)
+        results = extractor.extract()
+
+        # Вывод результатов
+        if args.output == 'text':
+            for seg_name, messages in results.items():
+                print(f"\n== {seg_name.upper()} ==")
+                for msg in messages:
+                    print(f"0x{msg['offset']:04X}: {msg['text']}")
+
+        elif args.output == 'json':
+            import json
+            print(json.dumps(results, indent=2, ensure_ascii=False))
+
+    except Exception as e:
+        print(f"Ошибка: {str(e)}")
+        print("Подсказка: Вы можете создать свою конфигурацию с помощью --auto-config")
 
     if args.inject:
         if not args.translations or not args.output_rom:
