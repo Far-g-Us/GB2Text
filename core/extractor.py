@@ -31,13 +31,13 @@ class TextExtractor:
 
     def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None):
         if not isinstance(rom_path, str):
-            raise TypeError(f"Expected str for rom_path, got {type(rom_path)}")
+            raise TypeError("rom_path должен быть строкой, а не типом")
 
         self.rom = GameBoyROM(rom_path)
-        self.current_results = None
         self.plugin_manager = plugin_manager or PluginManager()
         self.guide_manager = guide_manager or GuideManager()
         self.plugin = None
+        self.current_results = None
         self.guide = self.guide_manager.get_guide(self.rom.get_game_id())
 
     def extract(self) -> Dict[str, List[Dict]]:
