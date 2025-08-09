@@ -15,37 +15,34 @@ GB Text Extraction Framework
 обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
 """
 
-import requests
+"""
+База данных с безопасной информацией о типичных структурах ROM
+"""
 
-class GameDatabase:
-    """Интерфейс для работы с базой данных игр"""
-    API_URL = "https://api.gbdev.io/v1"
+from typing import List, Dict
 
-    @classmethod
-    def get_game_info(cls, game_id: str) -> dict:
-        """Получение информации об игре из базы данных"""
-        try:
-            response = requests.get(f"{cls.API_URL}/games/{game_id}")
-            if response.status_code == 200:
-                return response.json()
-        except Exception:
-            pass
-        return {}
 
-    @classmethod
-    def get_charmap_for_game(cls, game_id: str) -> dict:
-        """Получение таблицы символов для конкретной игры"""
-        game_info = cls.get_game_info(game_id)
-        return game_info.get('charmap', {})
+# Безопасная база данных с общими паттернами
+ROM_DATABASE = {
+    'gb': {
+        'text_segment_patterns': [
+            {'start_min': 0x4000, 'start_max': 0x5000, 'end_min': 0x6000, 'end_max': 0x7FFF},
+            {'start_min': 0x8000, 'start_max': 0x9000, 'end_min': 0xA000, 'end_max': 0xBFFF}
+        ]
+    },
+    'gbc': {
+        'text_segment_patterns': [
+            {'start_min': 0x4000, 'start_max': 0x5000, 'end_min': 0x6000, 'end_max': 0x7FFF},
+            {'start_min': 0x8000, 'start_max': 0x9000, 'end_min': 0xA000, 'end_max': 0xBFFF}
+        ]
+    },
+    'gba': {
+        'text_segment_patterns': [
+            {'start_min': 0x083D0000, 'start_max': 0x083E0000, 'end_min': 0x08400000, 'end_max': 0x08420000}
+        ]
+    }
+}
 
-    @classmethod
-    def submit_charmap(cls, game_id: str, charmap: dict) -> bool:
-        """Отправка пользовательской таблицы символов в базу"""
-        try:
-            response = requests.post(
-                f"{cls.API_URL}/games/{game_id}/charmap",
-                json={'charmap': charmap}
-            )
-            return response.status_code == 200
-        except Exception:
-            return False
+def get_segment_patterns(system: str) -> List[Dict]:
+    """Получает типичные паттерны текстовых сегментов для системы"""
+    return ROM_DATABASE.get(system, {}).get('text_segment_patterns', [])

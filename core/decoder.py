@@ -31,32 +31,51 @@ class CompressionHandler(ABC):
         pass
 
 
-class LZ77Handler(CompressionHandler):
-    def decompress(self, data: bytes, start: int) -> Tuple[bytes, int]:
-        # Простая реализация LZ77 (требует улучшения)
-        output = []
-        i = start
-        while i < len(data):
-            flags = data[i]
-            i += 1
-            for j in range(8):
-                if i >= len(data):
-                    break
-                if flags & (1 << (7 - j)):
-                    # Ссылка
-                    b1 = data[i]
-                    b2 = data[i + 1]
-                    i += 2
-                    dist = ((b1 & 0xF) << 8) | b2
-                    length = (b1 >> 4) + 3
-                    pos = len(output) - dist
-                    for k in range(length):
-                        output.append(output[pos + k])
-                else:
-                    # Литерал
-                    output.append(data[i])
-                    i += 1
-        return bytes(output), i
+class CharMapDecoder:
+    """Декодер с использованием таблицы символов"""
+
+    def __init__(self, charmap: Dict[int, str]):
+        self.charmap = charmap
+        self.reverse_charmap = {v: k for k, v in charmap.items()}
+
+    def decode(self, data: bytes, start: int, length: int) -> str:
+        """Декодирует данные в строку"""
+        result = []
+        for i in range(start, min(start + length, len(data))):
+            byte = data[i]
+            char = self.charmap.get(byte, f'[{byte:02X}]')
+            result.append(char)
+        return ''.join(result)
+
+    def encode(self, text: str) -> bytes:
+        """Кодирует строку в байты"""
+        result = []
+        for char in text:
+            byte = self.reverse_charmap.get(char)
+            if byte is None:
+                # Попробуем найти похожий символ
+                for c, b in self.reverse_charmap.items():
+                    if c.lower() == char.lower():
+                        byte = b
+                        break
+                if byte is None:
+                    # Используем пробел как fallback
+                    byte = self.reverse_charmap.get(' ', 0x20)
+            result.append(byte)
+        return bytes(result)
+
+class LZ77Handler:
+    """Обработчик LZ77 сжатия"""
+
+    def decompress(self, data: bytes, start: int) -> tuple:
+        """Декомпрессия LZ77"""
+        # Простая реализация (должна быть заменена на реальную)
+        return data[start:], len(data) - start
+
+    def compress(self, data: bytes) -> bytes:
+        """Компрессия LZ77"""
+        # Простая реализация (должна быть заменена на реальную)
+        return data
 
 
 class TextDecoder(ABC):
@@ -65,20 +84,3 @@ class TextDecoder(ABC):
     @abstractmethod
     def decode(self, data: bytes, start: int, end: int) -> str:
         pass
-
-
-class CharMapDecoder(TextDecoder):
-    def __init__(self, charmap: Dict[int, str]):
-        self.charmap = charmap
-
-    def decode(self, data: bytes, start: int, end: int) -> str:
-        result = []
-        i = start
-        while i < end and i < len(data):
-            byte = data[i]
-            if byte in self.charmap:
-                result.append(self.charmap[byte])
-            else:
-                result.append(f'[{byte:02X}]')
-            i += 1
-        return ''.join(result)

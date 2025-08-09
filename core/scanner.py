@@ -19,94 +19,108 @@ GB Text Extraction Framework
 Модуль для поиска текстовых сегментов и указателей
 """
 
-from typing import List, Tuple
-from core.rom import GameBoyROM
+from collections import Counter
+from typing import List, Dict, Tuple
 
-class PointerScanner:
-    """Поиск указателей на текст в ROM"""
-    def __init__(self, rom: GameBoyROM):
-        self.rom = rom
 
-    def find_pointers(self,
-                     start_bank: int = 0,
-                     end_bank: int = 0x7F,
-                     min_addr: int = 0x4000,
-                     max_addr: int = 0x7FFF) -> List[Tuple[int, int]]:
-        """Поиск 16-битных указателей в диапазоне банков"""
-        pointers = []
-        for bank in range(start_bank, end_bank + 1):
-            bank_start = bank * 0x4000
-            for addr in range(bank_start, bank_start + 0x4000 - 1, 2):
-                ptr = (self.rom.data[addr + 1] << 8) | self.rom.data[addr]
-                if min_addr <= ptr < max_addr:
-                    pointers.append((bank, ptr))
-        return pointers
+def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> Dict[int, str]:
+    """
+    Автоматическое определение возможной таблицы символов.
+    Пользователь должен проверить и скорректировать результат.
+    """
+    # Анализ статистики использования байтов
+    freq = Counter()
+    for i in range(start, min(start + length, len(rom_data))):
+        byte = rom_data[i]
+        freq[byte] += 1
 
-def find_text_pointers(rom, min_length=4):
-    """Умный поиск указателей на текстовые сегменты"""
-    scanner = PointerScanner(rom)
-    candidates = scanner.find_pointers()
+    # Определение вероятных пробелов и терминаторов
+    common_bytes = freq.most_common()
 
-    # Фильтрация по длине текста
-    valid_pointers = []
-    for bank, ptr in candidates:
-        # Проверка, что после указателя есть текст
-        if ptr + min_length < len(rom.data):
-            valid = True
-            for i in range(min_length):
-                if rom.data[ptr + i] < 0x20 or rom.data[ptr + i] > 0x7F:
-                    valid = False
-                    break
-            if valid:
-                valid_pointers.append((bank, ptr))
-    return valid_pointers
-
-def detect_charmap(rom_data, start, length=100):
-    """Эвристическое определение таблицы символов"""
-    sample = rom_data[start:start + length]
-    freq = {}
-    for b in sample:
-        freq[b] = freq.get(b, 0) + 1
-
-    # Анализ частотности символов
-    # Популярные символы вероятно пробелы или гласные
-    common_bytes = sorted(freq.items(), key=lambda x: x[1], reverse=True)[:5]
-
-    # Создание предположительной таблицы
     charmap = {}
-    for byte, _ in common_bytes:
-        if byte == 0xF0:  # Часто пробел
-            charmap[byte] = ' '
-        elif byte == 0x00:
-            charmap[byte] = '[END]'
-        else:
-            charmap[byte] = f'[{byte:02X}]'
+    # Предполагаем, что самый частый символ - пробел
+    if common_bytes:
+        charmap[common_bytes[0][0]] = ' '
+
+    # Добавляем ASCII символы для известных диапазонов
+    for byte in range(0x20, 0x7F):
+        if byte in rom_data[start:start + length]:
+            charmap[byte] = chr(byte)
+
+    # Добавляем терминаторы
+    for byte, count in common_bytes[:5]:
+        if count > 10:  # Порог для терминатора
+            if byte not in charmap:
+                charmap[byte] = f'[TERM_{byte:02X}]'
 
     return charmap
 
-def validate_extraction(rom, results):
-    """Проверка корректности извлечения текста"""
-    # Анализ на наличие повторяющихся паттернов
-    # Проверка длины сообщений
-    # Статистический анализ
-    pass
 
-def get_disassembly_labels(rom_path):
-    """Получение меток из дизассемблированного кода"""
-    import subprocess
-    try:
-        result = subprocess.run(
-            ['mgbdis', rom_path, '--labels'],
-            capture_output=True,
-            text=True
-        )
-        labels = {}
-        for line in result.stdout.splitlines():
-            if line.startswith('LABEL_'):
-                parts = line.split()
-                addr = int(parts[1], 16)
-                name = parts[0].replace('LABEL_', '')
-                labels[addr] = name
-        return labels
-    except Exception:
-        return {}
+def find_text_pointers(rom_data: bytes, min_length: int = 4) -> List[Tuple[int, int]]:
+    """
+    Поиск указателей на текст в ROM
+    Возвращает список кортежей (адрес, адрес_текста)
+    """
+    pointers = []
+    # Простой паттерн для поиска указателей (адреса в ROM)
+    for i in range(0, len(rom_data) - 3, 4):
+        # Проверяем, является ли значение возможным адресом
+        addr = int.from_bytes(rom_data[i:i + 4], byteorder='little')
+        if 0x4000 <= addr < len(rom_data) and addr % 4 == 0:
+            # Проверяем, похож ли текст по адресу на текст
+            if is_text_like(rom_data, addr, min_length):
+                pointers.append((i, addr))
+    return pointers
+
+
+def is_text_like(rom_data: bytes, start: int, min_length: int) -> bool:
+    """
+    Проверяет, похож ли участок данных на текст
+    """
+    if start + min_length > len(rom_data):
+        return False
+
+    # Подсчитываем процент "читаемых" символов
+    printable = 0
+    for i in range(min_length):
+        byte = rom_data[start + i]
+        # ASCII символы и распространенные терминаторы
+        if 0x20 <= byte <= 0x7E or byte in [0x00, 0x0A, 0x0D, 0xFF]:
+            printable += 1
+
+    return printable / min_length > 0.7  # 70% символов должны быть "читаемыми"
+
+
+def auto_detect_segments(rom_data: bytes, min_segment_length: int = 100) -> List[Dict]:
+    """
+    Автоматическое определение текстовых сегментов
+    """
+    segments = []
+
+    # Ищем области с высокой плотностью "читаемых" символов
+    in_segment = False
+    segment_start = 0
+
+    for i in range(0, len(rom_data), 16):
+        if is_text_like(rom_data, i, 16):
+            if not in_segment:
+                in_segment = True
+                segment_start = i
+        else:
+            if in_segment and (i - segment_start) > min_segment_length:
+                segments.append({
+                    'name': f'auto_segment_{len(segments)}',
+                    'start': segment_start,
+                    'end': i
+                })
+                in_segment = False
+
+    # Проверяем последний сегмент
+    if in_segment and (len(rom_data) - segment_start) > min_segment_length:
+        segments.append({
+            'name': f'auto_segment_{len(segments)}',
+            'start': segment_start,
+            'end': len(rom_data)
+        })
+
+    return segments

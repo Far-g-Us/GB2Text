@@ -17,7 +17,7 @@
   "export.json": "Экспорт в JSON",
   "export.txt": "Экспорт в TXT",
   "goto.editing": "К редактированию",
-  "select.rom": "Сначала выберите ROM-файл",
+  "file.select.rom": "Сначала выберите ROM-файл",
   "extraction.error": "Не удалось извлечь текст: {error}",
   "extraction.success": "Текст успешно извлечен",
   "translation.tab": "Перевод",
@@ -89,5 +89,12 @@
   "about.legal.text": "Этот инструмент должен использоваться ТОЛЬКО с ROM-файлами, законно принадлежащими вам. Не используйте его для нелегальных копий игр.\n\nЭтот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или защищенные авторским правом материалы.",
   "about.links": "Ссылки:",
   "about.github": "Репозиторий GitHub",
-  "about.documentation": "Документация"
+  "about.documentation": "Документация",
+  "rom.not.loaded": "ROM не загружен",
+  "unsupported.game": "Неподдерживаемая игра: {game_id}",
+  "plugin.not.found": "Не найден подходящий плагин для этой игры",
+  "text.injecting": "Ввод перевода...",
+  "file.save.rom": "Сохранить измененный ROM",
+  "rom.loading": "Загрузка ROM файла",
+  "rom.loaded": "ROM загружен"
 }

@@ -21,8 +21,7 @@ GB Text Extraction Framework
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import json, re, os
-from datetime import time
+import json, re
 from pathlib import Path
 from core.rom import GameBoyROM
 from core.i18n import I18N
@@ -32,18 +31,27 @@ from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
 
+
 class GBTextExtractorGUI:
     def __init__(self, root, rom_path=None, plugin_dir="plugins", lang="en"):
         # Загружаем сохраненные настройки
         self.load_saved_settings()
 
+        # Инициализируем систему локализации
         self.i18n = I18N(default_lang=self.ui_lang.get())
+
         self.root = root
         self.root.title(self.i18n.t("app.title"))
         self.root.geometry("1100x700")
 
+        if isinstance(rom_path, str):
+            self.rom_path = tk.StringVar(value=rom_path)
+        elif isinstance(rom_path, tk.StringVar):
+            self.rom_path = rom_path
+        else:
+            self.rom_path = tk.StringVar(value="")
+
         # Инициализация компонентов
-        self.rom_path = tk.StringVar(value=rom_path or "")
         self.plugin_dir = plugin_dir
         self.plugin_manager = PluginManager(plugin_dir)
         self.guide_manager = GuideManager()
@@ -66,7 +74,7 @@ class GBTextExtractorGUI:
         self._setup_ui()
 
         # Если указан ROM при запуске, сразу загружаем
-        if rom_path:
+        if rom_path and isinstance(rom_path, str):
             self.update_game_info()
 
     def _setup_ui(self):
@@ -372,7 +380,7 @@ class GBTextExtractorGUI:
                     # Таблица символов будет определена при использовании
                 })
         except:
-            # Если автоопределение не сработало, создаем шаблон
+            # Если автоопределение не сработало, создаем шаблон с ВАЛИДНЫМИ адресами
             config["segments"].append({
                 "name": "main_text",
                 "start": "0x4000",
@@ -546,7 +554,7 @@ class GBTextExtractorGUI:
                 ("All files", "*.*")
             ]
         )
-        if path:
+        if path and isinstance(path, str):
             self.rom_path.set(path)
             self.set_status(self.i18n.t("rom.loading"))
             self.update_game_info()
@@ -561,15 +569,22 @@ class GBTextExtractorGUI:
             rom = GameBoyROM(self.rom_path.get())
             self.current_rom = rom
 
+            # Определяем систему
+            system_name = {
+                'gb': 'Game Boy',
+                'gbc': 'Game Boy Color',
+                'gba': 'Game Boy Advance'
+            }.get(rom.system, rom.system.upper())
+
             # Обновляем информацию
             self.game_info_labels["title"]["value"].config(text=rom.header['title'])
-            self.game_info_labels["system"]["value"].config(text=rom.system.upper())
+            self.game_info_labels["system"]["value"].config(text=system_name)
             self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
-            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
+            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data)//1024} KB")
 
             # Проверяем поддержку игры
             game_id = rom.get_game_id()
-            plugin = self.plugin_manager.get_plugin(game_id)
+            plugin = self.plugin_manager.get_plugin(game_id, rom.system)
             if plugin:
                 self.game_info_labels["supported_plugin"]["value"].config(text=plugin.__class__.__name__)
             else:
@@ -581,14 +596,19 @@ class GBTextExtractorGUI:
 
     def extract_text(self):
         """Извлечение текста из ROM"""
-        if not self.rom_path.get():
-            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
+        path = self.rom_path.get()
+        if not path or not isinstance(path, str):
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
             return
 
         try:
             self.set_status(self.i18n.t("text.extracting"), 0)
 
-            extractor = TextExtractor(self.rom_path.get())
+            # Убедимся, что передаем строку с путем
+            extractor = TextExtractor(path)
             self.current_results = extractor.extract()
 
             # Очистка списка сегментов
@@ -604,7 +624,10 @@ class GBTextExtractorGUI:
                 self.on_segment_select(None)
 
             self.set_status(self.i18n.t("text.extracted"))
-            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("extraction.success"))
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("extraction.success")
+            )
 
         except Exception as e:
             self.set_status(self.i18n.t("status.error"))
@@ -641,15 +664,16 @@ class GBTextExtractorGUI:
         path = filedialog.asksaveasfilename(
             defaultextension=".json",
             filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
-            title="Сохранить как JSON"
+            title=self.i18n.t("file.export.json")
         )
+
         if path:
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    json.dump(self.current_results, f, indent=2, ensure_ascii=False)
-                messagebox.showinfo("Успех", "Результаты успешно сохранены в JSON")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{str(e)}")
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(self.current_results, f, indent=2, ensure_ascii=False)
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("export.txt.success")
+            )
 
     def export_txt(self):
         """Экспорт результатов в TXT"""
@@ -659,19 +683,20 @@ class GBTextExtractorGUI:
         path = filedialog.asksaveasfilename(
             defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            title="Сохранить как TXT"
+            title=self.i18n.t("file.export.txt")
         )
+
         if path:
-            try:
-                with open(path, 'w', encoding='utf-8') as f:
-                    for seg_name, messages in self.current_results.items():
-                        f.write(f"== {seg_name.upper()} ==\n")
-                        for msg in messages:
-                            f.write(f"Offset: 0x{msg['offset']:04X}\n")
-                            f.write(f"{msg['text']}\n\n")
-                messagebox.showinfo("Успех", "Результаты успешно сохранены в TXT")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить файл:\n{str(e)}")
+            with open(path, 'w', encoding='utf-8') as f:
+                for segment_name, messages in self.current_results.items():
+                    f.write(f"== {segment_name.upper()} ==\n")
+                    for msg in messages:
+                        f.write(f"{msg['offset']:04X}: {msg['text']}\n")
+                    f.write("\n")
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("export.txt.success")
+            )
 
     def switch_to_edit_tab(self):
         """Переключение на вкладку редактирования"""
@@ -689,31 +714,53 @@ class GBTextExtractorGUI:
 
     def load_for_editing(self):
         """Загрузка ROM для редактирования"""
-        if not self.rom_path.get():
-            messagebox.showwarning("Предупреждение", "Сначала выберите ROM-файл")
+        path = self.rom_path.get()
+        if not path or not isinstance(path, str):
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
             return
 
         try:
-            self.current_rom = GameBoyROM(self.rom_path.get())
-            self.text_injector = TextInjector(self.rom_path.get())
+            # Убедимся, что передаем строку с путем
+            self.current_rom = GameBoyROM(path)
+            self.text_injector = TextInjector(path)
+
+            # Определяем систему
+            system_name = {
+                'gb': 'Game Boy',
+                'gbc': 'Game Boy Color',
+                'gba': 'Game Boy Advance'
+            }.get(self.current_rom.system, self.current_rom.system.upper())
 
             # Обновляем информацию
-            self.game_info["Название:"].config(text=self.current_rom.header['title'])
-            self.game_info["Система:"].config(text=self.current_rom.system.upper())
-            self.game_info["Тип картриджа:"].config(text=f"0x{self.current_rom.header['cartridge_type']:02X}")
-            self.game_info["Размер ROM:"].config(text=f"{len(self.current_rom.data)//1024} KB")
+            self.game_info_labels["title"]["value"].config(text=self.current_rom.header['title'])
+            self.game_info_labels["system"]["value"].config(text=system_name)
+            self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{self.current_rom.header['cartridge_type']:02X}")
+            self.game_info_labels["rom_size"]["value"].config(text=f"{len(self.current_rom.data) // 1024} KB")
 
             # Заполняем список сегментов
-            plugin = self.plugin_manager.get_plugin(self.current_rom.get_game_id())
+            game_id = self.current_rom.get_game_id()
+            plugin = self.plugin_manager.get_plugin(game_id, self.current_rom.system)
+
             if plugin:
-                self.segment_combo['values'] = [seg['name'] for seg in plugin.get_text_segments(self.current_rom)]
+                segments = plugin.get_text_segments(self.current_rom)
+                self.segment_combo['values'] = [seg['name'] for seg in segments]
                 if self.segment_combo['values']:
                     self.segment_combo.current(0)
+                    self.load_segment()
             else:
-                messagebox.showwarning("Предупреждение", "Не найден подходящий плагин для этой игры")
+                messagebox.showwarning(
+                    self.i18n.t("warning.title"),
+                    self.i18n.t("plugin.not.found")
+                )
 
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось загрузить ROM:\n{str(e)}")
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("rom.load.error", error=str(e))
+            )
 
     def load_saved_settings(self):
         """Загружает сохраненные настройки"""
@@ -1008,11 +1055,11 @@ class GBTextExtractorGUI:
 
         # Обновляем все метки
         self._refresh_ui()
-        self._refresh_labels()
+        self._refresh_ui_labels()
 
         messagebox.showinfo(self.i18n.t("settings.saved"), self.i18n.t("settings.saved"))
 
-    def _refresh_labels(self):
+    def _refresh_ui_labels(self):
         """Обновляет все текстовые метки в интерфейсе"""
         # Обновляем названия вкладок
         self.tab_control.tab(self.extract_tab, text=self.i18n.t("tab.extract"))
@@ -1037,6 +1084,14 @@ class GBTextExtractorGUI:
         for i18n_key, data_key in info_items:
             if data_key in self.game_info_labels:
                 self.game_info_labels[data_key]["label"].config(text=self.i18n.t(i18n_key) + ":")
+
+        # Обновляем другие метки
+        if hasattr(self, 'load_template_btn'):
+            self.load_template_btn.config(text=self.i18n.t("load.template"))
+        if hasattr(self, 'save_guide_btn'):
+            self.save_guide_btn.config(text=self.i18n.t("save.guide"))
+        if hasattr(self, 'apply_guide_btn'):
+            self.apply_guide_btn.config(text=self.i18n.t("apply.guide"))
 
     def inject_translation(self):
         """Внедрение перевода в ROM"""

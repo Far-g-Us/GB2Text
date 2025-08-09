@@ -20,8 +20,7 @@ GB Text Extraction Framework
 """
 
 from core.rom import GameBoyROM
-from core.decoder import CharMapDecoder, TextDecoder
-from typing import List
+from typing import List, Dict
 
 
 class TextInjector:
@@ -29,96 +28,87 @@ class TextInjector:
 
     def __init__(self, rom_path: str):
         self.rom = GameBoyROM(rom_path)
-        self.backup = bytearray(self.rom.data)
-        self.changes = []
+        self.original_data = bytearray(self.rom.data)
+        self.modified_data = bytearray(self.rom.data)
 
-    def inject_segment(self, segment_name: str, new_texts: List[str], plugin) -> bool:
-        """Внедрение измененных текстов в указанный сегмент"""
+    def inject_segment(self, segment_name: str, translations: List[str], plugin) -> bool:
+        """
+        Внедряет переводы в указанный сегмент
+        Возвращает True, если внедрение прошло успешно
+        """
+        if not plugin:
+            return False
+
         segments = plugin.get_text_segments(self.rom)
-        target_segment = next((s for s in segments if s['name'] == segment_name), None)
+        segment = next((s for s in segments if s['name'] == segment_name), None)
 
-        if not target_segment:
+        if not segment:
             return False
 
-        decoder = target_segment['decoder']
-        start = target_segment['start']
-        end = target_segment['end']
+        # Проверяем, что переводы не длиннее оригинального текста
+        original_messages = self._extract_original_messages(segment)
 
-        # Проверяем, можем ли мы заменить текст
-        if not self._can_replace_text(start, end, new_texts, decoder):
+        if len(translations) != len(original_messages):
             return False
 
-        # Выполняем замену
-        self._replace_text(start, new_texts, decoder)
-        self.changes.append({
-            'segment': segment_name,
-            'start': start,
-            'original': self.backup[start:start + (end - start)],
-            'new': self.rom.data[start:start + (end - start)]
-        })
+        for i, (original, translation) in enumerate(zip(original_messages, translations)):
+            # Проверяем длину перевода
+            if len(translation) > len(original['text']):
+                return False
+
+            # Внедряем перевод
+            self._inject_message(segment, original['offset'], translation)
 
         return True
 
-    def _can_replace_text(self, start: int, end: int, new_texts: List[str],
-                          decoder: TextDecoder) -> bool:
-        """Проверка, подходит ли новый текст по размеру"""
-        # В простом случае проверяем, что общий размер не превышает оригинальный
-        total_size = 0
-        for text in new_texts:
-            total_size += self._calculate_encoded_size(text, decoder)
+    def _extract_original_messages(self, segment) -> List[Dict]:
+        """Извлекает оригинальные сообщения из сегмента"""
+        data = self.rom.data[segment['start']:segment['end']]
+        text = segment['decoder'].decode(data, 0, len(data))
+        return self._split_messages(text)
 
-        return total_size <= (end - start)
+    def _split_messages(self, text: str) -> List[Dict]:
+        """Разделяет текст на отдельные сообщения"""
+        messages = []
+        current_message = ""
+        offset = 0
 
-    def _calculate_encoded_size(self, text: str, decoder: TextDecoder) -> int:
-        """Расчет размера закодированного текста"""
-        # Для простоты предполагаем, что каждый символ занимает 1 байт
-        # В реальности может быть сложнее в зависимости от кодировки
-        return len(text)
+        for char in text:
+            if char == '\n':
+                if current_message:
+                    messages.append({
+                        'text': current_message,
+                        'offset': offset
+                    })
+                    current_message = ""
+                offset += 1
+                continue
 
-    def _replace_text(self, start: int, new_texts: List[str], decoder: TextDecoder):
-        """Замена текста в ROM"""
-        current_pos = start
+            current_message += char
+            offset += 1
 
-        for text in new_texts:
-            # Кодируем текст обратно в байты
-            encoded = self._encode_text(text, decoder)
+        if current_message:
+            messages.append({
+                'text': current_message,
+                'offset': offset
+            })
 
-            # Заменяем в ROM
-            for i, byte in enumerate(encoded):
-                self.rom.data[current_pos + i] = byte
+        return messages
 
-            current_pos += len(encoded)
+    def _inject_message(self, segment, offset: int, translation: str):
+        """Внедряет одно сообщение в ROM"""
+        # Преобразуем перевод в байты с использованием декодера
+        encoded = segment['decoder'].encode(translation)
 
-    def _encode_text(self, text: str, decoder: TextDecoder) -> bytes:
-        """Кодирование текста в байты согласно таблице символов"""
-        if isinstance(decoder, CharMapDecoder):
-            # Обратное преобразование через таблицу символов
-            reverse_map = {v: k for k, v in decoder.charmap.items()}
-            result = []
+        # Вычисляем позицию в ROM
+        rom_offset = segment['start'] + offset
 
-            for char in text:
-                if char in reverse_map:
-                    result.append(reverse_map[char])
-                else:
-                    # Используем пробел или первый неизвестный символ
-                    result.append(reverse_map.get(' ', 0x20))
+        # Заменяем оригинальные байты
+        for i, byte in enumerate(encoded):
+            if rom_offset + i < len(self.modified_data):
+                self.modified_data[rom_offset + i] = byte
 
-            return bytes(result)
-
-        # Для других декодеров потребуется специальная обработка
-        return text.encode('ascii', 'ignore')
-
-    def save(self, output_path: str) -> bool:
-        """Сохранение измененной ROM"""
+    def save(self, output_path: str):
+        """Сохраняет модифицированный ROM"""
         with open(output_path, 'wb') as f:
-            f.write(self.rom.data)
-        return True
-
-    def revert(self):
-        """Возврат к оригинальной ROM"""
-        self.rom.data = bytearray(self.backup)
-        self.changes = []
-
-    def get_change_log(self) -> list:
-        """Получение журнала изменений"""
-        return self.changes
+            f.write(self.modified_data)

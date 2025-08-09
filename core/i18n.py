@@ -57,7 +57,20 @@ class I18N:
 
     def t(self, key: str, **kwargs) -> str:
         """Возвращает перевод для указанного ключа"""
-        translation = self.translations.get(key, key)
+        translation = self.translations.get(key)
+
+        if translation is None:
+            # Попробуем найти ключ без префикса
+            if '.' in key:
+                short_key = key.split('.')[-1]
+                translation = self.translations.get(short_key)
+
+                if translation is None:
+                    print(f"Предупреждение: Отсутствует перевод для ключа '{key}'")
+                    return key
+            else:
+                print(f"Предупреждение: Отсутствует перевод для ключа '{key}'")
+                return key
 
         # Подстановка аргументов
         try:
