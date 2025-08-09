@@ -1,5 +1,5 @@
 {
-  "app.title": "Извлечение текста из GB",
+  "app.title": "GB Text Extractor & Translator",
   "tab.extract": "Извлечение текста",
   "tab.edit": "Редактирование текста",
   "tab.settings": "Настройки",
@@ -33,6 +33,7 @@
   "encoding.type": "Тип кодировки:",
   "auto.detect": "Автоопределение",
   "english": "Английский",
+  "japanese": "Японский",
   "russian": "Русский",
   "save.settings": "Сохранить настройки",
   "settings.saved": "Настройки сохранены",
@@ -80,5 +81,13 @@
   "confirm.save": "Сохранить изменения перед выходом?",
   "ui.language": "Язык интерфейса",
   "not_found": "Не найден",
-  "rom.load.error": "Не удалось загрузить ROM: {error}"
+  "rom.load.error": "Не удалось загрузить ROM: {error}",
+  "tab.about": "О программе",
+  "about.version": "Версия: {version}",
+  "about.description": "Универсальный фреймворк для извлечения и перевода текста из ROM-файлов Game Boy, Game Boy Color и Game Boy Advance с поддержкой плагинов.",
+  "about.legal.title": "Юридическая информация",
+  "about.legal.text": "Этот инструмент должен использоваться ТОЛЬКО с ROM-файлами, законно принадлежащими вам. Не используйте его для нелегальных копий игр.\n\nЭтот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или защищенные авторским правом материалы.",
+  "about.links": "Ссылки:",
+  "about.github": "Репозиторий GitHub",
+  "about.documentation": "Документация"
 }

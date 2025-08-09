@@ -92,6 +92,10 @@ class GBTextExtractorGUI:
         self.guide_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))
 
+        # Вкладка о программе
+        self.about_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.about_tab, text=self.i18n.t("tab.about"))
+
         self.tab_control.pack(expand=1, fill="both", padx=10, pady=10)
 
         # Добавляем статус-бар
@@ -104,17 +108,20 @@ class GBTextExtractorGUI:
         self.progress_bar = ttk.Progressbar(self.status_bar, mode='determinate', maximum=100)
         self.progress_bar.pack(side=tk.RIGHT, padx=5)
 
-        # === Настройка вкладки извлечения ===
+        # Настройка вкладки извлечения
         self._setup_extract_tab()
 
-        # === Настройка вкладки редактирования ===
+        # Настройка вкладки редактирования
         self._setup_edit_tab()
 
-        # === Настройка вкладки настроек ===
+        # Настройка вкладки настроек
         self._setup_settings_tab()
 
-        # === Настройка вкладки руководства ===
+        # Настройка вкладки руководства
         self._setup_guide_tab()
+
+        # Настройка вкладки о программе
+        self._setup_about_tab()
 
         # Инициализируем статус
         self.set_status(self.i18n.t("status.ready"))
@@ -341,6 +348,7 @@ class GBTextExtractorGUI:
         # Создаем базовую структуру конфигурации
         game_id = self.current_rom.get_game_id()
         config = {
+            "user_created": True,
             "game_id_pattern": f"^{game_id}$",
             "segments": []
         }
@@ -799,7 +807,7 @@ class GBTextExtractorGUI:
             return
 
         # Обновляем информацию о текущей записи
-        self.entry_info.config(text=f"Запись: {self.current_entry_index + 1} из {len(self.current_entries)}")
+        self.entry_info.config(text=f"{self.i18n.t('entry')}: {self.current_entry_index + 1} из {len(self.current_entries)}")
 
         # Отображаем оригинал
         self.original_text.config(state="normal")
@@ -853,6 +861,96 @@ class GBTextExtractorGUI:
 
         self.set_status(self.i18n.t("text.saved"))
         messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("translation.saved"))
+
+    def _setup_about_tab(self):
+        """Настройка вкладки 'О программе'"""
+        about_frame = ttk.Frame(self.about_tab, padding="20")
+        about_frame.pack(fill="both", expand=True)
+
+        # Заголовок
+        title_label = ttk.Label(
+            about_frame,
+            text=f"GB Text Extractor & Translator",
+            font=("Helvetica", 16, "bold")
+        )
+        title_label.pack(anchor="w", pady=(0, 10))
+
+        # Версия
+        version = self.get_version()
+        version_label = ttk.Label(
+            about_frame,
+            text=self.i18n.t("about.version", version=version),
+            font=("Helvetica", 10)
+        )
+        version_label.pack(anchor="w", pady=(0, 15))
+
+        # Описание
+        description = ttk.Label(
+            about_frame,
+            text=self.i18n.t("about.description"),
+            wraplength=700,
+            justify="left"
+        )
+        description.pack(anchor="w", pady=(0, 20))
+
+        # Юридическое предупреждение
+        legal_frame = ttk.LabelFrame(about_frame, text=self.i18n.t("about.legal.title"), padding="10")
+        legal_frame.pack(fill="x", expand=False, pady=(0, 20))
+
+        legal_text = ttk.Label(
+            legal_frame,
+            text=self.i18n.t("about.legal.text"),
+            wraplength=700,
+            justify="left"
+        )
+        legal_text.pack(anchor="w")
+
+        # Ссылки
+        links_frame = ttk.LabelFrame(about_frame, text=self.i18n.t("about.links"), padding="10")
+        links_frame.pack(fill="x", expand=False, pady=(0, 20))
+
+        # GitHub ссылка
+        github_frame = ttk.Frame(links_frame)
+        github_frame.pack(fill="x", expand=False, pady=(0, 5))
+
+        github_label = ttk.Label(
+            github_frame,
+            text=self.i18n.t("about.github") + ":",
+            font=("Helvetica", 9, "bold")
+        )
+        github_label.pack(side="left", padx=(0, 5))
+
+        github_link = ttk.Label(
+            github_frame,
+            text="github.com/Far-g-Us/GB2Text",
+            foreground="blue",
+            cursor="hand2",
+            font=("Helvetica", 9)
+        )
+        github_link.pack(side="left")
+        github_link.bind("<Button-1>", lambda e: self.open_url("https://github.com/Far-g-Us/GB2Text"))
+
+        # # Документация ссылка
+        # docs_frame = ttk.Frame(links_frame)
+        # docs_frame.pack(fill="x", expand=False, pady=(5, 0))
+        #
+        # docs_label = ttk.Label(
+        #     docs_frame,
+        #     text=self.i18n.t("about.documentation") + ":",
+        #     font=("Helvetica", 9, "bold")
+        # )
+        # docs_label.pack(side="left", padx=(0, 5))
+        #
+        # docs_link = ttk.Label(
+        #     docs_frame,
+        #     text="gb-text-extractor.readthedocs.io",
+        #     foreground="blue",
+        #     cursor="hand2",
+        #     font=("Helvetica", 9)
+        # )
+        # docs_link.pack(side="left")
+        # docs_link.bind("<Button-1>", lambda e: self.open_url("https://gb-text-extractor.readthedocs.io"))
+
 
     def _refresh_ui(self):
         """Полностью обновляет интерфейс с новым языком"""
@@ -1079,6 +1177,20 @@ class GBTextExtractorGUI:
                 self.i18n.t("confirm.exit")
         ):
             self.root.destroy()
+
+    def get_version(self):
+        """Возвращает версию приложения"""
+        try:
+            with open('VERSION', 'r') as f:
+                return f.read().strip()
+        except:
+            return "1.0.0"
+
+    def open_url(self, url):
+        """Открывает URL в браузере по умолчанию"""
+        import webbrowser
+        webbrowser.open(url)
+
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""

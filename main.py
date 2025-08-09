@@ -20,8 +20,7 @@ GB Text Extraction Framework
 Универсальный фреймворк для извлечения текста из Game Boy ROM с поддержкой плагинов
 """
 
-import argparse
-import json
+import argparse, json
 from pathlib import Path
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
@@ -37,6 +36,7 @@ def load_plugins_from_dir(plugin_dir: str) -> list:
     return plugins
 
 def get_version():
+    """Возвращает версию приложения"""
     try:
         with open('VERSION', 'r') as f:
             return f.read().strip()
