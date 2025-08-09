@@ -33,6 +33,7 @@
   "encoding.type": "Encoding Type:",
   "auto.detect": "Auto-detection",
   "english": "English",
+  "japanese": "Japanese",
   "russian": "Russian",
   "save.settings": "Save Settings",
   "settings.saved": "Settings saved",
@@ -80,5 +81,13 @@
   "confirm.save": "Do you want to save changes before exiting?",
   "ui.language": "UI Language",
   "not_found": "Not found",
-  "rom.load.error": "Failed to load ROM: {error}"
+  "rom.load.error": "Failed to load ROM: {error}",
+  "tab.about": "About",
+  "about.version": "Version: {version}",
+  "about.description": "A universal framework for extracting and translating text from Game Boy, Game Boy Color, and Game Boy Advance ROM files with plugin support.",
+  "about.legal.title": "Legal Information",
+  "about.legal.text": "This tool must be used ONLY with ROM files that legally belong to you. Do not use it with illegal copies of games.\n\nThis project does NOT contain or distribute any ROM files or copyrighted materials.",
+  "about.links": "Links:",
+  "about.github": "GitHub Repository",
+  "about.documentation": "Documentation"
 }

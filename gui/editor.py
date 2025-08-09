@@ -17,12 +17,15 @@ GB Text Extraction Framework
 
 from tkinter import ttk
 import tkinter as tk
+from core.i18n import I18N
+
 
 class TextEditorFrame(ttk.Frame):
     """Редактор текста с возможностью предпросмотра"""
 
     def __init__(self, parent, segment_data, rom_path, plugin):
         super().__init__(parent)
+        self.i18n = I18N(default_lang=self.ui_lang.get())
         self.segment_data = segment_data
         self.rom_path = rom_path
         self.plugin = plugin
@@ -41,17 +44,17 @@ class TextEditorFrame(ttk.Frame):
         info_frame = ttk.Frame(self)
         info_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=5)
 
-        ttk.Label(info_frame, text="Запись:").pack(side="left", padx=5)
+        ttk.Label(info_frame, text=self.i18n.t("entry")).pack(side="left", padx=5)
         self.entry_label = ttk.Label(info_frame, text="")
         self.entry_label.pack(side="left")
 
         # Оригинальный текст
-        ttk.Label(self, text="Оригинал:").grid(row=1, column=0, sticky="nw", padx=5, pady=2)
+        ttk.Label(self, text=self.i18n.t("original.text")).grid(row=1, column=0, sticky="nw", padx=5, pady=2)
         self.original_text = tk.Text(self, height=6, width=50, wrap="word", state="disabled")
         self.original_text.grid(row=1, column=1, sticky="nwe", padx=5, pady=2)
 
         # Перевод
-        ttk.Label(self, text="Перевод:").grid(row=2, column=0, sticky="nw", padx=5, pady=2)
+        ttk.Label(self, text=self.i18n.t("translated.text")).grid(row=2, column=0, sticky="nw", padx=5, pady=2)
         self.translated_text = tk.Text(self, height=6, width=50, wrap="word")
         self.translated_text.grid(row=2, column=1, sticky="nsew", padx=5, pady=2)
 
@@ -59,9 +62,9 @@ class TextEditorFrame(ttk.Frame):
         btn_frame = ttk.Frame(self)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
 
-        ttk.Button(btn_frame, text="← Предыдущий", command=self.prev_entry).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Следующий →", command=self.next_entry).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Сохранить", command=self.save_changes).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("next.entry"), command=self.next_entry).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("save.translation"), command=self.save_changes).pack(side="left", padx=5)
 
     def _show_current_entry(self):
         if not self.segment_data or self.current_index >= len(self.segment_data):

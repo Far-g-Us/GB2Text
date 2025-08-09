@@ -18,11 +18,7 @@ GB Text Extraction Framework
 """
 Менеджер плагинов для динамической загрузки
 """
-import importlib
-import pkgutil
-import os
-import json
-import re
+import importlib, pkgutil, os, json, re
 from pathlib import Path
 
 from core.encoding import auto_detect_charmap
@@ -115,6 +111,26 @@ class PluginManager:
             )
 
             if not (start_valid and end_valid):
+                return False
+
+        return True
+
+    def _is_config_safe(self, config: dict) -> bool:
+        """Проверяет, что конфигурация безопасна с юридической точки зрения"""
+        # Разрешаем конфигурации, созданные пользователем
+        if config.get('user_created', False):
+            return True
+
+        # Проверяем, что нет прямых упоминаний коммерческих игр
+        game_id_pattern = config.get('game_id_pattern', '')
+        if re.search(r'POKEMON|ZELDA|NINTENDO|GAMEBOY', game_id_pattern, re.IGNORECASE):
+            return False
+
+        # Проверяем сегменты
+        for segment in config.get('segments', []):
+            charmap = segment.get('charmap', {})
+            # Проверяем, что таблица символов не слишком специфична
+            if len(charmap) > 50 and not self._is_generic_charmap(charmap):
                 return False
 
         return True
