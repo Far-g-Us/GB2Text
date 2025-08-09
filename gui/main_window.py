@@ -34,24 +34,19 @@ from core.encoding import get_generic_english_charmap, get_generic_japanese_char
 
 class GBTextExtractorGUI:
     def __init__(self, root, rom_path=None, plugin_dir="plugins", lang="en"):
+        if rom_path is not None and not isinstance(rom_path, str):
+            raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
+
         # Загружаем сохраненные настройки
         self.load_saved_settings()
 
-        # Инициализируем систему локализации
         self.i18n = I18N(default_lang=self.ui_lang.get())
-
         self.root = root
         self.root.title(self.i18n.t("app.title"))
         self.root.geometry("1100x700")
 
-        if isinstance(rom_path, str):
-            self.rom_path = tk.StringVar(value=rom_path)
-        elif isinstance(rom_path, tk.StringVar):
-            self.rom_path = rom_path
-        else:
-            self.rom_path = tk.StringVar(value="")
-
         # Инициализация компонентов
+        self.rom_path = tk.StringVar(value=rom_path or "")
         self.plugin_dir = plugin_dir
         self.plugin_manager = PluginManager(plugin_dir)
         self.guide_manager = GuideManager()
@@ -74,7 +69,7 @@ class GBTextExtractorGUI:
         self._setup_ui()
 
         # Если указан ROM при запуске, сразу загружаем
-        if rom_path and isinstance(rom_path, str):
+        if rom_path:
             self.update_game_info()
 
     def _setup_ui(self):
@@ -554,7 +549,7 @@ class GBTextExtractorGUI:
                 ("All files", "*.*")
             ]
         )
-        if path and isinstance(path, str):
+        if path:
             self.rom_path.set(path)
             self.set_status(self.i18n.t("rom.loading"))
             self.update_game_info()
@@ -580,7 +575,7 @@ class GBTextExtractorGUI:
             self.game_info_labels["title"]["value"].config(text=rom.header['title'])
             self.game_info_labels["system"]["value"].config(text=system_name)
             self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
-            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data)//1024} KB")
+            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
 
             # Проверяем поддержку игры
             game_id = rom.get_game_id()
@@ -591,24 +586,24 @@ class GBTextExtractorGUI:
                 self.game_info_labels["supported_plugin"]["value"].config(text=self.i18n.t("not_found"))
 
         except Exception as e:
-            messagebox.showerror(self.i18n.t("error.title"),
-                                 self.i18n.t("rom.load.error", error=str(e)))
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("rom.load.error", error=str(e))
+            )
 
     def extract_text(self):
         """Извлечение текста из ROM"""
-        path = self.rom_path.get()
-        if not path or not isinstance(path, str):
-            messagebox.showwarning(
-                self.i18n.t("warning.title"),
-                self.i18n.t("select.rom")
-            )
+        if not self.rom_path.get():
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
             return
 
         try:
-            self.set_status(self.i18n.t("text.extracting"), 0)
+            rom_path = self.rom_path.get()
+            if not isinstance(rom_path, str):
+                raise ValueError("Путь к ROM должен быть строкой")
 
-            # Убедимся, что передаем строку с путем
-            extractor = TextExtractor(path)
+            self.set_status(self.i18n.t("text.extracting"), 0)
+            extractor = TextExtractor(rom_path)
             self.current_results = extractor.extract()
 
             # Очистка списка сегментов
@@ -714,8 +709,8 @@ class GBTextExtractorGUI:
 
     def load_for_editing(self):
         """Загрузка ROM для редактирования"""
-        path = self.rom_path.get()
-        if not path or not isinstance(path, str):
+        rom_path = self.rom_path.get()
+        if not rom_path:
             messagebox.showwarning(
                 self.i18n.t("warning.title"),
                 self.i18n.t("select.rom")
@@ -723,9 +718,17 @@ class GBTextExtractorGUI:
             return
 
         try:
-            # Убедимся, что передаем строку с путем
-            self.current_rom = GameBoyROM(path)
-            self.text_injector = TextInjector(path)
+            # Проверяем, что файл существует
+            if not os.path.exists(rom_path):
+                raise FileNotFoundError(f"Файл не найден: {rom_path}")
+
+            # Проверяем размер файла
+            file_size = os.path.getsize(rom_path)
+            if file_size < 32 * 1024:  # 32 KB
+                raise ValueError("ROM файл слишком маленький")
+
+            self.current_rom = GameBoyROM(rom_path)
+            self.text_injector = TextInjector(rom_path)
 
             # Определяем систему
             system_name = {

@@ -20,7 +20,6 @@ GB Text Extraction Framework
 """
 
 import re
-from pathlib import Path
 from typing import Dict, Any
 from core.mbc import create_mbc
 
@@ -29,11 +28,8 @@ class GameBoyROM:
     """Загрузка и базовый анализ ROM-файла"""
 
     def __init__(self, rom_path: str):
-        if not isinstance(Path, str):
-            raise TypeError(f"Expected str for path, got {type(Path)}")
-
-        with open(Path, 'rb') as f:
-            self.data = bytearray(f.read())
+        if not isinstance(rom_path, str):
+            raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
 
         self.path = rom_path
         self.data = self._load_rom(rom_path)
@@ -41,26 +37,39 @@ class GameBoyROM:
         self.system = self._detect_system()
         self.mbc = create_mbc(self.data, self.header['cartridge_type'])
 
-    def _load_rom(self, path: str) -> bytearray:
-        with open(path, 'rb') as f:
+    def _load_rom(self, rom_path: str) -> bytearray:
+        """Загружает ROM-файл в память"""
+        with open(rom_path, 'rb') as f:
             return bytearray(f.read())
 
     def _parse_header(self) -> Dict:
         """Парсинг заголовка ROM"""
-        header = {
-            'title': self.data[0x0134:0x0143].decode('ascii', errors='replace').rstrip('\x00'),
-            'cgb_flag': self.data[0x0143],
-            'new_licensee_code': self.data[0x0144] << 8 | self.data[0x0145],
-            'sgb_flag': self.data[0x0146],
-            'cartridge_type': self.data[0x0147],
-            'rom_size': self.data[0x0148],
-            'ram_size': self.data[0x0149],
-            'destination_code': self.data[0x014A],
-            'old_licensee_code': self.data[0x014B],
-            'mask_rom_version': self.data[0x014C],
-            'header_checksum': self.data[0x014D],
-            'global_checksum': (self.data[0x014E] << 8) | self.data[0x014F]
-        }
+        if len(self.data) < 0x150:
+            raise ValueError("Недопустимый ROM файл: слишком маленький")
+
+        # Проверяем, является ли это Game Boy Advance ROM
+        is_gba = False
+        if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
+            is_gba = True
+
+        # Извлекаем данные заголовка
+        try:
+            header = {
+                'title': self.data[0x0134:0x0143].decode('ascii', errors='replace').rstrip('\x00'),
+                'cgb_flag': self.data[0x0143],
+                'new_licensee_code': self.data[0x0144] << 8 | self.data[0x0145],
+                'sgb_flag': self.data[0x0146],
+                'cartridge_type': self.data[0x0147],
+                'rom_size': self.data[0x0148],
+                'ram_size': self.data[0x0149],
+                'destination_code': self.data[0x014A],
+                'old_licensee_code': self.data[0x014B],
+                'mask_rom_version': self.data[0x014C],
+                'header_checksum': self.data[0x014D],
+                'global_checksum': (self.data[0x014E] << 8) | self.data[0x014F]
+            }
+        except Exception as e:
+            raise ValueError(f"Недопустимый ROM файл: ошибка при парсинге заголовка: {str(e)}")
 
         # Исправляем проблему с отсутствующим new_licensee_code
         if header['new_licensee_code'] == 0xFFFF:
@@ -75,7 +84,6 @@ class GameBoyROM:
     def _detect_system(self) -> str:
         """Определение системы по сигнатуре ROM"""
         # Проверка на Game Boy Advance
-        # Сигнатура GBA: 0xA0-0xB2 содержит "Nintendo Game Boy"
         if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
             return 'gba'
 
@@ -91,13 +99,18 @@ class GameBoyROM:
         if self.header['header_checksum'] != 0:
             return 'gb'
 
-        # По умолчанию считаем, что это GB
-        return 'gb'
+        # Проверка по размеру ROM
+        rom_size = self.header['rom_size']
+        if rom_size <= 8:  # До 8 MB
+            return 'gb'
+        else:
+            return 'gbc'
 
     def get_game_id(self) -> str:
-        """Генерация уникального ID игры для поиска конфигурации"""
-        title = re.sub(r'\W+', '', self.header['title']).upper()
-        return f"{title}_{self.system.upper()}_{self.header['cartridge_type']:02X}"
+        """Возвращает идентификатор игры"""
+        # Создаем безопасный идентификатор
+        cartridge_type = self.header['cartridge_type']
+        return f"GAME_{cartridge_type:02X}"
 
     def is_gba(self) -> bool:
         return self.system == 'gba'

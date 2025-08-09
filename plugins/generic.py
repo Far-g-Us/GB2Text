@@ -50,6 +50,10 @@ class GenericGBAPlugin(GenericGBPlugin):
     """Базовый плагин для игр Game Boy Advance"""
 
     def get_text_segments(self, rom) -> list:
+        # Проверяем, является ли ROM действительно GBA
+        if rom.system != 'gba':
+            return []
+
         return [
             {
                 'name': 'main_text',

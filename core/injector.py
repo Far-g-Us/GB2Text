@@ -27,6 +27,9 @@ class TextInjector:
     """Внедрение измененного текста обратно в ROM"""
 
     def __init__(self, rom_path: str):
+        if not isinstance(rom_path, str):
+            raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
+
         self.rom = GameBoyROM(rom_path)
         self.original_data = bytearray(self.rom.data)
         self.modified_data = bytearray(self.rom.data)
