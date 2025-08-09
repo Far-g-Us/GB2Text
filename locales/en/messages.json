@@ -17,7 +17,7 @@
   "export.json": "Export to JSON",
   "export.txt": "Export to TXT",
   "goto.editing": "Go to Editing",
-  "select.rom": "Please select a ROM file first",
+  "file.select.rom": "Please select a ROM file first",
   "extraction.error": "Failed to extract text: {error}",
   "extraction.success": "Text extracted successfully",
   "translation.tab": "Translation",
@@ -89,5 +89,12 @@
   "about.legal.text": "This tool must be used ONLY with ROM files that legally belong to you. Do not use it with illegal copies of games.\n\nThis project does NOT contain or distribute any ROM files or copyrighted materials.",
   "about.links": "Links:",
   "about.github": "GitHub Repository",
-  "about.documentation": "Documentation"
+  "about.documentation": "Documentation",
+  "rom.not.loaded": "ROM not loaded",
+  "unsupported.game": "Unsupported game: {game_id}",
+  "plugin.not.found": "No suitable plugin found for this game",
+  "text.injecting": "Injecting translation...",
+  "file.save.rom": "Save modified ROM",
+  "rom.loading": "Loading the ROM file",
+  "rom.loaded": "ROM is loaded"
 }

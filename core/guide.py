@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 
+
 class GuideManager:
     """Менеджер пользовательских руководств"""
 

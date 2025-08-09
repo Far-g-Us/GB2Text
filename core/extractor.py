@@ -30,18 +30,30 @@ class TextExtractor:
     """Основной класс извлечения текста"""
 
     def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None):
+        if not isinstance(rom_path, str):
+            raise TypeError(f"Expected str for rom_path, got {type(rom_path)}")
+
         self.rom = GameBoyROM(rom_path)
+        self.current_results = None
         self.plugin_manager = plugin_manager or PluginManager()
         self.guide_manager = guide_manager or GuideManager()
-        self.plugin = self.plugin_manager.get_plugin(self.rom.get_game_id())
+        self.plugin = None
         self.guide = self.guide_manager.get_guide(self.rom.get_game_id())
 
     def extract(self) -> Dict[str, List[Dict]]:
-        if not self.plugin:
-            raise ValueError(f"Не поддерживаемая игра: {self.rom.get_game_id()}")
+        """Извлекает текст из ROM"""
+        if not self.rom or not self.rom.data:
+            raise ValueError("ROM не загружен")
 
-        # Применение рекомендаций из руководства, если они есть
-        self._apply_guide_recommendations()
+        # Определяем систему
+        system = self.rom.system
+
+        # Получаем плагин с учетом системы
+        game_id = self.rom.get_game_id()
+        self.plugin = self.plugin_manager.get_plugin(game_id, system)
+
+        if not self.plugin:
+            raise ValueError(f"Не поддерживаемая игра: {game_id}")
 
         results = {}
         for segment in self.plugin.get_text_segments(self.rom):
@@ -49,29 +61,64 @@ class TextExtractor:
             start = segment['start']
             end = segment['end']
 
+            # Проверяем, что адреса в пределах ROM
+            if start >= len(self.rom.data) or end > len(self.rom.data) or start >= end:
+                continue
+
             # Обработка сжатия если необходимо
             data = self.rom.data[start:end]
-            if segment.get('compression'):
+            if segment.get('compression') == 'gba_lz77':
+                from .gba_support import GBALZ77Handler
+                handler = GBALZ77Handler()
+                decompressed, _ = handler.decompress(data, 0)
+                data = decompressed
+            elif segment.get('compression'):
                 decompressed, _ = segment['compression'].decompress(data, 0)
                 data = decompressed
 
             # Декодирование текста
+            if not segment['decoder']:
+                from .scanner import auto_detect_charmap
+                charmap = auto_detect_charmap(self.rom.data, start)
+                from .decoder import CharMapDecoder
+                segment['decoder'] = CharMapDecoder(charmap)
+
             text = segment['decoder'].decode(data, 0, len(data))
 
             # Разделение на отдельные сообщения
-            messages = self._split_messages(text)
+            messages = self._split_messages(text, start)
 
-            results[name] = [{
-                'offset': start + i * 100,
-                'text': msg
-            } for i, msg in enumerate(messages)]
+            results[name] = messages
 
+        self.current_results = results
         return results
 
-    def _split_messages(self, text: str) -> List[str]:
-        """Разделение текста на отдельные сообщения"""
-        # Здесь должна быть логика разделения по терминаторам
-        return [m for m in text.split('[END]') if m.strip()]
+    def _split_messages(self, text: str, base_offset: int) -> List[Dict]:
+        """Разделение на отдельные сообщения"""
+        messages = []
+        current_msg = ""
+        offset = 0
+        start_offset = 0
+
+        for i, char in enumerate(text):
+            if char == '\n' or char == '[END]':
+                if current_msg:
+                    messages.append({
+                        'offset': base_offset + start_offset,
+                        'text': current_msg
+                    })
+                    current_msg = ""
+                start_offset = i + 1
+            else:
+                current_msg += char
+
+        if current_msg:
+            messages.append({
+                'offset': base_offset + start_offset,
+                'text': current_msg
+            })
+
+        return messages
 
     def _apply_guide_recommendations(self):
         """Применяет рекомендации из руководства к плагину"""

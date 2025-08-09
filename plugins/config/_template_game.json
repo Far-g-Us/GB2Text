@@ -3,9 +3,9 @@
   "game_id_pattern": "^GAME_[0-9A-F]{2}$",
   "segments": [
     {
-      "name": "text_segment_{id}",
-      "start": "0x{HEX_ADDRESS}",
-      "end": "0x{HEX_ADDRESS}",
+      "name": "main_text",
+      "start": "0x4000",
+      "end": "0x7FFF",
       "charmap": {
 
       }

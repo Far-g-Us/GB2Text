@@ -18,21 +18,26 @@ GB Text Extraction Framework
 """
 Менеджер плагинов для динамической загрузки
 """
+
 import importlib, pkgutil, os, json, re
 from pathlib import Path
-
-from core.encoding import auto_detect_charmap
 from typing import List, Optional, Dict
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.decoder import CharMapDecoder, LZ77Handler
+from plugins.generic import GenericGBPlugin, GenericGBCPlugin, GenericGBAPlugin
+from plugins.auto_detect import AutoDetectPlugin
 
 
 class PluginManager:
     """Менеджер динамической загрузки плагинов"""
 
     def __init__(self, plugins_dir: str = "plugins"):
-        self.plugins = []
+        self.plugins = [
+            GenericGBPlugin(),
+            GenericGBCPlugin(),
+            GenericGBAPlugin(),
+            AutoDetectPlugin()
+        ]
         self.plugins_dir = plugins_dir
         self.load_plugins()
 
@@ -117,7 +122,7 @@ class PluginManager:
 
     def _is_config_safe(self, config: dict) -> bool:
         """Проверяет, что конфигурация безопасна с юридической точки зрения"""
-        # Разрешаем конфигурации, созданные пользователем
+        # Разрешаем конфигурации, созданные через GUI
         if config.get('user_created', False):
             return True
 
@@ -154,12 +159,20 @@ class PluginManager:
         with open(path, 'w') as f:
             json.dump(example, f, indent=2)
 
-    def get_plugin(self, game_id: str) -> Optional[GamePlugin]:
+    def get_plugin(self, game_id: str, system: str = None) -> Optional[GamePlugin]:
         """Находит подходящий плагин для игры"""
+        # Сначала пытаемся найти специфичный плагин
         for plugin in self.plugins:
             if re.match(plugin.game_id_pattern, game_id):
                 return plugin
-        return None
+
+        # Если не найден, возвращаем базовый плагин для системы
+        if system == 'gba':
+            return GenericGBAPlugin()
+        elif system == 'gbc':
+            return GenericGBCPlugin()
+        else:
+            return GenericGBPlugin()
 
 
 class ConfigurablePlugin(GamePlugin):
@@ -183,30 +196,29 @@ class ConfigurablePlugin(GamePlugin):
             try:
                 start_value = seg['start']
                 if isinstance(start_value, str) and start_value.startswith("0x"):
-                    # Проверяем, что после "0x" идут только шестнадцатеричные цифры
-                    hex_pattern = re.compile(r'^0x[0-9A-Fa-f]+$')
-                    if not hex_pattern.match(start_value):
-                        continue  # Пропускаем недопустимые шаблоны
                     start_addr = int(start_value, 16)
                 else:
                     start_addr = int(start_value)
 
                 end_value = seg['end']
                 if isinstance(end_value, str) and end_value.startswith("0x"):
-                    hex_pattern = re.compile(r'^0x[0-9A-Fa-f]+$')
-                    if not hex_pattern.match(end_value):
-                        continue  # Пропускаем недопустимые шаблоны
                     end_addr = int(end_value, 16)
                 else:
                     end_addr = int(end_value)
             except (ValueError, TypeError) as e:
-                print(f"Пропущен сегмент с недопустимыми адресами: {e}")
+                print(f"Пропущен сегмент с недопасными адресами: {e}")
+                continue
+
+            # Проверяем, что адреса в пределах ROM
+            if start_addr >= len(rom.data) or end_addr > len(rom.data) or start_addr >= end_addr:
+                print(f"Пропущен сегмент с недопустимыми адресами: start={start_addr}, end={end_addr}, размер ROM={len(rom.data)}")
                 continue
 
             # Автоматическое определение таблицы символов, если не предоставлена
             charmap = seg.get('charmap', {})
             if not charmap:
                 try:
+                    from core.scanner import auto_detect_charmap
                     charmap = auto_detect_charmap(rom.data, start_addr)
                 except Exception as e:
                     print(f"Ошибка автоопределения таблицы символов: {e}")
@@ -214,10 +226,15 @@ class ConfigurablePlugin(GamePlugin):
 
             decoder = None
             if charmap:
+                from core.decoder import CharMapDecoder
                 decoder = CharMapDecoder(charmap)
 
             compression = None
-            if 'compression' in seg and seg['compression'] == 'lz77':
+            if 'compression' in seg and seg['compression'] == 'gba_lz77':
+                from core.gba_support import GBALZ77Handler
+                compression = GBALZ77Handler()
+            elif 'compression' in seg and seg['compression'] == 'lz77':
+                from core.decoder import LZ77Handler
                 compression = LZ77Handler()
 
             segments.append({
