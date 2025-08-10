@@ -1,0 +1,11 @@
+{
+  "user_created": true,
+  "game_id_pattern": "^GAME_1B$",
+  "segments": [
+    {
+      "name": "pattern_segment_0",
+      "start": "0x4000",
+      "end": "0x7FFF"
+    }
+  ]
+}

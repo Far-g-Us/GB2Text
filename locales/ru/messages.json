@@ -102,5 +102,14 @@
   "extraction.success": "Извлечение текста успешно завершено",
   "diagnostics.tab": "Диагностика",
   "diagnostics.running": "Выполняется...",
-  "diagnostics.completed": "Завершено"
+  "diagnostics.completed": "Завершено",
+  "plugin.searching": "Поиск подходящего плагина...",
+  "cancel": "Отмена",
+  "extraction.canceled": "Извлечение отменено",
+  "text.extracting": "Извлечение текста... ({seconds}с)",
+  "text.extracted": "Текст извлечен",
+  "text.extracted.success": "Текст успешно извлечен",
+  "text.extracted.partial": "Текст извлечен с возможными проблемами",
+  "extraction.low_confidence": "Низкий уровень достоверности извлечения ({rate}%). Некоторый текст может быть некорректным.",
+  "extraction.success": "Извлечение текста успешно завершено с уровнем достоверности {rate}%"
 }

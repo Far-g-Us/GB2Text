@@ -102,5 +102,14 @@
   "extraction.success": "Text extraction completed successfully",
   "diagnostics.tab": "Diagnostics",
   "diagnostics.running": "Running...",
-  "diagnostics.completed": "Completed"
+  "diagnostics.completed": "Completed",
+  "plugin.searching": "Searching for appropriate plugin...",
+  "cancel": "Cancel",
+  "extraction.canceled": "Extraction canceled",
+  "text.extracting": "Extracting text... ({seconds}s)",
+  "text.extracted": "Text extracted",
+  "text.extracted.success": "Text extracted successfully",
+  "text.extracted.partial": "Text extracted with potential issues",
+  "extraction.low_confidence": "Extraction confidence is low ({rate}%). Some text may be incorrect.",
+  "extraction.success": "Text extraction completed successfully with {rate}% confidence",
 }
