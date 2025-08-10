@@ -47,6 +47,8 @@ class GBTextExtractorGUI:
         self.root.title(self.i18n.t("app.title"))
         self.root.geometry("1100x700")
 
+        self._set_app_icon()
+
         # Инициализация компонентов
         self.rom_path = tk.StringVar(value=rom_path or "")
         self.plugin_dir = plugin_dir
@@ -109,14 +111,21 @@ class GBTextExtractorGUI:
         self.tab_control.pack(expand=1, fill="both", padx=10, pady=10)
 
         # Добавляем статус-бар
-        self.status_bar = ttk.Frame(self.root, relief=tk.SUNKEN, borderwidth=1)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_frame = ttk.Frame(self.root)
+        self.status_frame.pack(side="bottom", fill="x")
 
-        self.status_label = ttk.Label(self.status_bar, text=self.i18n.t("status.ready"), relief=tk.SUNKEN, anchor=tk.W)
-        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.status_label = ttk.Label(self.status_frame, text=self.i18n.t("status.ready"))
+        self.status_label.pack(side="left", padx=5, pady=2)
 
-        self.progress_bar = ttk.Progressbar(self.status_bar, mode='determinate', maximum=100)
-        self.progress_bar.pack(side=tk.RIGHT, padx=5)
+        self.progress = ttk.Progressbar(self.status_frame, orient="horizontal", mode="determinate", length=200)
+        self.progress.pack(side="right", padx=5, pady=2)
+
+        # Добавляем кнопку отмены (но не отображаем её изначально)
+        self.cancel_button = ttk.Button(
+            self.status_frame,
+            text=self.i18n.t("cancel"),
+            command=self._cancel_extraction
+        )
 
         # Настройка вкладки извлечения
         self._setup_extract_tab()
@@ -519,21 +528,21 @@ class GBTextExtractorGUI:
                             "Рекомендации из руководства применены.\n"
                             "Теперь вы можете извлечь текст с учетом специфики этой игры.")
 
-    def set_status(self, status: str, progress: int = 0):
-        """Устанавливает статус в статус-баре"""
-        self.status_label.config(text=status)
-        self.progress_bar['value'] = progress
+    def set_status(self, message: str, progress: int = 0):
+        """Устанавливает статус и прогресс"""
+        self.status_label.config(text=message)
+        self.progress["value"] = progress
         self.root.update_idletasks()
 
     def start_progress(self, message: str, max_value: int = 100):
         """Начинает индикацию прогресса"""
         self.set_status(message, 0)
-        self.progress_bar['maximum'] = max_value
+        self.progress['maximum'] = max_value
         self.root.update_idletasks()
 
     def update_progress(self, value: int, message: str = None):
         """Обновляет прогресс"""
-        self.progress_bar['value'] = value
+        self.progress['value'] = value
         if message:
             self.status_label.config(text=message)
         self.root.update_idletasks()
@@ -544,7 +553,7 @@ class GBTextExtractorGUI:
             self.set_status(message)
         else:
             self.set_status(self.i18n.t("status.ready"))
-        self.progress_bar['value'] = 0
+        self.progress['value'] = 0
         self.root.update_idletasks()
 
     def browse_rom(self):
@@ -605,7 +614,16 @@ class GBTextExtractorGUI:
             return
 
         try:
+            self.cancel_extraction = False
             self.set_status(self.i18n.t("text.extracting"), 0)
+
+            # Добавляем кнопку отмены
+            self.cancel_button = ttk.Button(
+                self.status_frame,
+                text=self.i18n.t("cancel"),
+                command=self._cancel_extraction
+            )
+            self.cancel_button.pack(side="right", padx=5)
 
             # Сброс флагов из предыдущих попыток
             if hasattr(self, 'extraction_timed_out'):
@@ -618,8 +636,20 @@ class GBTextExtractorGUI:
             # Запускаем извлечение в отдельном потоке с таймаутом
             def extract_task():
                 try:
-                    extractor = TextExtractor(self.rom_path.get())
+                    self.set_status(self.i18n.t("plugin.searching"), 5)
+
+                    # Передаем self в plugin_manager для обновления статуса
+                    plugin_manager = PluginManager()
+                    plugin_manager.update_status = self.set_status
+                    plugin_manager.root = self.root
+
+                    extractor = TextExtractor(self.rom_path.get(), plugin_manager=plugin_manager)
                     self.current_results = extractor.extract()
+
+                    # Получаем отчет о валидации
+                    from core.analyzer import TextAnalyzer
+                    self.validation_report = TextAnalyzer.validate_extraction(self.current_rom, self.current_results)
+
                     return True
                 except Exception as e:
                     self.extraction_error = e
@@ -630,56 +660,65 @@ class GBTextExtractorGUI:
             extraction_thread.daemon = True
             extraction_thread.start()
 
-            # Ожидаем с таймаутом
+            # Ожидаем завершения с обновлением прогресса
             start_time = time.time()
-            max_time = 60  # Увеличено с 15 до 60 секунд
+            last_update = 0
 
-            while extraction_thread.is_alive():
+            while extraction_thread.is_alive() and not self.cancel_extraction:
                 elapsed = time.time() - start_time
-                progress = min(95, int(elapsed / max_time * 100))  # Максимум 95%, чтобы показать процесс
 
-                self.set_status(
-                    self.i18n.t("text.extracting") + f" ({int(elapsed)}s)",
-                    progress
-                )
+                # Обновляем прогресс каждые 0.5 секунды
+                if elapsed - last_update > 0.5:
+                    # Показываем, что процесс идет
+                    progress = 5 + (min(90, int(elapsed) * 2))  # Постепенно увеличиваем прогресс
+                    self.set_status(
+                        f"{self.i18n.t('text.extracting')} ({int(elapsed)}s)",
+                        progress
+                    )
+                    last_update = elapsed
 
-                if elapsed > max_time:
-                    self.extraction_timed_out = True
-                    break
-
-                time.sleep(0.2)  # Увеличено для снижения нагрузки
+                time.sleep(0.1)
                 self.root.update()
 
-            if hasattr(self, 'extraction_timed_out') and self.extraction_timed_out:
-                # Предложить пользователю продолжить в фоне
-                response = messagebox.askyesno(
-                    self.i18n.t("warning.title"),
-                    self.i18n.t("extraction.timeout.prompt", seconds=max_time)
-                )
+            # Удаляем кнопку отмены
+            self.cancel_button.pack_forget()
 
-                if response:
-                    # Запускаем продолжение в фоне
-                    def continue_extraction():
-                        try:
-                            extractor = TextExtractor(self.rom_path.get())
-                            self.current_results = extractor.extract()
-
-                            # Обновляем интерфейс в главном потоке
-                            self.root.after(0, lambda: self._handle_extraction_complete())
-                        except Exception as e:
-                            self.root.after(0, lambda: self._handle_extraction_error(e))
-
-                    threading.Thread(target=continue_extraction, daemon=True).start()
-                    self.set_status(self.i18n.t("text.extracting.background"), 0)
-                    return
-                else:
-                    return
+            if self.cancel_extraction:
+                self.set_status(self.i18n.t("status.ready"))
+                return
 
             # Проверяем результат
             if hasattr(self, 'extraction_error'):
                 raise self.extraction_error
 
-            self._handle_extraction_complete()
+            # Проверяем отчет о валидации
+            if hasattr(self, 'validation_report'):
+                success_rate = self.validation_report['success_rate']
+
+                # Показываем предупреждение, если уровень достоверности низкий
+                if success_rate < 0.7:
+                    messagebox.showwarning(
+                        self.i18n.t("warning.title"),
+                        self.i18n.t("extraction.low_confidence", rate=int(success_rate * 100))
+                    )
+
+            # Очистка списка сегментов
+            self.segments_list.delete(0, tk.END)
+
+            # Заполнение списка сегментов
+            for segment_name in self.current_results.keys():
+                self.segments_list.insert(tk.END, segment_name)
+
+            # Выбираем первый сегмент
+            if self.segments_list.size() > 0:
+                self.segments_list.selection_set(0)
+                self.on_segment_select(None)
+
+            self.set_status(self.i18n.t("text.extracted"))
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("extraction.success")
+            )
 
         except Exception as e:
             self.set_status(self.i18n.t("status.error"))
@@ -687,34 +726,15 @@ class GBTextExtractorGUI:
                 self.i18n.t("error.title"),
                 self.i18n.t("extraction.error", error=str(e))
             )
+        finally:
+            # Удаляем кнопку отмены в любом случае
+            if hasattr(self, 'cancel_button') and self.cancel_button.winfo_exists():
+                self.cancel_button.destroy()
 
-    def _handle_extraction_complete(self):
-        """Обработка успешного завершения извлечения"""
-        # Очистка списка сегментов
-        self.segments_list.delete(0, tk.END)
-
-        # Заполнение списка сегментов
-        for segment_name in self.current_results.keys():
-            self.segments_list.insert(tk.END, segment_name)
-
-        # Выбираем первый сегмент
-        if self.segments_list.size() > 0:
-            self.segments_list.selection_set(0)
-            self.on_segment_select(None)
-
-        self.set_status(self.i18n.t("text.extracted"))
-        messagebox.showinfo(
-            self.i18n.t("success.title"),
-            self.i18n.t("extraction.success")
-        )
-
-    def _handle_extraction_error(self, error):
-        """Обработка ошибки извлечения"""
-        self.set_status(self.i18n.t("status.error"))
-        messagebox.showerror(
-            self.i18n.t("error.title"),
-            self.i18n.t("extraction.error", error=str(error))
-        )
+    def _cancel_extraction(self):
+        """Отмена процесса извлечения текста"""
+        self.cancel_extraction = True
+        self.set_status(self.i18n.t("extraction.canceled"))
 
     def on_segment_select(self, event):
         """Обработка выбора сегмента"""
@@ -1457,6 +1477,68 @@ class GBTextExtractorGUI:
         """Открывает URL в браузере по умолчанию"""
         import webbrowser
         webbrowser.open(url)
+
+
+    def _set_app_icon(self):
+        """Устанавливает пользовательскую иконку приложения"""
+        try:
+            # Определяем путь к иконке в зависимости от ОС
+            import platform
+            system = platform.system()
+
+            # Создаем путь к ресурсам
+            resources_dir = Path("resources")
+            if not resources_dir.exists():
+                resources_dir.mkdir(exist_ok=True)
+
+            # Пытаемся найти подходящую иконку для текущей ОС
+            icon_path = None
+
+            if system == "Windows":
+                icon_path = resources_dir / "app_icon.ico"
+            elif system == "Darwin":  # macOS
+                icon_path = resources_dir / "app_icon.png"
+            else:  # Linux и другие
+                icon_path = resources_dir / "app_icon.png"
+
+            # Если файл иконки существует, устанавливаем его
+            if icon_path and icon_path.exists():
+                if system == "Windows":
+                    self.root.iconbitmap(str(icon_path))
+                else:
+                    img = tk.PhotoImage(file=str(icon_path))
+                    self.root.iconphoto(True, img)
+            else:
+                # Если пользовательской иконки нет, создаем стандартную
+                self._create_default_icon()
+
+        except Exception as e:
+            print(f"Ошибка при установке иконки: {str(e)}")
+            self._create_default_icon()
+
+
+    def _create_default_icon(self):
+        """Создает простую стандартную иконку, если пользовательская отсутствует"""
+        try:
+            # Создаем простое изображение как иконку
+            import tkinter as tk
+
+            # Создаем маленькое изображение
+            width, height = 16, 16
+            icon = tk.PhotoImage(width=width, height=height)
+
+            # Заполняем фон
+            icon.put("#2c3e50", to=(0, 0, width, height))
+
+            # Рисуем букву "G" (для Game Boy)
+            icon.put("#ecf0f1", to=(3, 3, 6, 12))  # Вертикальная линия
+            icon.put("#ecf0f1", to=(3, 3, 12, 6))  # Горизонтальная линия
+            icon.put("#ecf0f1", to=(9, 6, 12, 12))  # Правая часть
+
+            # Устанавливаем иконку
+            self.root.iconphoto(True, icon)
+        except Exception as e:
+            print(f"Не удалось создать стандартную иконку: {str(e)}")
 
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):

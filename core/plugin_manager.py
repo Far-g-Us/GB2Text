@@ -195,22 +195,48 @@ class PluginManager:
         logger = logging.getLogger('gb2text.plugin_manager')
         logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
 
+        # Обновляем статус в GUI, если доступен
+        if hasattr(self, 'update_status'):
+            self.update_status(f"Поиск подходящего плагина для {game_id}...", 10)
+
         # Сначала пытаемся найти специфичный плагин
-        for plugin in self.plugins:
+        total_plugins = len(self.plugins)
+        for i, plugin in enumerate(self.plugins):
+            # Обновляем прогресс
+            progress = 10 + int(80 * i / total_plugins) if total_plugins > 0 else 10
+            if hasattr(self, 'update_status'):
+                self.update_status(f"Проверка плагина {plugin.__class__.__name__}...", progress)
+
             logger.debug(f"Проверка плагина {plugin.__class__.__name__} с шаблоном {plugin.game_id_pattern}")
-            if re.match(plugin.game_id_pattern, game_id):
-                logger.info(f"Найден подходящий плагин: {plugin.__class__.__name__}")
-                return plugin
+
+            # Добавляем небольшую задержку для обновления интерфейса
+            if hasattr(self, 'root') and i % 5 == 0:
+                self.root.update_idletasks()
+
+            try:
+                if re.match(plugin.game_id_pattern, game_id):
+                    logger.info(f"Найден подходящий плагин: {plugin.__class__.__name__}")
+                    if hasattr(self, 'update_status'):
+                        self.update_status(f"Найден подходящий плагин: {plugin.__class__.__name__}", 95)
+                    return plugin
+            except re.error as e:
+                logger.warning(f"Ошибка регулярного выражения в плагине {plugin.__class__.__name__}: {str(e)}")
 
         # Если не найден, возвращаем базовый плагин для системы
         if system == 'gba':
             logger.info("Используем GenericGBAPlugin по умолчанию")
+            if hasattr(self, 'update_status'):
+                self.update_status("Используем GenericGBAPlugin по умолчанию", 90)
             return GenericGBAPlugin()
         elif system == 'gbc':
             logger.info("Используем GenericGBCPlugin по умолчанию")
+            if hasattr(self, 'update_status'):
+                self.update_status("Используем GenericGBCPlugin по умолчанию", 90)
             return GenericGBCPlugin()
         else:
             logger.info("Используем GenericGBPlugin по умолчанию")
+            if hasattr(self, 'update_status'):
+                self.update_status("Используем GenericGBPlugin по умолчанию", 90)
             return GenericGBPlugin()
 
 
