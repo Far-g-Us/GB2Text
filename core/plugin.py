@@ -22,14 +22,6 @@ GB Text Extraction Framework
 from abc import ABC, abstractmethod
 from typing import Dict, List
 from core.rom import GameBoyROM
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='gb_extractor.log'
-)
-logger = logging.getLogger('gb_extractor')
 
 
 class GamePlugin(ABC):

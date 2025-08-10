@@ -21,7 +21,8 @@ GB Text Extraction Framework
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import json, re
+import json, re, os, logging, threading, time
+from datetime import datetime
 from pathlib import Path
 from core.rom import GameBoyROM
 from core.i18n import I18N
@@ -30,6 +31,7 @@ from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
+from core.scanner import analyze_text_segment
 
 
 class GBTextExtractorGUI:
@@ -86,14 +88,19 @@ class GBTextExtractorGUI:
         self.edit_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.edit_tab, text=self.i18n.t("tab.edit"))
 
+        # Вкладка руководства
+        self.guide_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))
+
+        # Вкладка диагностики
+        self.diagnostics_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.diagnostics_tab, text=self.i18n.t("diagnostics.tab"))
+        self._setup_diagnostics_tab()
+
         # Вкладка настроек
         self.settings_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.settings_tab, text=self.i18n.t("tab.settings"))
         self.tab_control.pack(expand=1, fill="both", padx=10, pady=10)
-
-        # Вкладка руководства
-        self.guide_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))
 
         # Вкладка о программе
         self.about_tab = ttk.Frame(self.tab_control)
@@ -598,31 +605,81 @@ class GBTextExtractorGUI:
             return
 
         try:
-            rom_path = self.rom_path.get()
-            if not isinstance(rom_path, str):
-                raise ValueError("Путь к ROM должен быть строкой")
-
             self.set_status(self.i18n.t("text.extracting"), 0)
-            extractor = TextExtractor(rom_path)
-            self.current_results = extractor.extract()
 
-            # Очистка списка сегментов
-            self.segments_list.delete(0, tk.END)
+            # Сброс флагов из предыдущих попыток
+            if hasattr(self, 'extraction_timed_out'):
+                delattr(self, 'extraction_timed_out')
+            if hasattr(self, 'extraction_error'):
+                delattr(self, 'extraction_error')
+            if hasattr(self, 'current_results'):
+                delattr(self, 'current_results')
 
-            # Заполнение списка сегментов
-            for segment_name in self.current_results.keys():
-                self.segments_list.insert(tk.END, segment_name)
+            # Запускаем извлечение в отдельном потоке с таймаутом
+            def extract_task():
+                try:
+                    extractor = TextExtractor(self.rom_path.get())
+                    self.current_results = extractor.extract()
+                    return True
+                except Exception as e:
+                    self.extraction_error = e
+                    return False
 
-            # Выбираем первый сегмент
-            if self.segments_list.size() > 0:
-                self.segments_list.selection_set(0)
-                self.on_segment_select(None)
+            # Запускаем задачу извлечения
+            extraction_thread = threading.Thread(target=extract_task)
+            extraction_thread.daemon = True
+            extraction_thread.start()
 
-            self.set_status(self.i18n.t("text.extracted"))
-            messagebox.showinfo(
-                self.i18n.t("success.title"),
-                self.i18n.t("extraction.success")
-            )
+            # Ожидаем с таймаутом
+            start_time = time.time()
+            max_time = 60  # Увеличено с 15 до 60 секунд
+
+            while extraction_thread.is_alive():
+                elapsed = time.time() - start_time
+                progress = min(95, int(elapsed / max_time * 100))  # Максимум 95%, чтобы показать процесс
+
+                self.set_status(
+                    self.i18n.t("text.extracting") + f" ({int(elapsed)}s)",
+                    progress
+                )
+
+                if elapsed > max_time:
+                    self.extraction_timed_out = True
+                    break
+
+                time.sleep(0.2)  # Увеличено для снижения нагрузки
+                self.root.update()
+
+            if hasattr(self, 'extraction_timed_out') and self.extraction_timed_out:
+                # Предложить пользователю продолжить в фоне
+                response = messagebox.askyesno(
+                    self.i18n.t("warning.title"),
+                    self.i18n.t("extraction.timeout.prompt", seconds=max_time)
+                )
+
+                if response:
+                    # Запускаем продолжение в фоне
+                    def continue_extraction():
+                        try:
+                            extractor = TextExtractor(self.rom_path.get())
+                            self.current_results = extractor.extract()
+
+                            # Обновляем интерфейс в главном потоке
+                            self.root.after(0, lambda: self._handle_extraction_complete())
+                        except Exception as e:
+                            self.root.after(0, lambda: self._handle_extraction_error(e))
+
+                    threading.Thread(target=continue_extraction, daemon=True).start()
+                    self.set_status(self.i18n.t("text.extracting.background"), 0)
+                    return
+                else:
+                    return
+
+            # Проверяем результат
+            if hasattr(self, 'extraction_error'):
+                raise self.extraction_error
+
+            self._handle_extraction_complete()
 
         except Exception as e:
             self.set_status(self.i18n.t("status.error"))
@@ -630,6 +687,34 @@ class GBTextExtractorGUI:
                 self.i18n.t("error.title"),
                 self.i18n.t("extraction.error", error=str(e))
             )
+
+    def _handle_extraction_complete(self):
+        """Обработка успешного завершения извлечения"""
+        # Очистка списка сегментов
+        self.segments_list.delete(0, tk.END)
+
+        # Заполнение списка сегментов
+        for segment_name in self.current_results.keys():
+            self.segments_list.insert(tk.END, segment_name)
+
+        # Выбираем первый сегмент
+        if self.segments_list.size() > 0:
+            self.segments_list.selection_set(0)
+            self.on_segment_select(None)
+
+        self.set_status(self.i18n.t("text.extracted"))
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            self.i18n.t("extraction.success")
+        )
+
+    def _handle_extraction_error(self, error):
+        """Обработка ошибки извлечения"""
+        self.set_status(self.i18n.t("status.error"))
+        messagebox.showerror(
+            self.i18n.t("error.title"),
+            self.i18n.t("extraction.error", error=str(error))
+        )
 
     def on_segment_select(self, event):
         """Обработка выбора сегмента"""
@@ -1096,6 +1181,130 @@ class GBTextExtractorGUI:
         if hasattr(self, 'apply_guide_btn'):
             self.apply_guide_btn.config(text=self.i18n.t("apply.guide"))
 
+    def _setup_diagnostics_tab(self):
+        """Настройка вкладки диагностики"""
+        diagnostics_frame = ttk.Frame(self.diagnostics_tab, padding="10")
+        diagnostics_frame.pack(fill="both", expand=True)
+
+        # Панель управления
+        control_frame = ttk.Frame(diagnostics_frame)
+        control_frame.pack(fill="x", expand=False, pady=(0, 10))
+
+        ttk.Button(control_frame, text="Запустить диагностику",
+                   command=self.run_diagnostics).pack(side="left", padx=5)
+        ttk.Button(control_frame, text="Сохранить лог",
+                   command=self.save_log).pack(side="left", padx=5)
+
+        # Текстовая область для логов
+        self.log_text = scrolledtext.ScrolledText(diagnostics_frame, wrap="word", font=("Consolas", 10))
+        self.log_text.pack(fill="both", expand=True)
+        self.log_text.config(state="disabled")
+
+        # Автоматическая загрузка текущего лога
+        self.load_current_log()
+
+    def load_current_log(self):
+        """Загружает текущий лог-файл в текстовую область"""
+        try:
+            with open('gb2text.log', 'r') as f:
+                log_content = f.read()
+
+            self.log_text.config(state="normal")
+            self.log_text.delete(1.0, tk.END)
+            self.log_text.insert(tk.END, log_content)
+            self.log_text.config(state="disabled")
+
+            # Автопрокрутка к концу
+            self.log_text.see(tk.END)
+        except Exception as e:
+            logger = logging.getLogger('gb2text.gui')
+            logger.error(f"Не удалось загрузить лог-файл: {str(e)}")
+
+    def run_diagnostics(self):
+        """Запуск диагностического процесса"""
+        if not self.current_rom:
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
+            return
+
+        logger = logging.getLogger('gb2text.diagnostics')
+        logger.info("Запуск диагностического процесса")
+
+        self.set_status(self.i18n.t("diagnostics.running"), 0)
+
+        # Сбор информации о ROM
+        diagnostics_info = {
+            "rom_path": self.rom_path.get(),
+            "rom_size": len(self.current_rom.data),
+            "system": self.current_rom.system,
+            "header": self.current_rom.header,
+            "game_id": self.current_rom.get_game_id()
+        }
+
+        # Анализ текстовых сегментов
+        game_id = self.current_rom.get_game_id()
+        plugin = self.plugin_manager.get_plugin(game_id, self.current_rom.system)
+
+        if plugin:
+            segments = plugin.get_text_segments(self.current_rom)
+            diagnostics_info["segments"] = []
+
+            for segment in segments:
+                analysis = analyze_text_segment(
+                    self.current_rom.data,
+                    segment['start'],
+                    segment['end']
+                )
+                diagnostics_info["segments"].append({
+                    "name": segment['name'],
+                    "start": segment['start'],
+                    "end": segment['end'],
+                    "analysis": analysis
+                })
+
+        # Сохранение диагностики
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        diag_file = f"diagnostics_{timestamp}.json"
+
+        with open(diag_file, 'w', encoding='utf-8') as f:
+            json.dump(diagnostics_info, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Диагностика сохранена в {diag_file}")
+        self.set_status(self.i18n.t("diagnostics.completed"), 100)
+
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            f"Диагностика завершена. Результаты сохранены в {diag_file}"
+        )
+
+        # Обновляем отображение лога
+        self.load_current_log()
+
+    def save_log(self):
+        """Сохранение текущего лога"""
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        save_path = filedialog.asksaveasfilename(
+            defaultextension=".log",
+            filetypes=[("Log files", "*.log"), ("All files", "*.*")],
+            initialfile=f"gb2text_{timestamp}.log"
+        )
+
+        if save_path:
+            try:
+                with open('gb2text.log', 'r') as src, open(save_path, 'w') as dst:
+                    dst.write(src.read())
+                messagebox.showinfo(
+                    self.i18n.t("success.title"),
+                    f"Лог успешно сохранен в {save_path}"
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    f"Не удалось сохранить лог: {str(e)}"
+                )
+
     def inject_translation(self):
         """Внедрение перевода в ROM"""
         if not self.current_segment or not self.current_entries:
@@ -1252,6 +1461,15 @@ class GBTextExtractorGUI:
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        filename='gb2text.log',
+        filemode='a'  # 'a' дописывает в существующий файл
+    )
+    logger = logging.getLogger('gb2text')
+    logger.info("Запуск GUI версии")
+
     root = tk.Tk()
     app = GBTextExtractorGUI(root, rom_path, plugin_dir, lang)
     root.mainloop()

@@ -96,5 +96,11 @@
   "text.injecting": "Injecting translation...",
   "file.save.rom": "Save modified ROM",
   "rom.loading": "Loading the ROM file",
-  "rom.loaded": "ROM is loaded"
+  "rom.loaded": "ROM is loaded",
+  "extraction.timeout.prompt": "Text extraction is taking longer than {seconds} seconds. Continue in background?",
+  "text.extracting.background": "Extracting text in background...",
+  "extraction.success": "Text extraction completed successfully",
+  "diagnostics.tab": "Diagnostics",
+  "diagnostics.running": "Running...",
+  "diagnostics.completed": "Completed"
 }

@@ -19,12 +19,12 @@ GB Text Extraction Framework
 Модуль для извлечения текста из ROM
 """
 
-
+import logging
 from typing import Dict, List
 from core.rom import GameBoyROM
 from core.plugin_manager import PluginManager
 from core.guide import GuideManager
-
+from core.scanner import analyze_text_segment
 
 class TextExtractor:
     """Основной класс извлечения текста"""
@@ -42,55 +42,83 @@ class TextExtractor:
 
     def extract(self) -> Dict[str, List[Dict]]:
         """Извлекает текст из ROM"""
-        if not self.rom or not self.rom.data:
+        logger = logging.getLogger('gb2text.extractor')
+        logger.info("Начало процесса извлечения текста")
+
+        if not self.rom:
+            logger.error("ROM не загружен")
             raise ValueError("ROM не загружен")
 
         # Определяем систему
         system = self.rom.system
+        logger.info(f"Определена система: {system}")
 
         # Получаем плагин с учетом системы
         game_id = self.rom.get_game_id()
+        logger.info(f"Идентификатор игры: {game_id}")
+
         self.plugin = self.plugin_manager.get_plugin(game_id, system)
 
         if not self.plugin:
+            logger.error(f"Не поддерживаемая игра: {game_id}")
             raise ValueError(f"Не поддерживаемая игра: {game_id}")
 
         results = {}
-        for segment in self.plugin.get_text_segments(self.rom):
-            name = segment['name']
-            start = segment['start']
-            end = segment['end']
+        segments = self.plugin.get_text_segments(self.rom)
 
-            # Проверяем, что адреса в пределах ROM
-            if start >= len(self.rom.data) or end > len(self.rom.data) or start >= end:
-                continue
+        # Обрабатываем сегменты пакетами для повышения производительности
+        batch_size = 5
+        for i in range(0, len(segments), batch_size):
+            batch = segments[i:i + batch_size]
+            logger.info(f"Обработка пакета сегментов {i // batch_size + 1}/{(len(segments) - 1) // batch_size + 1}")
 
-            # Обработка сжатия если необходимо
-            data = self.rom.data[start:end]
-            if segment.get('compression') == 'gba_lz77':
-                from .gba_support import GBALZ77Handler
-                handler = GBALZ77Handler()
-                decompressed, _ = handler.decompress(data, 0)
-                data = decompressed
-            elif segment.get('compression'):
-                decompressed, _ = segment['compression'].decompress(data, 0)
-                data = decompressed
+            for segment in batch:
+                name = segment['name']
+                start = segment['start']
+                end = segment['end']
 
-            # Декодирование текста
-            if not segment['decoder']:
-                from .scanner import auto_detect_charmap
-                charmap = auto_detect_charmap(self.rom.data, start)
-                from .decoder import CharMapDecoder
-                segment['decoder'] = CharMapDecoder(charmap)
+                logger.debug(f"Обработка сегмента '{name}': 0x{start:X} - 0x{end:X}")
 
-            text = segment['decoder'].decode(data, 0, len(data))
+                # Проверяем, что адреса в пределах ROM
+                if start >= len(self.rom.data) or end > len(self.rom.data) or start >= end:
+                    logger.error(
+                        f"Пропущен сегмент с недопустимыми адресами: start=0x{start:X}, end=0x{end:X}, размер ROM={len(self.rom.data)}")
+                    continue
 
-            # Разделение на отдельные сообщения
-            messages = self._split_messages(text, start)
+                # Обработка сжатия если необходимо
+                data = self.rom.data[start:end]
+                if segment.get('compression') == 'gba_lz77':
+                    logger.debug("Распаковка GBA LZ77 сжатия")
+                    from core.gba_support import GBALZ77Handler
+                    handler = GBALZ77Handler()
+                    decompressed, _ = handler.decompress(data, 0)
+                    data = decompressed
+                elif segment.get('compression'):
+                    logger.debug(f"Распаковка {segment['compression']}")
+                    decompressed, _ = segment['compression'].decompress(data, 0)
+                    data = decompressed
 
-            results[name] = messages
+                # Декодирование текста
+                if not segment['decoder']:
+                    logger.debug("Таблица символов не предоставлена, определяем автоматически")
+                    from core.scanner import auto_detect_charmap
+                    charmap = auto_detect_charmap(self.rom.data, start)
+                    from core.decoder import CharMapDecoder
+                    segment['decoder'] = CharMapDecoder(charmap)
+
+                logger.debug("Декодирование текста")
+                text = segment['decoder'].decode(data, 0, len(data))
+
+                # Разделение на отдельные сообщения
+                logger.debug("Разделение на отдельные сообщения")
+                messages = self._split_messages(text, start)
+
+                results[name] = messages
+                logger.debug(f"Извлечено {len(messages)} сообщений из сегмента '{name}'")
 
         self.current_results = results
+        logger.info(f"Извлечение текста завершено. Найдено {len(results)} сегментов.")
+
         return results
 
     def _split_messages(self, text: str, base_offset: int) -> List[Dict]:

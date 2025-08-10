@@ -20,7 +20,9 @@ GB Text Extraction Framework
 """
 
 from typing import List, Dict
+import logging
 
+logger = logging.getLogger('gb2text.database')
 
 # Безопасная база данных с общими паттернами
 ROM_DATABASE = {
@@ -28,21 +30,32 @@ ROM_DATABASE = {
         'text_segment_patterns': [
             {'start_min': 0x4000, 'start_max': 0x5000, 'end_min': 0x6000, 'end_max': 0x7FFF},
             {'start_min': 0x8000, 'start_max': 0x9000, 'end_min': 0xA000, 'end_max': 0xBFFF}
-        ]
+        ],
+        'pointer_size': 2  # 16-битные указатели для GB
     },
     'gbc': {
         'text_segment_patterns': [
             {'start_min': 0x4000, 'start_max': 0x5000, 'end_min': 0x6000, 'end_max': 0x7FFF},
             {'start_min': 0x8000, 'start_max': 0x9000, 'end_min': 0xA000, 'end_max': 0xBFFF}
-        ]
+        ],
+        'pointer_size': 2  # 16-битные указатели для GBC
     },
     'gba': {
         'text_segment_patterns': [
             {'start_min': 0x083D0000, 'start_max': 0x083E0000, 'end_min': 0x08400000, 'end_max': 0x08420000}
-        ]
+        ],
+        'pointer_size': 4  # 32-битные указатели для GBA
     }
 }
 
 def get_segment_patterns(system: str) -> List[Dict]:
     """Получает типичные паттерны текстовых сегментов для системы"""
     return ROM_DATABASE.get(system, {}).get('text_segment_patterns', [])
+
+def get_pointer_size(system: str) -> int:
+    """Получает размер указателя для системы"""
+    size = ROM_DATABASE.get(system, {}).get('pointer_size', 2)
+    if size is None:
+        logger.warning(f"Неизвестный размер указателя для системы {system}, используем 2 по умолчанию")
+        return 2
+    return size

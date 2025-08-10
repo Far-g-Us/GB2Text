@@ -96,5 +96,11 @@
   "text.injecting": "Ввод перевода...",
   "file.save.rom": "Сохранить измененный ROM",
   "rom.loading": "Загрузка ROM файла",
-  "rom.loaded": "ROM загружен"
+  "rom.loaded": "ROM загружен",
+  "extraction.timeout.prompt": "Извлечение текста занимает больше {seconds} секунд. Продолжить в фоновом режиме?",
+  "text.extracting.background": "Извлечение текста в фоновом режиме...",
+  "extraction.success": "Извлечение текста успешно завершено",
+  "diagnostics.tab": "Диагностика",
+  "diagnostics.running": "Выполняется...",
+  "diagnostics.completed": "Завершено"
 }

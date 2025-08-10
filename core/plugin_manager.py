@@ -19,7 +19,7 @@ GB Text Extraction Framework
 Менеджер плагинов для динамической загрузки
 """
 
-import importlib, pkgutil, os, json, re
+import importlib, pkgutil, os, json, re, logging
 from pathlib import Path
 from typing import List, Optional, Dict
 from core.plugin import GamePlugin
@@ -75,25 +75,47 @@ class PluginManager:
 
     def _load_config_plugins(self) -> None:
         """Загружает конфигурационные плагины из JSON-файлов"""
+        logger = logging.getLogger('gb2text.plugin_manager')
         config_dir = Path(self.plugins_dir) / "config"
+
         if not config_dir.exists():
             config_dir.mkdir(parents=True, exist_ok=True)
+            logger.info("Создана директория для конфигураций: plugins/config")
             return
-            
+
+        loaded_configs = 0
+        max_configs = 20  # Ограничение на количество конфигураций
+
         for json_file in config_dir.glob("*.json"):
+            if loaded_configs >= max_configs:
+                logger.warning(f"Достигнуто максимальное количество конфигураций ({max_configs}). Остальные пропущены.")
+                break
+
             try:
                 with open(json_file) as f:
                     config = json.load(f)
-                
+
                 # Проверяем структуру конфигурации
                 if not self._is_valid_config(config):
-                    print(f"Пропущен некорректный конфиг: {json_file.name}")
+                    logger.warning(f"Пропущен некорректный конфиг: {json_file.name}")
                     continue
-                    
-                self.plugins.append(ConfigurablePlugin(config))
-                print(f"Загружена конфигурация: {json_file.name}")
+
+                # Проверяем на дубликаты
+                is_duplicate = False
+                for plugin in self.plugins:
+                    if hasattr(plugin, 'game_id_pattern') and plugin.game_id_pattern == config.get('game_id_pattern', ''):
+                        logger.info(f"Пропущен дубликат конфигурации: {json_file.name}")
+                        is_duplicate = True
+                        break
+
+                if not is_duplicate:
+                    self.plugins.append(ConfigurablePlugin(config))
+                    logger.info(f"Загружена конфигурация: {json_file.name}")
+                    loaded_configs += 1
             except Exception as e:
-                print(f"Ошибка загрузки конфигурации {json_file.name}: {str(e)}")
+                logger.error(f"Ошибка загрузки конфигурации {json_file.name}: {str(e)}")
+
+        logger.info(f"Загружено {loaded_configs} конфигураций")
 
     def _is_valid_config(self, config: dict) -> bool:
         """Проверяет, что конфигурация имеет правильную структуру"""
@@ -159,19 +181,36 @@ class PluginManager:
         with open(path, 'w') as f:
             json.dump(example, f, indent=2)
 
+    def _is_generic_charmap(self, charmap: dict) -> bool:
+        """Проверяет, является ли таблица символов общей"""
+        # Проверяем, содержит ли таблица символов специфичные для игр элементы
+        for value in charmap.values():
+            if re.search(r'PK|M[Nn]|POKéMON|ZELDA', value, re.IGNORECASE):
+                return False
+        return True
+
     def get_plugin(self, game_id: str, system: str = None) -> Optional[GamePlugin]:
         """Находит подходящий плагин для игры"""
+
+        logger = logging.getLogger('gb2text.plugin_manager')
+        logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
+
         # Сначала пытаемся найти специфичный плагин
         for plugin in self.plugins:
+            logger.debug(f"Проверка плагина {plugin.__class__.__name__} с шаблоном {plugin.game_id_pattern}")
             if re.match(plugin.game_id_pattern, game_id):
+                logger.info(f"Найден подходящий плагин: {plugin.__class__.__name__}")
                 return plugin
 
         # Если не найден, возвращаем базовый плагин для системы
         if system == 'gba':
+            logger.info("Используем GenericGBAPlugin по умолчанию")
             return GenericGBAPlugin()
         elif system == 'gbc':
+            logger.info("Используем GenericGBCPlugin по умолчанию")
             return GenericGBCPlugin()
         else:
+            logger.info("Используем GenericGBPlugin по умолчанию")
             return GenericGBPlugin()
 
 
@@ -186,10 +225,14 @@ class ConfigurablePlugin(GamePlugin):
         return self.config['game_id_pattern']
 
     def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
+        logger = logging.getLogger('gb2text.plugin_manager')
+        logger.info("Определение текстовых сегментов...")
+
         segments = []
         for seg in self.config['segments']:
             # Проверяем обязательные поля
             if 'start' not in seg or 'end' not in seg:
+                logger.warning("Сегмент пропущен: отсутствуют обязательные поля start или end")
                 continue
 
             # Безопасное преобразование start и end
@@ -205,27 +248,33 @@ class ConfigurablePlugin(GamePlugin):
                     end_addr = int(end_value, 16)
                 else:
                     end_addr = int(end_value)
+
+                logger.debug(f"Преобразованы адреса: start=0x{start_addr:X}, end=0x{end_addr:X}")
             except (ValueError, TypeError) as e:
-                print(f"Пропущен сегмент с недопасными адресами: {e}")
+                logger.error(f"Пропущен сегмент с недопустимыми адресами: {e}")
                 continue
 
             # Проверяем, что адреса в пределах ROM
             if start_addr >= len(rom.data) or end_addr > len(rom.data) or start_addr >= end_addr:
-                print(f"Пропущен сегмент с недопустимыми адресами: start={start_addr}, end={end_addr}, размер ROM={len(rom.data)}")
+                logger.error(f"Пропущен сегмент с недопустимыми адресами: start=0x{start_addr:X}, end=0x{end_addr:X}, размер ROM={len(rom.data)}")
                 continue
 
             # Автоматическое определение таблицы символов, если не предоставлена
             charmap = seg.get('charmap', {})
             if not charmap:
+                logger.info("Таблица символов не предоставлена, пытаемся определить автоматически")
                 try:
                     from core.scanner import auto_detect_charmap
                     charmap = auto_detect_charmap(rom.data, start_addr)
+                    logger.info(f"Автоопределена таблица символов с {len(charmap)} символами")
+                    logger.debug(f"Таблица символов: {charmap}")
                 except Exception as e:
-                    print(f"Ошибка автоопределения таблицы символов: {e}")
+                    logger.error(f"Ошибка автоопределения таблицы символов: {e}")
                     charmap = {}
 
             decoder = None
             if charmap:
+                logger.info("Создание декодера с таблицей символов")
                 from core.decoder import CharMapDecoder
                 decoder = CharMapDecoder(charmap)
 
@@ -233,9 +282,11 @@ class ConfigurablePlugin(GamePlugin):
             if 'compression' in seg and seg['compression'] == 'gba_lz77':
                 from core.gba_support import GBALZ77Handler
                 compression = GBALZ77Handler()
+                logger.info("Используется обработчик GBA LZ77 сжатия")
             elif 'compression' in seg and seg['compression'] == 'lz77':
                 from core.decoder import LZ77Handler
                 compression = LZ77Handler()
+                logger.info("Используется стандартный LZ77 обработчик")
 
             segments.append({
                 'name': seg['name'],
@@ -244,5 +295,9 @@ class ConfigurablePlugin(GamePlugin):
                 'decoder': decoder,
                 'compression': compression
             })
+            logger.info(f"Сегмент добавлен: {seg['name']} (0x{start_addr:X} - 0x{end_addr:X})")
+
+        if not segments:
+            logger.warning("Не найдено ни одного валидного текстового сегмента")
 
         return segments

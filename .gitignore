@@ -2,6 +2,7 @@
 .idea/
 .venv/
 env/
+installer.iss
 *.pyc
 1.txt
 */**/__pycache__/*
