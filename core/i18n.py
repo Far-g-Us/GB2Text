@@ -82,7 +82,8 @@ class I18N:
         """Возвращает доступные языки в формате код: название"""
         return {
             "en": "English",
-            "ru": "Русский"
+            "ru": "Русский",
+            "ja": "日本語"
         }
 
     def change_language(self, lang: str) -> None:

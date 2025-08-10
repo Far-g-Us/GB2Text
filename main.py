@@ -20,7 +20,7 @@ GB Text Extraction Framework
 Универсальный фреймворк для извлечения текста из Game Boy ROM с поддержкой плагинов
 """
 
-import argparse, json
+import argparse, json, logging
 from pathlib import Path
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
@@ -44,6 +44,23 @@ def get_version():
         return "1.0.0"
 
 def main():
+    logging.basicConfig(
+        level=logging.DEBUG,  # Изменено с INFO на DEBUG для более детального лога
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        filename='gb2text.log',
+        filemode='w'  # 'w' перезаписывает файл при каждом запуске, 'a' дописывает
+    )
+    # Добавим вывод в консоль для отладки
+    console = logging.StreamHandler()
+    console.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(name)s - %(levelname)s - %(message)s')
+    console.setFormatter(formatter)
+    logging.getLogger('').addHandler(console)
+
+    logger = logging.getLogger('gb2text')
+    logger.info("Запуск GB Text Extraction Framework")
+    logger.debug("Запуск в режиме отладки")
+
     parser = argparse.ArgumentParser(description='Game Boy Text Extractor')
     parser.add_argument('rom', nargs='?', help='Путь к ROM-файлу')
     parser.add_argument('--output', default='text', choices=['text', 'json', 'csv'],

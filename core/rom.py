@@ -19,8 +19,8 @@ GB Text Extraction Framework
 Модуль для работы с ROM-файлами Game Boy, Game Boy Color и Game Boy Advance
 """
 
-import re
-from typing import Dict, Any
+import logging
+from typing import Dict
 from core.mbc import create_mbc
 
 
@@ -28,7 +28,11 @@ class GameBoyROM:
     """Загрузка и базовый анализ ROM-файла"""
 
     def __init__(self, rom_path: str):
+        logger = logging.getLogger('gb2text.rom')
+        logger.info(f"Загрузка ROM из файла: {rom_path}")
+
         if not isinstance(rom_path, str):
+            logger.error(f"rom_path должен быть строкой, а не {type(rom_path)}")
             raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
 
         self.path = rom_path
@@ -36,21 +40,27 @@ class GameBoyROM:
         self.header = self._parse_header()
         self.system = self._detect_system()
         self.mbc = create_mbc(self.data, self.header['cartridge_type'])
+        logger.info(f"ROM загружен успешно. Размер: {len(self.data)} байт")
+        logger.info(f"Определена система: {self.system}")
+        logger.debug(f"Заголовок ROM: {self.header}")
 
     def _load_rom(self, rom_path: str) -> bytearray:
-        """Загружает ROM-файл в память"""
-        with open(rom_path, 'rb') as f:
-            return bytearray(f.read())
+        logger = logging.getLogger('gb2text.rom')
+        logger.info(f"Чтение данных из файла: {rom_path}")
+
+        try:
+            with open(rom_path, 'rb') as f:
+                data = bytearray(f.read())
+            logger.info(f"Успешно прочитано {len(data)} байт")
+            return data
+        except Exception as e:
+            logger.error(f"Ошибка при чтении ROM файла: {str(e)}")
+            raise
 
     def _parse_header(self) -> Dict:
         """Парсинг заголовка ROM"""
         if len(self.data) < 0x150:
             raise ValueError("Недопустимый ROM файл: слишком маленький")
-
-        # Проверяем, является ли это Game Boy Advance ROM
-        is_gba = False
-        if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
-            is_gba = True
 
         # Извлекаем данные заголовка
         try:
@@ -83,28 +93,37 @@ class GameBoyROM:
 
     def _detect_system(self) -> str:
         """Определение системы по сигнатуре ROM"""
+        logger = logging.getLogger('gb2text.rom')
+        logger.info("Определение типа системы...")
+
         # Проверка на Game Boy Advance
         if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
+            logger.info("Определена система: Game Boy Advance (gba)")
             return 'gba'
 
         # Проверка на Game Boy Color
         if self.header['cgb_flag'] == 0x80 or self.header['cgb_flag'] == 0xC0:
+            logger.info("Определена система: Game Boy Color (gbc)")
             return 'gbc'
 
         # Проверка на Game Boy Pocket/Color по заголовку
         if self.header['new_licensee_code'] == 0x33:
+            logger.info("Определена система: Game Boy Color (gbc)")
             return 'gbc'
 
         # Проверка на Game Boy по заголовку
         if self.header['header_checksum'] != 0:
+            logger.info("Определена система: Game Boy (gb)")
             return 'gb'
 
         # Проверка по размеру ROM
         rom_size = self.header['rom_size']
         if rom_size <= 8:  # До 8 MB
+            logger.warning("Не удалось точно определить систему, используем Game Boy (gb) по умолчанию")
             return 'gb'
         else:
             return 'gbc'
+
 
     def get_game_id(self) -> str:
         """Возвращает идентификатор игры"""
