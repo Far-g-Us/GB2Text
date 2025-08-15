@@ -45,7 +45,7 @@ class GBTextExtractorGUI:
         self.i18n = I18N(default_lang=self.ui_lang.get())
         self.root = root
         self.root.title(self.i18n.t("app.title"))
-        self.root.geometry("1100x700")
+        self.root.geometry("1100x800")
 
         self._set_app_icon()
 
@@ -61,7 +61,6 @@ class GBTextExtractorGUI:
         self.current_segment = None
         self.current_entries = None
         self.current_entry_index = 0
-        #self.apply_encoding = None
 
         # Обработчик закрытия окна
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -194,39 +193,53 @@ class GBTextExtractorGUI:
         main_frame.pack(fill="both", expand=True)
 
         # Левая панель: список сегментов
-        left_frame = ttk.Frame(main_frame)
+        left_frame = ttk.LabelFrame(main_frame, text=self.i18n.t("text.segments"), padding="5")
         left_frame.pack(side="left", fill="y", padx=(0, 10))
 
-        ttk.Label(left_frame, text=self.i18n.t("text.segments")).pack(anchor="w")
-        self.segments_list = tk.Listbox(left_frame, width=25, height=20)
-        self.segments_list.pack(fill="y", expand=True)
+        # Контейнер для списка сегментов со скроллбаром
+        segments_container = ttk.Frame(left_frame)
+        segments_container.pack(fill="both", expand=True)
+
+        self.segments_list = tk.Listbox(segments_container, width=25, height=20)
+        segments_scrollbar = ttk.Scrollbar(segments_container, orient="vertical", command=self.segments_list.yview)
+
+        self.segments_list.pack(side="left", fill="both", expand=True)
+        segments_scrollbar.pack(side="right", fill="y")
+
+        self.segments_list.config(yscrollcommand=segments_scrollbar.set)
         self.segments_list.bind('<<ListboxSelect>>', self.on_segment_select)
 
         # Правая панель: просмотр текста
-        right_frame = ttk.Frame(main_frame)
+        right_frame = ttk.LabelFrame(main_frame, text=self.i18n.t("segment.content"), padding="5")
         right_frame.pack(side="right", fill="both", expand=True)
-
-        ttk.Label(right_frame, text=self.i18n.t("segment.content")).pack(anchor="w")
 
         # Панель инструментов для просмотра
         toolbar = ttk.Frame(right_frame)
-        toolbar.pack(fill="x", expand=False)
+        toolbar.pack(fill="x", expand=False, pady=(0, 5))
 
         ttk.Button(toolbar, text=self.i18n.t("export.json"), command=self.export_json).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("export.txt"), command=self.export_txt).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("extract.text"), command=self.switch_to_edit_tab).pack(side="left", padx=2)
 
-        # Текстовая область с прокруткой
-        text_frame = ttk.Frame(right_frame)
-        text_frame.pack(fill="both", expand=True)
+        self.text_output = scrolledtext.ScrolledText(
+            right_frame,
+            wrap="word",
+            font=("Consolas", 10),
+            state="normal"
+        )
+        self.text_output.pack(fill="both", expand=True)
 
-        self.text_output = scrolledtext.ScrolledText(text_frame, wrap="word", font=("Consolas", 10))
-        self.text_output.pack(side="left", fill="both", expand=True)
-
-        scrollbar = ttk.Scrollbar(text_frame, command=self.text_output.yview)
-        scrollbar.pack(side="right", fill="y")
-
-        self.text_output.config(yscrollcommand=scrollbar.set)
+        # # Текстовая область с прокруткой
+        # text_frame = ttk.Frame(right_frame)
+        # text_frame.pack(fill="both", expand=True)
+        #
+        # self.text_output = scrolledtext.ScrolledText(text_frame, wrap="word", font=("Consolas", 10))
+        # self.text_output.pack(side="left", fill="both", expand=True)
+        #
+        # scrollbar = ttk.Scrollbar(text_frame, command=self.text_output.yview)
+        # scrollbar.pack(side="right", fill="y")
+        #
+        # self.text_output.config(yscrollcommand=scrollbar.set)
 
     def _setup_edit_tab(self):
         """Настройка вкладки редактирования текста"""
@@ -759,7 +772,11 @@ class GBTextExtractorGUI:
 
     def on_segment_select(self, event):
         """Обработка выбора сегмента"""
+        # Очищаем текстовую область
+        self.text_output.delete(1.0, tk.END)
+
         if not self.current_results:
+            self.text_output.insert(tk.END, "Нет данных для отображения")
             return
 
         # Получаем выбранный сегмент
@@ -772,17 +789,20 @@ class GBTextExtractorGUI:
 
         # Проверяем, есть ли такой сегмент в результатах
         if segment_name not in self.current_results:
-            messagebox.showerror(
-                self.i18n.t("error.title"),
-                self.i18n.t("extraction.error", error="Segment not found")
-            )
-            self.set_status(self.i18n.t("status.error"))
+            self.text_output.insert(tk.END, "Сегмент не найден")
             return
+
+        # Отображаем содержимое сегмента в текстовой области
+        entries = self.current_results[segment_name]
+        for i, entry in enumerate(entries):
+            self.text_output.insert(tk.END, f"[{i + 1:04d}] {entry['text']}\n\n")
+
+        # Прокручиваем к началу
+        self.text_output.see(1.0)
 
         self.current_segment = segment_name
         self.current_entries = self.current_results[segment_name]
         self.current_entry_index = 0
-        self._display_current_entry()
         self.set_status(self.i18n.t("text.extracted"))
 
     def export_json(self):
@@ -801,7 +821,7 @@ class GBTextExtractorGUI:
                 json.dump(self.current_results, f, indent=2, ensure_ascii=False)
             messagebox.showinfo(
                 self.i18n.t("success.title"),
-                self.i18n.t("export.txt.success")
+                self.i18n.t("export.json.success")
             )
 
     def export_txt(self):
@@ -992,10 +1012,10 @@ class GBTextExtractorGUI:
             page_index = (current_page - 1) * page_size
             display_entries = self.current_entries[page_index:page_index + page_size]
 
-            # Обновляем информацию о текущей записи
-            self.entry_label.config(
-                text=f"{self.i18n.t('entry')}: {page_index + 1}-{min(page_index + len(display_entries), len(self.current_entries))} из {len(self.current_entries)}"
-            )
+            # # Обновляем информацию о текущей записи
+            # self.entry_label.config(
+            #     text=f"{self.i18n.t('entry')}: {page_index + 1}-{min(page_index + len(display_entries), len(self.current_entries))} из {len(self.current_entries)}"
+            # )
 
             # Обновляем информацию о текущей записи
             self.entry_label.config(text=f"{self.i18n.t('entry')}: {self.current_entry_index + 1} из {len(self.current_entries)}")
