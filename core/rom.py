@@ -131,12 +131,6 @@ class GameBoyROM:
         cartridge_type = self.header['cartridge_type']
         return f"GAME_{cartridge_type:02X}"
 
-    def is_gba(self) -> bool:
-        return self.system == 'gba'
-
-    def is_gbc(self) -> bool:
-        return self.system == 'gbc'
-
     def read(self, address: int) -> int:
         """Чтение из ROM с учетом MBC"""
         if 0x0000 <= address < 0x8000:

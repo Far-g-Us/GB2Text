@@ -29,7 +29,7 @@ from core.i18n import I18N
 from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
-from core.plugin_manager import PluginManager
+from core.plugin_manager import PluginManager, CancellationToken
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
 from core.scanner import analyze_text_segment
 
@@ -71,6 +71,7 @@ class GBTextExtractorGUI:
 
         self.show_warning_dialog()
         self._setup_ui()
+        self._setup_context_menu()
 
         # Если указан ROM при запуске, сразу загружаем
         if rom_path:
@@ -175,7 +176,7 @@ class GBTextExtractorGUI:
             row.pack(fill="x", expand=True)
 
             # Создаем метку с названием
-            label = ttk.Label(row, text=self.i18n.t(i18n_key) + ":", width=20)
+            label = ttk.Label(row, text=self.i18n.t(i18n_key) + ":", width=26)
             label.pack(side="left")
 
             # Создаем метку с данными
@@ -247,35 +248,68 @@ class GBTextExtractorGUI:
 
         ttk.Button(segment_frame, text=self.i18n.t("extract.text"), command=self.load_segment).pack(side="left")
 
-        # Панель редактирования
-        edit_frame = ttk.Frame(self.edit_tab, padding="10")
-        edit_frame.pack(fill="both", expand=True)
+        # Панель для отображения текущей записи
+        entry_frame = ttk.Frame(self.edit_tab, padding="5")
+        entry_frame.pack(fill="both", expand=True)
 
-        # Левая панель: оригинал
-        left_frame = ttk.LabelFrame(edit_frame, text=self.i18n.t("original.text"), padding="5")
-        left_frame.pack(side="left", fill="both", expand=True, padx=(0, 5))
+        # Панель кнопок
+        button_frame = ttk.Frame(entry_frame)
+        button_frame.pack(fill="x", pady=(0, 0))
 
-        self.original_text = scrolledtext.ScrolledText(left_frame, wrap="word", font=("Consolas", 10), state="disabled")
+        ttk.Button(button_frame, text=self.i18n.t("save.translation"),
+                   command=self.save_translation).pack(side="left", padx=2)
+        ttk.Button(button_frame, text=self.i18n.t("inject.translation"),
+                   command=self.inject_translation).pack(side="left", padx=2)
+
+        # Добавляем пагинацию
+        pagination_frame = ttk.Frame(entry_frame)
+        pagination_frame.pack(fill="x", pady=(0, 10))
+
+        self.page_var = tk.IntVar(value=1)
+        self.total_pages_var = tk.IntVar(value=1)
+
+        # ttk.Label(pagination_frame, text=self.i18n.t("page")).pack(side="left")
+        # ttk.Entry(pagination_frame, textvariable=self.page_var, width=5).pack(side="left")
+        # ttk.Label(pagination_frame, text=self.i18n.t("of")).pack(side="left")
+        # ttk.Label(pagination_frame, textvariable=self.total_pages_var).pack(side="left")
+
+        # Панель с оригинальным текстом
+        original_frame = ttk.LabelFrame(entry_frame, text=self.i18n.t("original.text"))
+        original_frame.pack(fill="both", expand=True, pady=(0, 10))
+
+        self.original_text = scrolledtext.ScrolledText(original_frame, wrap="word",
+                                                       height=8, state="disabled")
         self.original_text.pack(fill="both", expand=True)
 
-        # Правая панель: перевод
-        right_frame = ttk.LabelFrame(edit_frame, text=self.i18n.t("translated.text"), padding="5")
-        right_frame.pack(side="right", fill="both", expand=True, padx=(5, 0))
+        # Панель с переводом
+        translation_frame = ttk.LabelFrame(entry_frame, text=self.i18n.t("translated.text"))
+        translation_frame.pack(fill="both", expand=True)
 
-        self.translated_text = scrolledtext.ScrolledText(right_frame, wrap="word", font=("Consolas", 10))
+        self.translated_text = scrolledtext.ScrolledText(translation_frame, wrap="word",
+                                                         height=8)
         self.translated_text.pack(fill="both", expand=True)
 
-        # Панель навигации и сохранения
-        nav_frame = ttk.Frame(self.edit_tab, padding="10")
-        nav_frame.pack(fill="x", expand=False)
+        # Панель навигации
+        nav_frame = ttk.Frame(entry_frame)
+        nav_frame.pack(fill="x", pady=(5, 0))
 
-        self.entry_info = ttk.Label(nav_frame, text=self.i18n.t("entry", current=0, total=0))
-        self.entry_info.pack(side="left", padx=(0, 20))
+        self.prev_btn = ttk.Button(nav_frame, text=self.i18n.t("prev.entry"),
+                                   command=self.prev_entry)
+        self.prev_btn.pack(side="left")
 
-        ttk.Button(nav_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry).pack(side="left", padx=5)
-        ttk.Button(nav_frame, text=self.i18n.t("next.entry"), command=self.next_entry).pack(side="left", padx=5)
-        ttk.Button(nav_frame, text=self.i18n.t("save.translation"), command=self.save_translation).pack(side="left", padx=20)
-        ttk.Button(nav_frame, text=self.i18n.t("inject.translation"), command=self.inject_translation).pack(side="left", padx=5)
+        self.entry_label = ttk.Label(nav_frame, text="")
+        self.entry_label.pack(side="left", padx=0)
+
+        self.next_btn = ttk.Button(nav_frame, text=self.i18n.t("next.entry"),
+                                   command=self.next_entry)
+        self.next_btn.pack(side="right")
+
+        # Добавляем поддержку горячих клавиш
+        self.original_text.bind("<Control-c>", lambda e: self.copy_original_text())
+        self.translated_text.bind("<Control-v>", lambda e: self.paste_translation())
+        self.translated_text.bind("<Control-V>", lambda e: self.paste_translation())
+        self.translated_text.bind("<Control-Left>", self.prev_segment)
+        self.translated_text.bind("<Control-Right>", self.next_segment)
 
     def _setup_settings_tab(self):
         """Настройка вкладки настроек"""
@@ -328,24 +362,6 @@ class GBTextExtractorGUI:
         # Сохранение настроек
         ttk.Button(settings_frame, text=self.i18n.t("save.settings"), command=self.save_settings).pack(pady=10)
 
-    def _setup_guide_tab(self):
-        """Настройка вкладки руководства"""
-        guide_frame = ttk.Frame(self.guide_tab, padding="10")
-        guide_frame.pack(fill="both", expand=True)
-
-        # Панель управления
-        control_frame = ttk.Frame(guide_frame)
-        control_frame.pack(fill="x", expand=False, pady=(0, 10))
-
-        ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template).pack(side="left", padx=5)
-        ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide).pack(side="left", padx=5)
-        ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide).pack(side="left", padx=5)
-
-        # Текстовое представление руководства
-        self.guide_text = scrolledtext.ScrolledText(guide_frame, wrap="word", font=("Consolas", 10))
-        self.guide_text.pack(fill="both", expand=True)
-        self.guide_text.config(state="disabled")
-
     def refresh_guide_tab(self):
         """Обновляет текст вкладки руководства"""
         if hasattr(self, 'load_template_btn'):
@@ -367,6 +383,8 @@ class GBTextExtractorGUI:
         # Создаем базовую структуру конфигурации
         game_id = self.current_rom.get_game_id()
         config = {
+            "name": f"UserConfig_{game_id}",
+            "description": f"Auto-generated config for {game_id}",
             "user_created": True,
             "game_id_pattern": f"^{game_id}$",
             "segments": []
@@ -384,19 +402,40 @@ class GBTextExtractorGUI:
             segments = plugin.get_text_segments(self.current_rom)
 
             for seg in segments:
+                # Используем extractor для определения таблицы символов
+                charmap = None
+                if seg['decoder']:
+                    # Если декодер уже определен, извлекаем таблицу символов
+                    charmap = {}
+                    for byte, char in seg['decoder'].charmap.items():
+                        charmap[f"0x{byte:02X}"] = char
+
                 config["segments"].append({
                     "name": seg["name"],
                     "start": f"0x{seg['start']:04X}",
                     "end": f"0x{seg['end']:04X}",
-                    # Таблица символов будет определена при использовании
+                    "charmap": charmap,
+                    "compression": seg.get('compression')
                 })
-        except:
-            # Если автоопределение не сработало, создаем шаблон с ВАЛИДНЫМИ адресами
-            config["segments"].append({
-                "name": "main_text",
-                "start": "0x4000",
-                "end": "0x7FFF"
-            })
+
+            # Сохраняем конфигурацию
+            config_dir = Path("plugins/config")
+            config_dir.mkdir(parents=True, exist_ok=True)
+            config_path = config_dir / f"{game_id.lower()}_config.json"
+
+            with open(config_path, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("config.created", path=str(config_path))
+            )
+
+        except Exception as e:
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("config.error") + f": {str(e)}"
+            )
 
         # Сохраняем конфигурацию
         config_dir = Path("plugins/config")
@@ -610,11 +649,15 @@ class GBTextExtractorGUI:
     def extract_text(self):
         """Извлечение текста из ROM"""
         if not self.rom_path.get():
-            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
             return
 
         try:
-            self.cancel_extraction = False
+            self.cancel_requested = False
+            self.cancellation_token = CancellationToken()
             self.set_status(self.i18n.t("text.extracting"), 0)
 
             # Добавляем кнопку отмены
@@ -625,31 +668,14 @@ class GBTextExtractorGUI:
             )
             self.cancel_button.pack(side="right", padx=5)
 
-            # Сброс флагов из предыдущих попыток
-            if hasattr(self, 'extraction_timed_out'):
-                delattr(self, 'extraction_timed_out')
-            if hasattr(self, 'extraction_error'):
-                delattr(self, 'extraction_error')
-            if hasattr(self, 'current_results'):
-                delattr(self, 'current_results')
-
-            # Запускаем извлечение в отдельном потоке с таймаутом
+            # Запускаем извлечение в отдельном потоке
             def extract_task():
                 try:
-                    self.set_status(self.i18n.t("plugin.searching"), 5)
-
-                    # Передаем self в plugin_manager для обновления статуса
-                    plugin_manager = PluginManager()
-                    plugin_manager.update_status = self.set_status
-                    plugin_manager.root = self.root
-
-                    extractor = TextExtractor(self.rom_path.get(), plugin_manager=plugin_manager)
+                    extractor = TextExtractor(
+                        self.rom_path.get(),
+                        cancellation_token=self.cancellation_token
+                    )
                     self.current_results = extractor.extract()
-
-                    # Получаем отчет о валидации
-                    from core.analyzer import TextAnalyzer
-                    self.validation_report = TextAnalyzer.validate_extraction(self.current_rom, self.current_results)
-
                     return True
                 except Exception as e:
                     self.extraction_error = e
@@ -664,7 +690,7 @@ class GBTextExtractorGUI:
             start_time = time.time()
             last_update = 0
 
-            while extraction_thread.is_alive() and not self.cancel_extraction:
+            while extraction_thread.is_alive():
                 elapsed = time.time() - start_time
 
                 # Обновляем прогресс каждые 0.5 секунды
@@ -677,30 +703,25 @@ class GBTextExtractorGUI:
                     )
                     last_update = elapsed
 
+                # Проверяем, не запрошена ли отмена
+                if self.cancel_requested:
+                    self.cancellation_token.cancel()
+
                 time.sleep(0.1)
                 self.root.update()
 
             # Удаляем кнопку отмены
-            self.cancel_button.pack_forget()
+            if hasattr(self, 'cancel_button') and self.cancel_button.winfo_exists():
+                self.cancel_button.destroy()
 
-            if self.cancel_extraction:
+            # Проверяем, была ли отмена
+            if self.cancel_requested:
                 self.set_status(self.i18n.t("status.ready"))
                 return
 
             # Проверяем результат
             if hasattr(self, 'extraction_error'):
                 raise self.extraction_error
-
-            # Проверяем отчет о валидации
-            if hasattr(self, 'validation_report'):
-                success_rate = self.validation_report['success_rate']
-
-                # Показываем предупреждение, если уровень достоверности низкий
-                if success_rate < 0.7:
-                    messagebox.showwarning(
-                        self.i18n.t("warning.title"),
-                        self.i18n.t("extraction.low_confidence", rate=int(success_rate * 100))
-                    )
 
             # Очистка списка сегментов
             self.segments_list.delete(0, tk.END)
@@ -733,7 +754,7 @@ class GBTextExtractorGUI:
 
     def _cancel_extraction(self):
         """Отмена процесса извлечения текста"""
-        self.cancel_extraction = True
+        self.cancel_requested = True
         self.set_status(self.i18n.t("extraction.canceled"))
 
     def on_segment_select(self, event):
@@ -741,20 +762,28 @@ class GBTextExtractorGUI:
         if not self.current_results:
             return
 
+        # Получаем выбранный сегмент
         selection = self.segments_list.curselection()
         if not selection:
             return
 
-        segment_name = self.segments_list.get(selection[0])
-        segment_data = self.current_results[segment_name]
+        segment_index = selection[0]
+        segment_name = self.segments_list.get(segment_index)
 
-        # Очистка текстовой области
-        self.text_output.delete(1.0, tk.END)
+        # Проверяем, есть ли такой сегмент в результатах
+        if segment_name not in self.current_results:
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("extraction.error", error="Segment not found")
+            )
+            self.set_status(self.i18n.t("status.error"))
+            return
 
-        # Заполнение текстовой области
-        for item in segment_data:
-            self.text_output.insert(tk.END, f"Offset: 0x{item['offset']:04X}\n")
-            self.text_output.insert(tk.END, f"{item['text']}\n\n")
+        self.current_segment = segment_name
+        self.current_entries = self.current_results[segment_name]
+        self.current_entry_index = 0
+        self._display_current_entry()
+        self.set_status(self.i18n.t("text.extracted"))
 
     def export_json(self):
         """Экспорт результатов в JSON"""
@@ -897,7 +926,10 @@ class GBTextExtractorGUI:
     def load_segment(self):
         """Загрузка выбранного сегмента для редактирования"""
         if not self.current_rom or not self.text_injector:
-            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("select.rom"))
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("select.rom")
+            )
             return
 
         segment_name = self.segment_var.get()
@@ -907,90 +939,220 @@ class GBTextExtractorGUI:
         try:
             self.set_status(self.i18n.t("status.loading"), 0)
 
-            # Получаем плагин для текущей игры
-            plugin = self.plugin_manager.get_plugin(self.current_rom.get_game_id())
-            if not plugin:
+            # ИСПОЛЬЗУЕМ УЖЕ ИЗВЛЕЧЕННЫЕ РЕЗУЛЬТАТЫ
+            if not hasattr(self, 'current_results') or not self.current_results:
+                messagebox.showwarning(
+                    self.i18n.t("warning.title"),
+                    self.i18n.t("extract.text.first")
+                )
+                return
+
+            # Проверяем, есть ли такой сегмент в результатах
+            if segment_name not in self.current_results:
                 messagebox.showerror(
                     self.i18n.t("error.title"),
-                    self.i18n.t("plugin.not.found")
+                    self.i18n.t("segment.not.found")
                 )
                 self.set_status(self.i18n.t("status.error"))
                 return
 
-            # Получаем сегмент
-            segments = plugin.get_text_segments(self.current_rom)
-            segment = next((s for s in segments if s['name'] == segment_name), None)
-            if not segment:
-                messagebox.showerror(
-                    self.i18n.t("error.title"),
-                    self.i18n.t("extraction.error", error="Segment not found")
-                )
-                self.set_status(self.i18n.t("status.error"))
-                return
-
-            self.current_segment = segment
-
-            # Извлекаем текст из сегмента
-            extractor = TextExtractor(self.rom_path.get())
-            results = extractor.extract()
-
-            if segment_name not in results:
-                messagebox.showerror(
-                    self.i18n.t("error.title"),
-                    self.i18n.t("extraction.error", error="Failed to extract text from this segment")
-                )
-                self.set_status(self.i18n.t("status.error"))
-                return
-
-            self.current_entries = results[segment_name]
+            self.current_segment = segment_name
+            self.current_entries = self.current_results[segment_name]
             self.current_entry_index = 0
+
             self._display_current_entry()
-
-            self.set_status(self.i18n.t("text.extracted"))
-
+            self.set_status(self.i18n.t("segment.loaded"))
 
         except Exception as e:
             self.set_status(self.i18n.t("status.error"))
             messagebox.showerror(
                 self.i18n.t("error.title"),
-                self.i18n.t("extraction.error", error=str(e))
+                self.i18n.t("segment.load.error", error=str(e))
             )
 
     def _display_current_entry(self):
         """Отображение текущей записи для редактирования"""
+        logger = logging.getLogger('gb2text.gui')
+
         if not self.current_entries:
+            logger.warning("Попытка отобразить запись, но current_entries пуст")
             return
 
-        # Обновляем информацию о текущей записи
-        self.entry_info.config(text=f"{self.i18n.t('entry')}: {self.current_entry_index + 1} из {len(self.current_entries)}")
+        try:
+            # Определяем текущую страницу и размер страницы
+            page_size = 20  # Количество записей на странице
+            current_page = self.page_var.get()
+            total_pages = (len(self.current_entries) + page_size - 1) // page_size
 
-        # Отображаем оригинал
-        self.original_text.config(state="normal")
-        self.original_text.delete(1.0, tk.END)
-        self.original_text.insert(tk.END, self.current_entries[self.current_entry_index]['text'])
-        self.original_text.config(state="disabled")
+            # Обновляем информацию о текущей странице
+            self.total_pages_var.set(total_pages)
+            self.page_var.set(min(current_page, total_pages))
 
-        # Отображаем перевод (если есть)
-        self.translated_text.delete(1.0, tk.END)
-        # Здесь можно загрузить сохраненный перевод
+            # Вычисляем индекс записи на текущей странице
+            page_index = (current_page - 1) * page_size
+            display_entries = self.current_entries[page_index:page_index + page_size]
 
-    def prev_entry(self):
-        """Переход к предыдущей записи"""
-        if not self.current_entries:
-            return
+            # Обновляем информацию о текущей записи
+            self.entry_label.config(
+                text=f"{self.i18n.t('entry')}: {page_index + 1}-{min(page_index + len(display_entries), len(self.current_entries))} из {len(self.current_entries)}"
+            )
 
+            # Обновляем информацию о текущей записи
+            self.entry_label.config(text=f"{self.i18n.t('entry')}: {self.current_entry_index + 1} из {len(self.current_entries)}")
+
+            # Отображаем оригинал
+            self.original_text.config(state="normal")
+            self.original_text.delete(1.0, tk.END)
+
+            if display_entries:
+                for i, entry in enumerate(display_entries):
+                    self.original_text.insert(tk.END, f"[{page_index + i + 1}] {entry['text']}\n\n")
+
+            self.original_text.config(state="disabled")
+
+            # Отображаем перевод
+            self.translated_text.config(state="normal")
+            self.translated_text.delete(1.0, tk.END)
+
+            if display_entries:
+                for i, entry in enumerate(display_entries):
+                    translation = entry.get('translation', '')
+                    self.translated_text.insert(tk.END, f"[{page_index + i + 1}] {translation}\n\n")
+
+            self.translated_text.config(state="normal")
+
+        except Exception as e:
+            logger.error(f"Ошибка при отображении записи: {str(e)}")
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("display.error", error=str(e))
+            )
+
+    def prev_entry(self, event=None):
+        """Переход к предыдущей записи или сегменту"""
         if self.current_entry_index > 0:
             self.current_entry_index -= 1
             self._display_current_entry()
+        else:
+            # Переход к последней записи предыдущего сегмента
+            segment_names = list(self.current_results.keys())
+            current_index = segment_names.index(self.current_segment)
 
-    def next_entry(self):
-        """Переход к следующей записи"""
-        if not self.current_entries:
-            return
+            if current_index > 0:
+                prev_segment = segment_names[current_index - 1]
+                self.current_segment = prev_segment
+                self.current_entries = self.current_results[prev_segment]
+                self.current_entry_index = len(self.current_entries) - 1
+                self._display_current_entry()
+                self._update_segment_selector()
 
+    def next_entry(self, event=None):
+        """Переход к следующей записи или сегменту"""
         if self.current_entry_index < len(self.current_entries) - 1:
             self.current_entry_index += 1
             self._display_current_entry()
+        else:
+            # Переход к первой записи следующего сегмента
+            segment_names = list(self.current_results.keys())
+            current_index = segment_names.index(self.current_segment)
+
+            if current_index < len(segment_names) - 1:
+                next_segment = segment_names[current_index + 1]
+                self.current_segment = next_segment
+                self.current_entries = self.current_results[next_segment]
+                self.current_entry_index = 0
+                self._display_current_entry()
+                self._update_segment_selector()
+
+    def _update_segment_selector(self):
+        """Обновляет выбор в селекторе сегментов"""
+        if hasattr(self, 'segment_combo') and self.current_segment in self.segment_combo['values']:
+            self.segment_combo.current(self.segment_combo['values'].index(self.current_segment))
+
+    def prev_segment(self, event=None):
+        """Переход к предыдущему сегменту"""
+        segment_names = list(self.current_results.keys())
+        current_index = segment_names.index(self.current_segment)
+
+        if current_index > 0:
+            prev_segment = segment_names[current_index - 1]
+            self.current_segment = prev_segment
+            self.current_entries = self.current_results[prev_segment]
+            self.current_entry_index = 0
+            self._display_current_entry()
+            self._update_segment_selector()
+
+    def next_segment(self, event=None):
+        """Переход к следующему сегменту"""
+        segment_names = list(self.current_results.keys())
+        current_index = segment_names.index(self.current_segment)
+
+        if current_index < len(segment_names) - 1:
+            next_segment = segment_names[current_index + 1]
+            self.current_segment = next_segment
+            self.current_entries = self.current_results[next_segment]
+            self.current_entry_index = 0
+            self._display_current_entry()
+            self._update_segment_selector()
+
+    def copy_original_text(self):
+        """Копирование оригинального текста в буфер обмена"""
+        if not self.current_entries or self.current_entry_index < 0:
+            return
+
+        original_text = self.current_entries[self.current_entry_index]['text']
+        self.root.clipboard_clear()
+        self.root.clipboard_append(original_text)
+        self.root.update()  # Это нужно, чтобы буфер обмена обновился
+
+        self.set_status(self.i18n.t("text.copied"), 100)
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            self.i18n.t("original.copied")
+        )
+
+    def paste_translation(self):
+        """Вставка перевода из буфера обмена"""
+        try:
+            # Получаем текст из буфера обмена
+            clipboard_text = self.root.clipboard_get()
+
+            # Очищаем текущее поле перевода
+            self.translated_text.delete(1.0, tk.END)
+
+            # Вставляем текст
+            self.translated_text.insert(tk.END, clipboard_text)
+
+            self.set_status(self.i18n.t("translation.pasted"), 100)
+        except tk.TclError:
+            # Буфер обмена пуст
+            messagebox.showinfo(
+                self.i18n.t("info.title"),
+                self.i18n.t("clipboard.empty")
+            )
+
+    def _setup_context_menu(self):
+        """Настройка контекстного меню для текстовых полей"""
+        self.context_menu = tk.Menu(self.root, tearoff=0)
+        self.context_menu.add_command(
+            label=self.i18n.t("copy.original"),
+            command=self.copy_original_text
+        )
+        self.context_menu.add_command(
+            label=self.i18n.t("paste.translation"),
+            command=self.paste_translation
+        )
+
+        # Привязываем контекстное меню к текстовым полям
+        self.original_text.bind("<Button-3>", self.show_context_menu)
+        self.translated_text.bind("<Button-3>", self.show_context_menu)
+
+    def show_context_menu(self, event):
+        """Показывает контекстное меню"""
+        try:
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.context_menu.grab_release()
 
     def save_translation(self):
         """Сохранение перевода текущей записи"""
@@ -1427,14 +1589,9 @@ class GBTextExtractorGUI:
         control_frame = ttk.Frame(guide_frame)
         control_frame.pack(fill="x", expand=False, pady=(0, 10))
 
-        self.load_template_btn = ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template)
-        self.load_template_btn.pack(side="left", padx=5)
-
-        self.save_guide_btn = ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide)
-        self.save_guide_btn.pack(side="left", padx=5)
-
-        self.apply_guide_btn = ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide)
-        self.apply_guide_btn.pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template).pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide).pack(side="left", padx=5)
+        ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide).pack(side="left", padx=5)
 
         # Панель оценки
         rating_frame = ttk.Frame(control_frame)
@@ -1547,7 +1704,7 @@ def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         filename='gb2text.log',
-        filemode='a'  # 'a' дописывает в существующий файл
+        filemode='w'  # 'w' перезаписывает файл при каждом запуске, 'a' дописывает
     )
     logger = logging.getLogger('gb2text')
     logger.info("Запуск GUI версии")

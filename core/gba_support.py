@@ -68,26 +68,26 @@ class GBALZ77Handler(CompressionHandler):
         return bytes(output), i
 
 
-def analyze_gba_text_regions(rom: GameBoyROM) -> list:
-    """Анализ GBA ROM для поиска текстовых регионов"""
-    # GBA использует другие адреса и структуры
-    text_regions = []
-
-    # Стандартные области для GBA
-    # Обычно текст находится в .text или .data секциях
-    # Нужно искать последовательности ASCII-подобных символов
-
-    for offset in range(0x08000000, len(rom.data), 0x1000):
-        # Проверяем каждые 4KB
-        region = rom.data[offset:offset + 0x1000]
-        if is_potential_text_region(region):
-            text_regions.append({
-                'start': offset,
-                'end': offset + 0x1000,
-                'confidence': calculate_confidence(region)
-            })
-
-    return text_regions
+# def analyze_gba_text_regions(rom: GameBoyROM) -> list:
+#     """Анализ GBA ROM для поиска текстовых регионов"""
+#     # GBA использует другие адреса и структуры
+#     text_regions = []
+#
+#     # Стандартные области для GBA
+#     # Обычно текст находится в .text или .data секциях
+#     # Нужно искать последовательности ASCII-подобных символов
+#
+#     for offset in range(0x08000000, len(rom.data), 0x1000):
+#         # Проверяем каждые 4KB
+#         region = rom.data[offset:offset + 0x1000]
+#         if is_potential_text_region(region):
+#             text_regions.append({
+#                 'start': offset,
+#                 'end': offset + 0x1000,
+#                 'confidence': calculate_confidence(region)
+#             })
+#
+#     return text_regions
 
 
 def is_potential_text_region(data: bytes) -> bool:

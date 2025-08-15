@@ -20,26 +20,25 @@ GB Text Extraction Framework
 """
 
 import logging
-from typing import Dict, List
+from typing import Dict, List, Optional
 from core.rom import GameBoyROM
-from core.plugin_manager import PluginManager
+from core.plugin_manager import PluginManager, CancellationToken
 from core.guide import GuideManager
-from core.scanner import analyze_text_segment
-from core.analyzer import TextAnalyzer
 
 
 class TextExtractor:
     """Основной класс извлечения текста"""
 
-    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None):
+    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None):
         if not isinstance(rom_path, str):
             raise TypeError("rom_path должен быть строкой, а не типом")
 
         self.rom = GameBoyROM(rom_path)
         self.plugin_manager = plugin_manager or PluginManager()
-        self.guide_manager = guide_manager or GuideManager()
+        self.cancellation_token = cancellation_token
         self.plugin = None
         self.current_results = None
+        self.guide_manager = guide_manager or GuideManager()
         self.guide = self.guide_manager.get_guide(self.rom.get_game_id())
         self.i18n = None
 
@@ -52,6 +51,11 @@ class TextExtractor:
             logger.error("ROM не загружен")
             raise ValueError("ROM не загружен")
 
+        # Проверяем, запрошена ли отмена
+        if self.cancellation_token and self.cancellation_token.is_cancellation_requested():
+            logger.info("Извлечение текста отменено")
+            return {}
+
         # Определяем систему
         system = self.rom.system
         logger.info(f"Определена система: {system}")
@@ -62,9 +66,10 @@ class TextExtractor:
 
         # Обновляем статус в GUI, если доступен
         if hasattr(self.plugin_manager, 'update_status'):
-            self.plugin_manager.update_status(f"Поиск подходящего плагина для {game_id}...", 5)
+            self.plugin_manager.update_status(self.i18n.t("plugin.searching"), 5)
 
-        self.plugin = self.plugin_manager.get_plugin(game_id, system)
+        # Передаем cancellation_token в plugin_manager
+        self.plugin = self.plugin_manager.get_plugin(game_id, system, self.cancellation_token)
 
         if not self.plugin:
             logger.error(f"Не поддерживаемая игра: {game_id}")
@@ -75,53 +80,37 @@ class TextExtractor:
                 )
             raise ValueError(f"Не поддерживаемая игра: {game_id}")
 
+        # Проверяем, запрошена ли отмена
+        if self.cancellation_token and self.cancellation_token.is_cancellation_requested():
+            logger.info("Извлечение текста отменено")
+            return {}
+
         results = {}
         segments = self.plugin.get_text_segments(self.rom)
 
         logger.info(f"Найдено {len(segments)} текстовых сегментов для обработки")
 
-        # Используем анализатор для фильтрации сегментов
-        if not segments:
-            logger.info("Не найдено сегментов через плагин, пытаемся определить автоматически")
-            regions = TextAnalyzer.detect_text_regions(self.rom)
-
-            for i, (start, end) in enumerate(regions):
-                segments.append({
-                    'name': f'auto_segment_{i}',
-                    'start': start,
-                    'end': end,
-                    'decoder': None,
-                    'compression': None
-                })
-            logger.info(f"Автоопределено {len(segments)} сегментов")
-
-        # Фильтруем сегменты по плотности текста
-        filtered_segments = []
-        for segment in segments:
-            # Анализируем сегмент
-            analysis = analyze_text_segment(self.rom.data, segment['start'], segment['end'])
-
-            # Сохраняем только сегменты с достаточной плотностью текста
-            if analysis['readability'] > 0.5:  # Минимальная плотность текста 50%
-                filtered_segments.append(segment)
-                logger.info(f"Сегмент 0x{segment['start']:X} - 0x{segment['end']:X} "
-                            f"принят (плотность текста: {analysis['readability']:.2%})")
-            else:
-                logger.info(f"Сегмент 0x{segment['start']:X} - 0x{segment['end']:X} "
-                            f"отклонен (плотность текста: {analysis['readability']:.2%})")
-
-        segments = filtered_segments
-        logger.info(f"Осталось {len(segments)} сегментов после фильтрации")
-
         # Обновляем статус
         if hasattr(self.plugin_manager, 'update_status'):
             self.plugin_manager.update_status(
-                f"Найдено {len(segments)} подходящих текстовых сегментов",
-                20
+                f"{self.i18n.t('segments.found')} {len(segments)}",
+                15
             )
 
+        # Ограничиваем количество сегментов для обработки
+        max_segments_to_process = 15
+        segments_to_process = segments[:max_segments_to_process]
+
+        if len(segments) > max_segments_to_process:
+            logger.warning(f"Ограничено обработка до {max_segments_to_process} сегментов из {len(segments)}")
+            if hasattr(self.plugin_manager, 'update_status'):
+                self.plugin_manager.update_status(
+                    f"{self.i18n.t('segments.limited')} {max_segments_to_process}/{len(segments)}",
+                    15
+                )
+
         # Обрабатываем сегменты по одному с обновлением прогресса
-        for i, segment in enumerate(segments):
+        for i, segment in enumerate(segments_to_process):
             name = segment['name']
             start = segment['start']
             end = segment['end']
@@ -134,6 +123,11 @@ class TextExtractor:
                     f"Пропущен сегмент с недопустимыми адресами: start=0x{start:X}, end=0x{end:X}, размер ROM={len(self.rom.data)}")
                 continue
 
+            # Проверяем, запрошена ли отмена
+            if self.cancellation_token and self.cancellation_token.is_cancellation_requested():
+                logger.info("Извлечение текста отменено")
+                return {}
+
             # Обработка сжатия если необходимо
             data = self.rom.data[start:end]
             if segment.get('compression') == 'gba_lz77':
@@ -144,8 +138,12 @@ class TextExtractor:
                 data = decompressed
             elif segment.get('compression'):
                 logger.info(f"Распаковка {segment['compression']}")
-                decompressed, _ = segment['compression'].decompress(data, 0)
-                data = decompressed
+                # Убедимся, что compression - это объект, а не строка
+                if isinstance(segment['compression'], str):
+                    logger.warning(f"Некорректная конфигурация сжатия для сегмента {name}")
+                else:
+                    decompressed, _ = segment['compression'].decompress(data, 0)
+                    data = decompressed
 
             # Декодирование текста
             if not segment['decoder']:
@@ -158,6 +156,17 @@ class TextExtractor:
             logger.info("Декодирование текста")
             text = segment['decoder'].decode(data, 0, len(data))
 
+            # Проверка качества декодирования
+            unknown_chars = text.count('[')
+            total_chars = len(text)
+            if total_chars > 0:
+                quality = 1.0 - (unknown_chars / total_chars)
+                logger.info(f"Качество декодирования для сегмента {name}: {quality:.2%}")
+
+                # Если качество низкое, добавляем предупреждение
+                if quality < 0.5:
+                    logger.warning(f"Низкое качество декодирования для сегмента {name}")
+
             # Разделение на отдельные сообщения
             logger.info("Разделение на отдельные сообщения")
             messages = self._split_messages(text, start)
@@ -166,58 +175,80 @@ class TextExtractor:
             logger.info(f"Извлечено {len(messages)} сообщений из сегмента '{name}'")
 
             # Обновляем прогресс
-            progress = 20 + int(75 * (i + 1) / len(segments))
+            progress = 20 + int(75 * (i + 1) / len(segments_to_process))
             if hasattr(self.plugin_manager, 'update_status'):
                 self.plugin_manager.update_status(
-                    f"Обработка сегмента {i + 1}/{len(segments)}: {name}",
+                    f"{self.i18n.t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
                     progress
                 )
 
         self.current_results = results
-
-        # Проверяем достоверность результатов
-        validation_report = TextAnalyzer.validate_extraction(self.rom, results)
-
-        # Логируем результаты валидации
-        logger.info(f"Уровень достоверности извлечения: {validation_report['success_rate']:.2%}")
-        if validation_report['success_rate'] < 0.7:
-            logger.warning(f"Низкий уровень достоверности. Возможны проблемы с извлечением текста.")
-
         logger.info(f"Извлечение текста завершено. Найдено {len(results)} сегментов.")
 
         # Финальное обновление статуса
         if hasattr(self.plugin_manager, 'update_status'):
-            status = self.i18n.t("text.extracted.success") if validation_report['success_rate'] > 0.7 else self.i18n.t(
-                "text.extracted.partial")
-            self.plugin_manager.update_status(status, 100)
+            self.plugin_manager.update_status(
+                self.i18n.t("text.extracted"),
+                100
+            )
 
         return results
 
     def _split_messages(self, text: str, base_offset: int) -> List[Dict]:
-        """Разделение на отдельные сообщения"""
+        """Разделение на отдельные сообщения с улучшенной обработкой"""
+        logger = logging.getLogger('gb2text.extractor')
+        logger.debug(f"Начало разделения текста (длина: {len(text)})")
+
         messages = []
         current_msg = ""
-        offset = 0
-        start_offset = 0
+        current_offset = base_offset
+        i = 0
 
-        for i, char in enumerate(text):
-            if char == '\n' or char == '[END]':
+        while i < len(text):
+            char = text[i]
+
+            # Обработка специальных последовательностей
+            if i + 4 < len(text) and text[i:i + 5] == '[END]':
                 if current_msg:
                     messages.append({
-                        'offset': base_offset + start_offset,
+                        'offset': current_offset,
                         'text': current_msg
                     })
-                    current_msg = ""
-                start_offset = i + 1
-            else:
-                current_msg += char
+                    logger.debug(f"Найдено сообщение длиной {len(current_msg)}")
+                current_msg = ""
+                current_offset = base_offset + i + 5
+                i += 5
+                continue
 
+            # Обработка шестнадцатеричных кодов вида [XX]
+            elif char == '[' and i + 3 < len(text) and text[i + 3] == ']':
+                hex_part = text[i + 1:i + 3]
+                if all(c in '0123456789ABCDEFabcdef' for c in hex_part):
+                    # Это шестнадцатеричный код, возможно, терминатор
+                    i += 4  # Пропускаем [XX]
+                    if current_msg:
+                        messages.append({
+                            'offset': current_offset,
+                            'text': current_msg
+                        })
+                        logger.debug(f"Найдено сообщение длиной {len(current_msg)}")
+                        current_msg = ""
+                    current_offset = base_offset + i
+                    continue
+
+            # Обработка обычного символа
+            current_msg += char
+            i += 1
+
+        # Добавляем последнее сообщение, если оно есть
         if current_msg:
             messages.append({
-                'offset': base_offset + start_offset,
+                'offset': current_offset,
                 'text': current_msg
             })
+            logger.debug(f"Найдено последнее сообщение длиной {len(current_msg)}")
 
+        logger.info(f"Разделено на {len(messages)} сообщений")
         return messages
 
     def _apply_guide_recommendations(self):
