@@ -93,6 +93,7 @@
   "extraction.error": "Не удалось извлечь текст: {error}",
   "status.error": "Ошибка",
   "export.txt.success": "Результаты успешно сохранены в TXT",
+  "export.json.success": "Результаты успешно сохранены в JSON",
   "extract.text.first": "Сначала извлеките текст",
   "segment.not.found": "Выбранный сегмент не найден в извлеченных результатах",
   "segment.load.error": "Не удалось загрузить сегмент: {error}",
@@ -105,5 +106,5 @@
   "prev.segment": "← Предыдущий сегмент",
   "next.segment": "Следующий сегмент →",
   "segment": "Сегмент: {current} из {total}",
-  "text.extracting": "Извлечение текста... ({seconds}с)"
+  "text.extracting": "Извлечение текста..."
 }

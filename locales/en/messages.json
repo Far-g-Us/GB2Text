@@ -86,6 +86,7 @@
   "extraction.error": "Failed to extract text: {error}",
   "status.error": "Error",
   "export.txt.success": "Results successfully saved to TXT",
+  "export.json.success": "Results successfully saved to JSON",
   "extract.text.first": "Please extract text first",
   "segment.not.found": "Selected segment not found in extracted results",
   "segment.load.error": "Failed to load segment: {error}",
@@ -98,5 +99,5 @@
   "prev.segment": "← Previous Segment",
   "next.segment": "Next Segment →",
   "segment": "Segment: {current} of {total}",
-  "text.extracting": "Extracting text... ({seconds}s)"
+  "text.extracting": "Extracting text..."
 }

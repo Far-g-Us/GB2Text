@@ -29,7 +29,7 @@ from core.guide import GuideManager
 class TextExtractor:
     """Основной класс извлечения текста"""
 
-    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None):
+    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None):
         if not isinstance(rom_path, str):
             raise TypeError("rom_path должен быть строкой, а не типом")
 
@@ -41,6 +41,7 @@ class TextExtractor:
         self.guide_manager = guide_manager or GuideManager()
         self.guide = self.guide_manager.get_guide(self.rom.get_game_id())
         self.i18n = None
+        self.max_segments = max_segments
 
     def extract(self) -> Dict[str, List[Dict]]:
         """Извлекает текст из ROM"""
@@ -97,17 +98,12 @@ class TextExtractor:
                 15
             )
 
-        # Ограничиваем количество сегментов для обработки
-        max_segments_to_process = 15
-        segments_to_process = segments[:max_segments_to_process]
-
-        if len(segments) > max_segments_to_process:
-            logger.warning(f"Ограничено обработка до {max_segments_to_process} сегментов из {len(segments)}")
-            if hasattr(self.plugin_manager, 'update_status'):
-                self.plugin_manager.update_status(
-                    f"{self.i18n.t('segments.limited')} {max_segments_to_process}/{len(segments)}",
-                    15
-                )
+        # Применяем ограничение только если задано
+        if self.max_segments and len(segments) > self.max_segments:
+            segments_to_process = segments[:self.max_segments]
+            logger.warning(f"Ограничено до {self.max_segments} сегментов из {len(segments)}")
+        else:
+            segments_to_process = segments
 
         # Обрабатываем сегменты по одному с обновлением прогресса
         for i, segment in enumerate(segments_to_process):

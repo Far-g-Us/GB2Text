@@ -19,7 +19,7 @@ GB Text Extraction Framework
 Модуль для поиска текстовых сегментов и указателей
 """
 
-import logging
+import logging, unicodedata
 from collections import Counter
 from typing import List, Dict, Tuple
 
