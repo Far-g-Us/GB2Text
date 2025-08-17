@@ -20,10 +20,9 @@ GB Text Extraction Framework
 Универсальный фреймворк для извлечения текста из Game Boy ROM с поддержкой плагинов
 """
 
-import argparse, json, logging
+import argparse, json, logging, sys, os
 from pathlib import Path
 from core.injector import TextInjector
-from core.plugin_manager import PluginManager
 
 
 def load_plugins_from_dir(plugin_dir: str) -> list:
@@ -35,13 +34,27 @@ def load_plugins_from_dir(plugin_dir: str) -> list:
             plugins.append(config)
     return plugins
 
+
+def get_resource_path(relative_path):
+    """Получает абсолютный путь к ресурсу, работает как в dev режиме, так и в exe"""
+    try:
+        # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+
 def get_version():
     """Возвращает версию приложения"""
     try:
-        with open('VERSION', 'r') as f:
+        version_path = get_resource_path('VERSION')
+        with open(version_path, 'r') as f:
             return f.read().strip()
     except:
         return "1.0.0"
+
 
 def main():
     logging.basicConfig(
@@ -77,40 +90,25 @@ def main():
                         help='Язык интерфейса')
     args = parser.parse_args()
 
+    if args.version:
+        print(f"GB Text Extraction Framework v{get_version()}")
+        return
+
+    if not args.rom and not args.inject and not args.version:
+        args.gui = True
+
     if args.gui:
         try:
             from gui.main_window import run_gui
-            run_gui(args.rom, args.plugin_dir, lang="en")
+            run_gui(args.rom, get_resource_path(args.plugin_dir), lang=args.lang)
             return
         except ImportError as e:
             print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {str(e)}")
         return
 
-    try:
-        from core.plugin_manager import get_safe_plugin_manager
-        from core.extractor import TextExtractor
-
-        plugin_manager = get_safe_plugin_manager(args.plugin_dir)
-        extractor = TextExtractor(args.rom, plugin_manager)
-        results = extractor.extract()
-
-        # Вывод результатов
-        if args.output == 'text':
-            for seg_name, messages in results.items():
-                print(f"\n== {seg_name.upper()} ==")
-                for msg in messages:
-                    print(f"0x{msg['offset']:04X}: {msg['text']}")
-
-        elif args.output == 'json':
-            import json
-            print(json.dumps(results, indent=2, ensure_ascii=False))
-
-    except Exception as e:
-        print(f"Ошибка: {str(e)}")
+    if not args.rom:
+        print("Ошибка: Необходимо указать путь к ROM-файлу")
         print("Подсказка: Вы можете создать свою конфигурацию с помощью --auto-config")
-
-    if args.version:
-        print(f"GB Text Extraction Framework v{get_version()}")
         return
 
     if args.inject:
@@ -123,13 +121,16 @@ def main():
             with open(args.translations, 'r', encoding='utf-8') as f:
                 translations = json.load(f)
 
+            from core.plugin_manager import get_safe_plugin_manager
+            plugin_manager = get_safe_plugin_manager(get_resource_path(args.plugin_dir))
+
             # Создаем инжектор
-            injector = TextInjector(args.rom)
+            injector = TextInjector(args.rom, plugin_manager)
 
             # Внедряем переводы
             for segment_name, entries in translations.items():
                 texts = [entry['translation'] for entry in entries]
-                injector.inject_segment(segment_name, texts, injector.plugin)
+                injector.inject_segment(segment_name, texts, plugin_manager.get_plugin(args.rom))
 
             # Сохраняем результат
             injector.save(args.output_rom)
@@ -137,13 +138,14 @@ def main():
 
         except Exception as e:
             print(f"Ошибка при внедрении текста: {str(e)}")
-        return
-
-    # Расширение менеджера плагинов конфигурационными плагинами
-    plugin_manager = PluginManager(args.plugin_dir)
+            return
 
     try:
-        extractor = TextExtractor(args.rom)
+        from core.plugin_manager import get_safe_plugin_manager
+        from core.extractor import TextExtractor
+
+        plugin_manager = get_safe_plugin_manager(get_resource_path(args.plugin_dir))
+        extractor = TextExtractor(args.rom, plugin_manager)
         results = extractor.extract()
 
         # Вывод результатов
@@ -151,8 +153,7 @@ def main():
             for seg_name, messages in results.items():
                 print(f"\n== {seg_name.upper()} ==")
                 for msg in messages:
-                    print(f"Offset: 0x{msg['offset']:04X}")
-                    print(f"{msg['text']}\n")
+                    print(f"0x{msg['offset']:04X}: {msg['text']}")
 
         elif args.output == 'json':
             print(json.dumps(results, indent=2, ensure_ascii=False))

@@ -1,5 +1,6 @@
 #Python 3.11
 requests==2.32.4
 pillow==11.3.0
+pyinstaller>=5.0
 
 #pip==25.2
