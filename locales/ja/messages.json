@@ -86,6 +86,7 @@
   "status.error": "エラー",
   "export.txt.success": "結果をTXTファイルに正常に保存しました",
   "export.json.success": "結果が正常にJSONに保存されました",
+  "file.export.json": "",
   "extract.text.first": "最初にテキストを抽出してください",
   "segment.not.found": "選択したセグメントは抽出結果にありません",
   "segment.load.error": "セグメントの読み込みに失敗しました: {error}",
@@ -98,5 +99,9 @@
   "prev.segment": "← 前のセグメント",
   "next.segment": "次のセグメント →",
   "segment": "セグメント: {total}中{current}",
-  "text.extracting": "テキストを抽出中..."
+  "text.extracting": "テキストを抽出中...",
+  "diagnostics.running": "実行中...",
+  "diagnostics.completed": "完了",
+  "diagnostics.start": "診断を実行",
+  "save.log": "ログを保存"
 }

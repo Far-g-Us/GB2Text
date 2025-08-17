@@ -21,7 +21,7 @@ GB Text Extraction Framework
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
-import json, re, os, logging, threading, time
+import json, re, os, logging, threading, time, sys
 from datetime import datetime
 from pathlib import Path
 from core.rom import GameBoyROM
@@ -31,7 +31,8 @@ from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager, CancellationToken
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
-from core.scanner import analyze_text_segment
+from core.scanner import analyze_text_segment, _detect_language
+from typing import Counter
 
 
 class GBTextExtractorGUI:
@@ -45,8 +46,7 @@ class GBTextExtractorGUI:
         self.i18n = I18N(default_lang=self.ui_lang.get())
         self.root = root
         self.root.title(self.i18n.t("app.title"))
-        self.root.geometry("1100x800")
-
+        self.root.geometry("1100x700")
         self._set_app_icon()
 
         # Инициализация компонентов
@@ -919,9 +919,21 @@ class GBTextExtractorGUI:
                 self.i18n.t("rom.load.error", error=str(e))
             )
 
+    def _get_resource_path(self, relative_path):
+        """Получает абсолютный путь к ресурсу"""
+
+        try:
+            # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+            base_path = sys._MEIPASS
+        except AttributeError:
+            # Обычный запуск Python скрипта
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
+
     def load_saved_settings(self):
         """Загружает сохраненные настройки"""
-        settings_path = Path("settings/settings.json")
+        settings_path = Path(self._get_resource_path("settings/settings.json"))
         if settings_path.exists():
             try:
                 with open(settings_path, "r", encoding="utf-8") as f:
@@ -931,13 +943,15 @@ class GBTextExtractorGUI:
                 self.encoding_type = tk.StringVar(value=settings.get("encoding_type", "auto"))
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {str(e)}")
-                self.ui_lang = tk.StringVar(value="en")
-                self.target_lang = tk.StringVar(value="ru")
-                self.encoding_type = tk.StringVar(value="auto")
+                self._init_default_settings()
         else:
-            self.ui_lang = tk.StringVar(value="en")
-            self.target_lang = tk.StringVar(value="ru")
-            self.encoding_type = tk.StringVar(value="auto")
+            self._init_default_settings()
+
+    def _init_default_settings(self):
+        """Инициализирует настройки по умолчанию"""
+        self.ui_lang = tk.StringVar(value="en")
+        self.target_lang = tk.StringVar(value="ru")
+        self.encoding_type = tk.StringVar(value="auto")
 
     def on_segment_combo_select(self, event):
         """Обработка выбора сегмента в комбобоксе"""
@@ -1392,9 +1406,9 @@ class GBTextExtractorGUI:
         control_frame = ttk.Frame(diagnostics_frame)
         control_frame.pack(fill="x", expand=False, pady=(0, 10))
 
-        ttk.Button(control_frame, text="Запустить диагностику",
+        ttk.Button(control_frame, text=self.i18n.t("diagnostics.start"),
                    command=self.run_diagnostics).pack(side="left", padx=5)
-        ttk.Button(control_frame, text="Сохранить лог",
+        ttk.Button(control_frame, text=self.i18n.t("save.log"),
                    command=self.save_log).pack(side="left", padx=5)
 
         # Текстовая область для логов
@@ -1445,6 +1459,43 @@ class GBTextExtractorGUI:
             "game_id": self.current_rom.get_game_id()
         }
 
+        # Определение языка ROM
+        try:
+            # Анализируем первые 2KB ROM для определения языка
+            sample_size = min(2048, len(self.current_rom.data))
+            freq = Counter()
+            for i in range(sample_size):
+                freq[self.current_rom.data[i]] += 1
+
+            detected_language = _detect_language(self.current_rom.data, 0, sample_size, freq)
+
+            # Дополнительная статистика по языкам
+            ascii_count = sum(freq.get(i, 0) for i in range(0x20, 0x7F))
+            japanese_count = sum(freq.get(i, 0) for i in range(0xA0, 0xDF)) + sum(
+                freq.get(i, 0) for i in range(0x80, 0x9F))
+            cyrillic_count = sum(freq.get(i, 0) for i in range(0xC0, 0xFF))
+
+            total_bytes = sum(freq.values())
+
+            language_stats = {
+                "detected_language": detected_language,
+                "ascii_density": ascii_count / total_bytes if total_bytes > 0 else 0,
+                "japanese_density": japanese_count / total_bytes if total_bytes > 0 else 0,
+                "cyrillic_density": cyrillic_count / total_bytes if total_bytes > 0 else 0,
+                "sample_size": sample_size,
+                "most_common_bytes": freq.most_common(10)
+            }
+
+            diagnostics_info["language_analysis"] = language_stats
+            logger.info(f"Определен язык ROM: {detected_language}")
+            logger.info(f"ASCII плотность: {language_stats['ascii_density']:.2%}")
+            logger.info(f"Японская плотность: {language_stats['japanese_density']:.2%}")
+            logger.info(f"Кириллическая плотность: {language_stats['cyrillic_density']:.2%}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при определении языка: {str(e)}")
+            diagnostics_info["language_analysis"] = {"error": str(e)}
+
         # Анализ текстовых сегментов
         game_id = self.current_rom.get_game_id()
         plugin = self.plugin_manager.get_plugin(game_id, self.current_rom.system)
@@ -1459,6 +1510,22 @@ class GBTextExtractorGUI:
                     segment['start'],
                     segment['end']
                 )
+
+                # Определяем язык для каждого сегмента отдельно
+                segment_freq = Counter()
+                segment_data = self.current_rom.data[segment['start']:segment['end']]
+                for byte in segment_data:
+                    segment_freq[byte] += 1
+
+                segment_language = _detect_language(
+                    self.current_rom.data,
+                    segment['start'],
+                    segment['end'] - segment['start'],
+                    segment_freq
+                )
+
+                analysis["detected_language"] = segment_language
+
                 diagnostics_info["segments"].append({
                     "name": segment['name'],
                     "start": segment['start'],
@@ -1645,16 +1712,29 @@ class GBTextExtractorGUI:
     def get_version(self):
         """Возвращает версию приложения"""
         try:
-            with open('VERSION', 'r') as f:
-                return f.read().strip()
-        except:
+            version_path = self._get_resource_path('VERSION')
+            print(f"[DEBUG] Ищем VERSION файл по пути: {version_path}")
+            print(f"[DEBUG] Файл существует: {os.path.exists(version_path)}")
+            if hasattr(sys, '_MEIPASS'):
+                print(f"[DEBUG] Запуск из exe, _MEIPASS: {sys._MEIPASS}")
+                print(
+                    f"[DEBUG] Содержимое _MEIPASS: {os.listdir(sys._MEIPASS) if os.path.exists(sys._MEIPASS) else 'не существует'}")
+            else:
+                print(f"[DEBUG] Обычный запуск, текущая директория: {os.path.abspath('.')}")
+                print(f"[DEBUG] Содержимое текущей директории: {os.listdir('.')}")
+
+            with open(version_path, 'r') as f:
+                version = f.read().strip()
+                print(f"[DEBUG] Загружена версия: {version}")
+                return version
+        except Exception as e:
+            print(f"[DEBUG] Ошибка загрузки VERSION: {e}")
             return "1.0.0"
 
     def open_url(self, url):
         """Открывает URL в браузере по умолчанию"""
         import webbrowser
         webbrowser.open(url)
-
 
     def _set_app_icon(self):
         """Устанавливает пользовательскую иконку приложения"""
@@ -1663,8 +1743,7 @@ class GBTextExtractorGUI:
             import platform
             system = platform.system()
 
-            # Создаем путь к ресурсам
-            resources_dir = Path("resources")
+            resources_dir = Path(self._get_resource_path("resources"))
             if not resources_dir.exists():
                 resources_dir.mkdir(exist_ok=True)
 
@@ -1693,7 +1772,6 @@ class GBTextExtractorGUI:
             print(f"Ошибка при установке иконки: {str(e)}")
             self._create_default_icon()
 
-
     def _create_default_icon(self):
         """Создает простую стандартную иконку, если пользовательская отсутствует"""
         try:
@@ -1716,7 +1794,6 @@ class GBTextExtractorGUI:
             self.root.iconphoto(True, icon)
         except Exception as e:
             print(f"Не удалось создать стандартную иконку: {str(e)}")
-
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""

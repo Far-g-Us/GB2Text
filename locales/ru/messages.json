@@ -94,6 +94,7 @@
   "status.error": "Ошибка",
   "export.txt.success": "Результаты успешно сохранены в TXT",
   "export.json.success": "Результаты успешно сохранены в JSON",
+  "file.export.json": "",
   "extract.text.first": "Сначала извлеките текст",
   "segment.not.found": "Выбранный сегмент не найден в извлеченных результатах",
   "segment.load.error": "Не удалось загрузить сегмент: {error}",
@@ -106,5 +107,9 @@
   "prev.segment": "← Предыдущий сегмент",
   "next.segment": "Следующий сегмент →",
   "segment": "Сегмент: {current} из {total}",
-  "text.extracting": "Извлечение текста..."
+  "text.extracting": "Извлечение текста...",
+  "diagnostics.running": "Выполняется...",
+  "diagnostics.completed": "Завершено",
+  "diagnostics.start": "Запустить диагностику",
+  "save.log": "Сохранить лог"
 }

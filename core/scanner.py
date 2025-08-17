@@ -19,7 +19,7 @@ GB Text Extraction Framework
 Модуль для поиска текстовых сегментов и указателей
 """
 
-import logging, unicodedata
+import logging
 from collections import Counter
 from typing import List, Dict, Tuple
 
@@ -30,7 +30,6 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
                        pointer_size: int = 2, min_length: int = 4) -> List[Tuple[int, int]]:
     """
     Поиск указателей на текст в ROM с учетом размера указателя
-
     Возвращает список кортежей (адрес, адрес_текста)
     """
     # Определяем конечный адрес
@@ -63,9 +62,8 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
 
 
 def is_text_like(rom_data: bytes, start: int, min_length: int) -> bool:
-    """
-    Проверяет, похож ли участок данных на текст
-    """
+    """Проверяет, похож ли участок данных на текст"""
+
     if start + min_length > len(rom_data):
         return False
 
@@ -83,12 +81,55 @@ def is_text_like(rom_data: bytes, start: int, min_length: int) -> bool:
     return result
 
 
+def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000) -> List[str]:
+    """Определяет все языки, присутствующие в ROM"""
+
+    logger = logging.getLogger('gb2text.scanner')
+    logger.info(f"Определение всех языков в ROM, начиная с 0x{start:X}")
+
+    freq = Counter()
+    for i in range(start, min(start + length, len(rom_data))):
+        byte = rom_data[i]
+        freq[byte] += 1
+
+    detected_languages = []
+
+    # Проверка на английский (ASCII)
+    ascii_count = sum(1 for i in range(0x20, 0x7F) if i in freq and freq[i] > 2)
+    if ascii_count > 20:
+        detected_languages.append('english')
+        logger.info(f"Обнаружен английский язык (ASCII символов: {ascii_count})")
+
+    # Проверка на японский
+    japanese_count = sum(1 for i in range(0xA0, 0xDF) if i in freq and freq[i] > 2)
+    if japanese_count > 10:
+        detected_languages.append('japanese')
+        logger.info(f"Обнаружен японский язык (катакана символов: {japanese_count})")
+
+    # Проверка на русский
+    cyrillic_count = sum(1 for i in range(0xC0, 0xFF) if i in freq and freq[i] > 2)
+    if cyrillic_count > 10:
+        detected_languages.append('russian')
+        logger.info(f"Обнаружен русский язык (кириллица символов: {cyrillic_count})")
+
+    return detected_languages if detected_languages else ['english']
+
+
 def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> Dict[int, str]:
-    """
-    Автоматическое определение таблицы символов с поддержкой нескольких языков
-    """
+    """Автоматическое определение таблицы символов с поддержкой нескольких языков"""
+
     logger = logging.getLogger('gb2text.scanner')
     logger.info(f"Автоопределение таблицы символов, начиная с 0x{start:X}, длина: {length}")
+
+    detected_languages = detect_multiple_languages(rom_data, start, length)
+    logger.info(f"Обнаружены языки: {detected_languages}")
+
+    if 'english' in detected_languages:
+        primary_language = 'english'
+        logger.info("Выбран английский язык как приоритетный")
+    else:
+        primary_language = detected_languages[0]
+        logger.info(f"Выбран язык: {primary_language}")
 
     # Анализ статистики использования байтов
     freq = Counter()
@@ -96,145 +137,65 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
         byte = rom_data[i]
         freq[byte] += 1
 
-    # Определение вероятных пробелов и терминаторов
-    common_bytes = freq.most_common()
-    logger.debug(f"Частота использования байтов: {common_bytes[:10]}...")
+    # # Определение вероятных пробелов и терминаторов
+    # common_bytes = freq.most_common()
+    # logger.debug(f"Частота использования байтов: {common_bytes[:10]}...")
 
     charmap = {}
 
+    # # Определяем язык игры по статистике
+    # language = _detect_language(rom_data, start, length, freq)
+    # logger.info(f"Определен язык игры: {language}")
+
     # Проверяем минимальный размер ROM
-    if len(rom_data) < 0x150:  # Минимальный размер заголовка ROM
+    if len(rom_data) < 0x150:
         logger.error("ROM слишком маленький для анализа")
-        # Создаем базовую таблицу символов как fallback
         for byte in range(0x20, 0x7F):
             charmap[byte] = chr(byte)
         return charmap
 
-    # Попробуем определить систему по ROM
-    is_gba = len(rom_data) > 0xB2 and rom_data[0xA0:0xB2] == b'Nintendo Game Boy'
-
-    is_gbc = False
-    if len(rom_data) > 0x143:
-        cgb_flag = rom_data[0x143]
-        new_licensee_code = (rom_data[0x144] << 8) | rom_data[0x145]
-        is_gbc = cgb_flag in [0x80, 0xC0] or new_licensee_code == 0x33
-
-    # Определяем язык игры по статистике
-    language = _detect_language(rom_data, start, length, freq)
-    logger.info(f"Определен язык игры: {language}")
-
-    # Создаем таблицу символов в зависимости от языка
-    if language == 'japanese':
+    if primary_language == 'japanese':
         _setup_japanese_charmap(charmap, freq)
-    elif language == 'russian':
+    elif primary_language == 'russian':
         _setup_russian_charmap(charmap)
-    else:  # По умолчанию - английский
+    else:  # Английский по умолчанию
         _setup_english_charmap(charmap)
 
     # Добавляем пробелы и терминаторы
-    _setup_common_symbols(charmap, freq, is_gbc)
+    _setup_common_symbols(charmap, freq, False, rom_data)
 
-    logger.info(f"Создана таблица символов с {len(charmap)} символами")
-    logger.debug(f"Таблица символов: {charmap}")
+    logger.info(f"Создана таблица символов с {len(charmap)} символами для языка: {primary_language}")
+    logger.debug(f"Таблица символов: {dict(list(charmap.items())[:10])}...")
 
     return charmap
 
 
 def _detect_language(rom_data: bytes, start: int, length: int, freq: Counter) -> str:
-    """Определяет язык игры по статистике использования байтов"""
-    # Проверка на японский язык (катакана + хирагана)
-    japanese_count = 0
-    # Диапазоны для японских символов в Game Boy
-    japanese_ranges = [
-        (0xA0, 0xDF),  # Катакана
-        (0x80, 0x9F)  # Часто используется для хираганы
-    ]
+    """Улучшенное определение языка с приоритетом английского"""
 
-    for start_range, end_range in japanese_ranges:
-        for i in range(start_range, end_range + 1):
-            if i in freq and freq[i] > 3:
-                japanese_count += 1
+    # Сначала проверяем плотность ASCII символов
+    ascii_density = sum(1 for i in range(start, min(start + length, len(rom_data)))
+                        if 0x20 <= rom_data[i] <= 0x7E) / length
 
+    if ascii_density > 0.3:  # 30% ASCII = английский
+        return 'english'
+
+    # Проверка на японский
+    japanese_count = sum(1 for i in range(0xA0, 0xDF) if i in freq and freq[i] > 3)
     if japanese_count > 15:
         return 'japanese'
 
-    # Проверка на русский язык (кириллица)
-    cyrillic_count = 0
-    # Стандартные диапазоны кириллицы в различных кодировках
-    cyrillic_ranges = [
-        (0x80, 0x9F),  # Часть CP1251
-        (0xE0, 0xFF)  # Часть CP866
-    ]
-
-    for start_range, end_range in cyrillic_ranges:
-        for i in range(start_range, end_range + 1):
-            if i in freq and freq[i] > 3:
-                cyrillic_count += 1
-
+    # Проверка на русский
+    cyrillic_count = sum(1 for i in range(0xC0, 0xFF) if i in freq and freq[i] > 3)
     if cyrillic_count > 15:
         return 'russian'
 
-    # По умолчанию - английский
-    return 'english'
-
-
-def _setup_japanese_charmap(charmap: Dict, freq: Counter):
-    """Настраивает таблицу символов для японского языка с поддержкой катаканы и хираганы"""
-    # Таблица катаканы
-    katakana_map = {
-        0xA1: '゠', 0xA2: 'ァ', 0xA3: 'ア', 0xA4: 'ィ', 0xA5: 'イ', 0xA6: 'ゥ',
-        0xA7: 'ウ', 0xA8: 'ェ', 0xA9: 'エ', 0xAA: 'ォ', 0xAB: 'オ', 0xAC: 'カ',
-        0xAD: 'ガ', 0xAE: 'キ', 0xAF: 'ギ', 0xB0: 'ク', 0xB1: 'グ', 0xB2: 'ケ',
-        0xB3: 'ゲ', 0xB4: 'コ', 0xB5: 'ゴ', 0xB6: 'サ', 0xB7: 'ザ', 0xB8: 'シ',
-        0xB9: 'ジ', 0xBA: 'ス', 0xBB: 'ズ', 0xBC: 'セ', 0xBD: 'ゼ', 0xBE: 'ソ',
-        0xBF: 'ゾ', 0xC0: 'タ', 0xC1: 'ダ', 0xC2: 'チ', 0xC3: 'ヂ', 0xC4: 'ッ',
-        0xC5: 'ツ', 0xC6: 'ヅ', 0xC7: 'テ', 0xC8: 'デ', 0xC9: 'ト', 0xCA: 'ド',
-        0xCB: 'ナ', 0xCC: 'ニ', 0xCD: 'ヌ', 0xCE: 'ネ', 0xCF: 'ノ', 0xD0: 'ハ',
-        0xD1: 'バ', 0xD2: 'パ', 0xD3: 'ヒ', 0xD4: 'ビ', 0xD5: 'ピ', 0xD6: 'フ',
-        0xD7: 'ブ', 0xD8: 'プ', 0xD9: 'ヘ', 0xDA: 'ベ', 0xDB: 'ペ', 0xDC: 'ホ',
-        0xDD: 'ボ', 0xDE: 'ポ', 0xDF: 'マ', 0xE0: 'ミ', 0xE1: 'ム', 0xE2: 'メ',
-        0xE3: 'モ', 0xE4: 'ャ', 0xE5: 'ヤ', 0xE6: 'ュ', 0xE7: 'ユ', 0xE8: 'ョ',
-        0xE9: 'ヨ', 0xEA: 'ラ', 0xEB: 'リ', 0xEC: 'ル', 0xED: 'レ', 0xEE: 'ロ',
-        0xEF: 'ヮ', 0xF0: 'ワ', 0xF1: 'ヰ', 0xF2: 'ヱ', 0xF3: 'ヲ', 0xF4: 'ン',
-        0xF5: 'ー', 0xF6: 'ヴ', 0xF7: 'ヵ', 0xF8: 'ヶ', 0xF9: 'ヷ', 0xFA: 'ヸ',
-        0xFB: 'ヹ', 0xFC: 'ヺ'
-    }
-    charmap.update(katakana_map)
-
-    # Попробуем определить, используется ли хирагана
-    hiragana_candidates = [0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E,
-                           0x8F]
-    hiragana_count = sum(1 for byte in hiragana_candidates if byte in freq and freq[byte] > 2)
-
-    if hiragana_count > 5:
-        # Добавляем базовую хирагану
-        hiragana_map = {
-            0x80: '　', 0x81: '、', 0x82: '。', 0x83: '・', 0x84: '゛', 0x85: '゜',
-            0x86: 'ー', 0x87: 'あ', 0x88: 'い', 0x89: 'う', 0x8A: 'え', 0x8B: 'お',
-            0x8C: 'か', 0x8D: 'き', 0x8E: 'く', 0x8F: 'け', 0x90: 'こ', 0x91: 'さ',
-            0x92: 'し', 0x93: 'す', 0x94: 'せ', 0x95: 'そ', 0x96: 'た', 0x97: 'ち',
-            0x98: 'つ', 0x99: 'て', 0x9A: 'と', 0x9B: 'な', 0x9C: 'に', 0x9D: 'ぬ',
-            0x9E: 'ね', 0x9F: 'の', 0xA0: 'は', 0xA1: 'ひ', 0xA2: 'ふ', 0xA3: 'へ',
-            0xA4: 'ほ', 0xA5: 'ま', 0xA6: 'み', 0xA7: 'む', 0xA8: 'め', 0xA9: 'も',
-            0xAA: 'や', 0xAB: 'ゆ', 0xAC: 'よ', 0xAD: 'ら', 0xAE: 'り', 0xAF: 'る',
-            0xB0: 'れ', 0xB1: 'ろ', 0xB2: 'わ', 0xB3: 'を', 0xB4: 'ん', 0xB5: 'ゔ',
-            0xB6: 'ゕ', 0xB7: 'ゖ', 0xB8: '゛', 0xB9: '゜', 0xBA: 'ゝ', 0xBB: 'ゞ',
-            0xBC: 'ゟ', 0xBD: '゠', 0xBE: 'ァ', 0xBF: 'ィ', 0xC0: 'ゥ', 0xC1: 'ェ',
-            0xC2: 'ォ', 0xC3: 'ャ', 0xC4: 'ュ', 0xC5: 'ョ', 0xC6: 'ッ', 0xC7: 'ー'
-        }
-        # Добавляем только те символы, которые встречаются в ROM
-        for byte, char in hiragana_map.items():
-            if byte in freq and freq[byte] > 1:
-                charmap[byte] = char
-
-    # Добавляем распространенные символы
-    charmap[0x00] = '\n'
-    charmap[0xFF] = '\n'
-    charmap[0x0D] = '\n'  # Возврат каретки
+    return 'english'  # По умолчанию английский
 
 
 def _setup_russian_charmap(charmap: Dict):
     """Настраивает таблицу символов для русского языка"""
+
     # Пример таблицы для русского языка в CP866
     cyrillic_map = {
         0x80: 'Ё', 0x81: 'ё',
@@ -267,50 +228,94 @@ def _setup_russian_charmap(charmap: Dict):
 
 def _setup_english_charmap(charmap: Dict):
     """Настраивает таблицу символов для английского языка"""
-    # Добавляем ASCII символы
+    # Добавляем только стандартные ASCII символы
     for byte in range(0x20, 0x7F):
         charmap[byte] = chr(byte)
 
-    # Добавляем распространенные расширения Latin-1 для английского
-    western_map = {
-        0xA0: '¡', 0xA1: '¢', 0xA2: '£', 0xA3: '¤', 0xA4: '¥',
-        0xA5: '¦', 0xA6: '§', 0xA7: '¨', 0xA8: '©', 0xA9: 'ª',
-        0xAA: '«', 0xAB: '¬', 0xAD: '®', 0xAE: '¯', 0xAF: '°',
-        0xB0: '±', 0xB1: '²', 0xB2: '³', 0xB3: '´', 0xB4: 'µ',
-        0xB5: '¶', 0xB6: '·', 0xB7: '¸', 0xB8: '¹', 0xB9: 'º',
-        0xBA: '»', 0xBB: '¼', 0xBC: '½', 0xBD: '¾', 0xBE: '¿',
-        0xC0: 'À', 0xC1: 'Á', 0xC2: 'Â', 0xC3: 'Ã', 0xC4: 'Ä',
-        0xC5: 'Å', 0xC6: 'Æ', 0xC7: 'Ç', 0xC8: 'È', 0xC9: 'É',
-        0xCA: 'Ê', 0xCB: 'Ë', 0xCC: 'Ì', 0xCD: 'Í', 0xCE: 'Î',
-        0xCF: 'Ï', 0xD0: 'Ð', 0xD1: 'Ñ', 0xD2: 'Ò', 0xD3: 'Ó',
-        0xD4: 'Ô', 0xD5: 'Õ', 0xD6: 'Ö', 0xD7: '×', 0xD8: 'Ø',
-        0xD9: 'Ù', 0xDA: 'Ú', 0xDB: 'Û', 0xDC: 'Ü', 0xDD: 'Ý',
-        0xDE: 'Þ', 0xDF: 'ß', 0xE0: 'à', 0xE1: 'á', 0xE2: 'â',
-        0xE3: 'ã', 0xE4: 'ä', 0xE5: 'å', 0xE6: 'æ', 0xE7: 'ç',
-        0xE8: 'è', 0xE9: 'é', 0xEA: 'ê', 0xEB: 'ë', 0xEC: 'ì',
-        0xED: 'í', 0xEE: 'î', 0xEF: 'ï', 0xF0: 'ð', 0xF1: 'ñ',
-        0xF2: 'ò', 0xF3: 'ó', 0xF4: 'ô', 0xF5: 'õ', 0xF6: 'ö',
-        0xF7: '÷', 0xF8: 'ø', 0xF9: 'ù', 0xFA: 'ú', 0xFB: 'û',
-        0xFC: 'ü', 0xFD: 'ý', 0xFE: 'þ', 0xFF: 'ÿ'
-    }
-    charmap.update(western_map)
+        # Добавляем основные управляющие символы
+    charmap[0x00] = '\n'  # Null terminator
+    charmap[0x0A] = '\n'  # Line feed
+    charmap[0x0D] = '\n'  # Carriage return
+    charmap[0xFF] = '\n'  # End marker
+
+    logger.info("Настроена английская ASCII таблица символов")
+
+
+def _setup_japanese_charmap(charmap: Dict, freq: Counter):
+    """Настраивает таблицу символов для японского языка с поддержкой катаканы и хираганы"""
+
+    # Проверяем, какие диапазоны реально используются
+    katakana_used = any(i in freq and freq[i] > 2 for i in range(0xA0, 0xDF))
+    hiragana_used = any(i in freq and freq[i] > 2 for i in range(0x80, 0x9F))
+
+    logger.info(f"Японские диапазоны: катакана={katakana_used}, хирагана={hiragana_used}")
+
+    if katakana_used:
+        # Таблица катаканы
+        katakana_map = {
+            0xA1: '゠', 0xA2: 'ァ', 0xA3: 'ア', 0xA4: 'ィ', 0xA5: 'イ', 0xA6: 'ゥ',
+            0xA7: 'ウ', 0xA8: 'ェ', 0xA9: 'エ', 0xAA: 'ォ', 0xAB: 'オ', 0xAC: 'カ',
+            0xAD: 'ガ', 0xAE: 'キ', 0xAF: 'ギ', 0xB0: 'ク', 0xB1: 'グ', 0xB2: 'ケ',
+            0xB3: 'ゲ', 0xB4: 'コ', 0xB5: 'ゴ', 0xB6: 'サ', 0xB7: 'ザ', 0xB8: 'シ',
+            0xB9: 'ジ', 0xBA: 'ス', 0xBB: 'ズ', 0xBC: 'セ', 0xBD: 'ゼ', 0xBE: 'ソ',
+            0xBF: 'ゾ', 0xC0: 'タ', 0xC1: 'ダ', 0xC2: 'チ', 0xC3: 'ヂ', 0xC4: 'ッ',
+            0xC5: 'ツ', 0xC6: 'ヅ', 0xC7: 'テ', 0xC8: 'デ', 0xC9: 'ト', 0xCA: 'ド',
+            0xCB: 'ナ', 0xCC: 'ニ', 0xCD: 'ヌ', 0xCE: 'ネ', 0xCF: 'ノ', 0xD0: 'ハ',
+            0xD1: 'バ', 0xD2: 'パ', 0xD3: 'ヒ', 0xD4: 'ビ', 0xD5: 'ピ', 0xD6: 'フ',
+            0xD7: 'ブ', 0xD8: 'プ', 0xD9: 'ヘ', 0xDA: 'ベ', 0xDB: 'ペ', 0xDC: 'ホ',
+            0xDD: 'ボ', 0xDE: 'ポ', 0xDF: 'マ', 0xE0: 'ミ', 0xE1: 'ム', 0xE2: 'メ',
+            0xE3: 'モ', 0xE4: 'ャ', 0xE5: 'ヤ', 0xE6: 'ュ', 0xE7: 'ユ', 0xE8: 'ョ',
+            0xE9: 'ヨ', 0xEA: 'ラ', 0xEB: 'リ', 0xEC: 'ル', 0xED: 'レ', 0xEE: 'ロ',
+            0xEF: 'ヮ', 0xF0: 'ワ', 0xF1: 'ヰ', 0xF2: 'ヱ', 0xF3: 'ヲ', 0xF4: 'ン',
+            0xF5: 'ー', 0xF6: 'ヴ', 0xF7: 'ヵ', 0xF8: 'ヶ', 0xF9: 'ヷ', 0xFA: 'ヸ',
+            0xFB: 'ヹ', 0xFC: 'ヺ'
+        }
+        charmap.update(katakana_map)
+        logger.info("Добавлена катакана")
+
+    if hiragana_used and not katakana_used:
+        # Добавляем базовую хирагану
+        hiragana_map = {
+            0x80: '　', 0x81: '、', 0x82: '。', 0x83: '・', 0x84: '゛', 0x85: '゜',
+            0x86: 'ー', 0x87: 'あ', 0x88: 'い', 0x89: 'う', 0x8A: 'え', 0x8B: 'お',
+            0x8C: 'か', 0x8D: 'き', 0x8E: 'く', 0x8F: 'け', 0x90: 'こ', 0x91: 'さ',
+            0x92: 'し', 0x93: 'す', 0x94: 'せ', 0x95: 'そ', 0x96: 'た', 0x97: 'ち',
+            0x98: 'つ', 0x99: 'て', 0x9A: 'と', 0x9B: 'な', 0x9C: 'に', 0x9D: 'ぬ',
+            0x9E: 'ね', 0x9F: 'の', 0xA0: 'は', 0xA1: 'ひ', 0xA2: 'ふ', 0xA3: 'へ',
+            0xA4: 'ほ', 0xA5: 'ま', 0xA6: 'み', 0xA7: 'む', 0xA8: 'め', 0xA9: 'も',
+            0xAA: 'や', 0xAB: 'ゆ', 0xAC: 'よ', 0xAD: 'ら', 0xAE: 'り', 0xAF: 'る',
+            0xB0: 'れ', 0xB1: 'ろ', 0xB2: 'わ', 0xB3: 'を', 0xB4: 'ん', 0xB5: 'ゔ',
+            0xB6: 'ゕ', 0xB7: 'ゖ', 0xB8: '゛', 0xB9: '゜', 0xBA: 'ゝ', 0xBB: 'ゞ',
+            0xBC: 'ゟ', 0xBD: '゠', 0xBE: 'ァ', 0xBF: 'ィ', 0xC0: 'ゥ', 0xC1: 'ェ',
+            0xC2: 'ォ', 0xC3: 'ャ', 0xC4: 'ュ', 0xC5: 'ョ', 0xC6: 'ッ', 0xC7: 'ー'
+        }
+        # Добавляем только те символы, которые встречаются в ROM
+        for byte, char in hiragana_map.items():
+            if byte in freq and freq[byte] > 1:
+                charmap[byte] = char
+        logger.info("Добавлена хирагана")
+
+    # Добавляем распространенные символы
+    charmap[0x00] = '\n'
+    charmap[0xFF] = '\n'
+    charmap[0x0D] = '\n'  # Возврат каретки
 
 
 def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: bytes = None):
     """Добавляет общие символы и терминаторы"""
+
     logger = logging.getLogger('gb2text.scanner')
     logger.info("Настройка общих символов и терминаторов")
 
-    # Попробуем определить, какие символы являются пробелами
-    space_candidates = []
-    for byte, count in freq.most_common(5):  # 5 самых частых байтов
-        if count > 0.05 * sum(freq.values()):  # Если встречается в 5% текста
-            space_candidates.append(byte)
-
-    if space_candidates:
-        space_byte = space_candidates[0]
-        charmap[space_byte] = ' '
-        logger.info(f"Определен символ пробела: 0x{space_byte:02X}")
+    # Ищем наиболее частый байт как потенциальный пробел
+    if freq:
+        most_common = freq.most_common(10)
+        for byte, count in most_common:
+            # Если байт встречается часто и не является ASCII символом
+            if count > len(rom_data) * 0.01 and byte not in charmap and byte not in [0x00, 0xFF]:
+                charmap[byte] = ' '
+                logger.info(f"Определен символ пробела: 0x{byte:02X}")
+                break
 
     # Попробуем определить терминаторы
     terminators = []
@@ -345,9 +350,8 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
 
 def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_readability: float = 0.7,
                          block_size: int = 32) -> List[Dict]:
-    """
-    Автоматическое определение текстовых сегментов с улучшенной фильтрацией
-    """
+    """Автоматическое определение текстовых сегментов с улучшенной фильтрацией"""
+
     logger = logging.getLogger('gb2text.scanner')
     logger.info(
         f"Автоопределение текстовых сегментов (мин. длина={min_segment_length}, мин. читаемость={min_readability}, размер блока={block_size})")
@@ -443,9 +447,8 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_rea
 
 
 def analyze_text_segment(rom_data: bytes, start: int, end: int) -> Dict:
-    """
-    Анализ текстового сегмента для определения характеристик
-    """
+    """Анализ текстового сегмента для определения характеристик"""
+
     logger = logging.getLogger('gb2text.scanner')
     logger.info(f"Анализ текстового сегмента: 0x{start:X} - 0x{end:X}")
 

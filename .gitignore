@@ -5,6 +5,8 @@ env/
 *.pyc
 1.txt
 */**/__pycache__/*
+build/
+dist/
 settings/
 
 # Диагностические каталоги

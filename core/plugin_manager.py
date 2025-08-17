@@ -19,7 +19,7 @@ GB Text Extraction Framework
 Менеджер плагинов для динамической загрузки
 """
 
-import importlib, pkgutil, os, json, re, logging, threading
+import importlib, pkgutil, os, json, re, logging, threading, sys
 from pathlib import Path
 from typing import List, Optional, Dict
 from core.plugin import GamePlugin
@@ -56,15 +56,26 @@ class PluginManager:
             GenericGBAPlugin(),
             AutoDetectPlugin()
         ]
-        self.plugins_dir = plugins_dir
+        self.plugins_dir = self._get_resource_path(plugins_dir)
         self.load_plugins()
+
+    def _get_resource_path(self, relative_path: str) -> str:
+        """Получает правильный путь к ресурсу для exe и обычного режима"""
+        try:
+            # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+            base_path = sys._MEIPASS
+        except AttributeError:
+            # Обычный режим - используем текущую директорию
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
 
     def load_plugins(self) -> None:
         """Загружает все плагины из указанной директории"""
         # Определяем путь к директории с плагинами
         plugins_path = Path(self.plugins_dir)
         if not plugins_path.exists():
-            os.makedirs(plugins_path)
+            os.makedirs(plugins_path, exist_ok=True)
             # Создаем пример конфигурации
             self._create_example_plugin(plugins_path / "example.json")
 
@@ -76,20 +87,25 @@ class PluginManager:
 
     def _load_python_plugins(self) -> None:
         """Загружает Python-плагины из директории"""
-        for _, module_name, _ in pkgutil.iter_modules([self.plugins_dir]):
+        plugins_module_path = self.plugins_dir
+        if os.path.exists(plugins_module_path):
             try:
-                module = importlib.import_module(f"{self.plugins_dir}.{module_name}")
-                for attribute_name in dir(module):
-                    attribute = getattr(module, attribute_name)
-                    if (
-                            isinstance(attribute, type) and
-                            issubclass(attribute, GamePlugin) and
-                            attribute != GamePlugin
-                    ):
-                        self.plugins.append(attribute())
-                        print(f"Загружен плагин: {attribute.__name__}")
+                for _, module_name, _ in pkgutil.iter_modules([plugins_module_path]):
+                    try:
+                        module = importlib.import_module(f"plugins.{module_name}")
+                        for attribute_name in dir(module):
+                            attribute = getattr(module, attribute_name)
+                            if (
+                                    isinstance(attribute, type) and
+                                    issubclass(attribute, GamePlugin) and
+                                    attribute != GamePlugin
+                            ):
+                                self.plugins.append(attribute())
+                                print(f"Загружен плагин: {attribute.__name__}")
+                    except Exception as e:
+                        print(f"Ошибка загрузки модуля {module_name}: {str(e)}")
             except Exception as e:
-                print(f"Ошибка загрузки модуля {module_name}: {str(e)}")
+                print(f"Ошибка доступа к директории плагинов: {str(e)}")
 
     def _load_config_plugins(self) -> None:
         """Загружает конфигурационные плагины из JSON-файлов"""
@@ -348,3 +364,21 @@ class ConfigurablePlugin(GamePlugin):
             logger.warning("Не найдено ни одного валидного текстового сегмента")
 
         return segments
+
+def get_safe_plugin_manager(plugins_dir: str = "plugins") -> PluginManager:
+    """Безопасно создает менеджер плагинов с обработкой ошибок"""
+    try:
+        return PluginManager(plugins_dir)
+    except Exception as e:
+        logger = logging.getLogger('gb2text.plugin_manager')
+        logger.error(f"Ошибка создания менеджера плагинов: {e}")
+        # Возвращаем базовый менеджер плагинов без дополнительных плагинов
+        manager = PluginManager.__new__(PluginManager)
+        manager.plugins = [
+            GenericGBPlugin(),
+            GenericGBCPlugin(),
+            GenericGBAPlugin(),
+            AutoDetectPlugin()
+        ]
+        manager.plugins_dir = plugins_dir
+        return manager
