@@ -237,7 +237,15 @@ def create_portable_package(gb2text_dir, dist_dir):
         if exe_path.exists():
             shutil.copy2(exe_path, portable_dir / exe_name)
             print(f"✅ Скопирован {exe_name}")
-    
+
+    # Копируем папку locales, если она существует
+    locales_dir = gb2text_dir / "locales"
+    if locales_dir.exists():
+        shutil.copytree(locales_dir, portable_dir / "locales")
+        print("✅ Скопирована папка locales")
+    else:
+        print("⚠️ Папка locales не найдена в исходниках")
+
     # Создаем README для пользователя
     readme_content = """GB2Text - Портативная версия
 
@@ -286,13 +294,75 @@ def create_spec_file():
     if not gb2text_dir:
         print("❌ Папка GB2Text не найдена для создания spec файла!")
         return
-    
+
+    # Проверяем наличие папки locales
+    locales_path = gb2text_dir / "locales"
+    if not locales_path.exists():
+        print(f"❌ Папка locales не найдена по пути: {locales_path}")
+        print("🔧 Создаем папку locales и базовые файлы локализации...")
+        locales_path.mkdir(exist_ok=True)
+
+        # Создаем базовые файлы локализации, если их нет
+        en_path = locales_path / "en"
+        ru_path = locales_path / "ru"
+        ja_path = locales_path / "ja"
+        en_path.mkdir(exist_ok=True)
+        ru_path.mkdir(exist_ok=True)
+        ja_path.mkdir(exist_ok=True)
+
+        # Пример базового файла messages.json
+        en_messages = en_path / "messages.json"
+        ru_messages = ru_path / "messages.json"
+        ja_messages = ja_path / "messages.json"
+
+        if not en_messages.exists():
+            with open(en_messages, 'w', encoding='utf-8') as f:
+                f.write('''{
+    "app.title": "GB Text Extraction Framework",
+    "select.rom": "Please select a ROM file",
+    "text.extracting": "Extracting text...",
+    "text.extracted": "Text extracted"
+    }''')
+
+        if not ru_messages.exists():
+            with open(ru_messages, 'w', encoding='utf-8') as f:
+                f.write('''{
+    "app.title": "GB Text Extraction Framework",
+    "select.rom": "Пожалуйста, выберите ROM файл",
+    "text.extracting": "Извлечение текста...",
+    "text.extracted": "Текст извлечен"
+    }''')
+
+        if not ja_messages.exists():
+            with open(ja_messages, 'w', encoding='utf-8') as f:
+                f.write('''{
+    "app.title": "GB テキスト抽出・翻訳ツール",
+    "select.rom": "最初にROMファイルを選択してください",
+    "text.extracting": "テキストを抽出中...",
+    "text.extracted": "テキストを抽出しました"
+    }''')
+
+    # Проверяем, что папка locales действительно создана
+    if not locales_path.exists():
+        print(f"❌ Не удалось создать папку locales по пути: {locales_path}")
+        return
+
     folders_to_include = []
-    for folder in ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']:
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+
+    for folder in required_folders:
         folder_path = gb2text_dir / folder
         if folder_path.exists():
-            folders_to_include.append(f"        ('{folder}', '{folder}'),")
-    
+            folders_to_include.append(f"    ('{folder}', '{folder}'),")
+            print(f"✅ Найдена папка для включения: {folder}")
+        else:
+            print(f"⚠️ Папка не найдена: {folder}")
+
+        # Добавляем явное включение файлов локализации
+    datas_entries = "\n".join(folders_to_include)
+    if not datas_entries:
+        datas_entries = "    # No additional data files"
+
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
 
 block_cipher = None
@@ -302,7 +372,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-{chr(10).join(folders_to_include)}
+{datas_entries}
     ],
     hiddenimports=[
         'tkinter',
@@ -311,9 +381,11 @@ a = Analysis(
         'tkinter.filedialog',
         'tkinter.messagebox',
         'json',
+        're',
         'logging',
         'pathlib',
         'collections',
+        'unicodedata'
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -364,6 +436,19 @@ exe = EXE(
     target_arch=None,
     cofile=None,
     icon='resources/app_icon.ico' if (Path('resources/app_icon.ico').exists()) else None,
+    codesign_identity=None,
+    entitlements_file=None,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas, 
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='GB2Text',
 )
 '''
 

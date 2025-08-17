@@ -5,7 +5,7 @@ a = Analysis(
     ['C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\main.py'],
     pathex=[],
     binaries=[],
-    datas=[('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\plugins', 'plugins'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\locales', 'locales'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\settings', 'settings'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\resources', 'resources'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\gui', 'gui'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\core', 'core')],
+    datas=[('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\VERSION', '.'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\plugins', 'plugins'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\settings', 'settings'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\resources', 'resources'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\gui', 'gui'), ('C:\\Users\\Monty\\Desktop\\PortableGit\\GB2Text\\core', 'core')],
     hiddenimports=['tkinter', 'tkinter.ttk', 'tkinter.scrolledtext', 'tkinter.filedialog', 'tkinter.messagebox', 'json', 'logging', 'pathlib', 'collections'],
     hookspath=[],
     hooksconfig={},

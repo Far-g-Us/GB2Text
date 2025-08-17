@@ -24,6 +24,34 @@ import argparse, json, logging, sys, os
 from pathlib import Path
 from core.injector import TextInjector
 
+logger = logging.getLogger('gb2text')
+logger.debug("=== НАЧАЛО ИНИЦИАЛИЗАЦИИ ===")
+logger.debug(f"sys.frozen: {getattr(sys, 'frozen', False)}")
+logger.debug(f"sys._MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
+
+# Проверяем пути
+base_path = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    base_path = sys._MEIPASS
+
+logger.debug(f"Базовый путь: {base_path}")
+logger.debug(f"Содержимое базового пути: {os.listdir(base_path)}")
+
+# Проверяем наличие папки locales
+locales_path = os.path.join(base_path, 'locales')
+logger.debug(f"Путь к locales: {locales_path}")
+logger.debug(f"Папка locales существует: {os.path.exists(locales_path)}")
+
+if not os.path.exists(locales_path):
+    # Попробуем найти в родительской директории
+    parent_path = os.path.dirname(base_path)
+    locales_path = os.path.join(parent_path, 'locales')
+    logger.debug(f"Попробуем путь к locales в родительской директории: {locales_path}")
+    logger.debug(f"Папка locales существует: {os.path.exists(locales_path)}")
+
+    if not os.path.exists(locales_path):
+        logger.error("Папка locales не найдена! Используем встроенные переводы.")
+
 
 def load_plugins_from_dir(plugin_dir: str) -> list:
     """Загрузка конфигурационных плагинов из каталога"""
