@@ -21,7 +21,7 @@ GB Text Extraction Framework
 
 from core.plugin import GamePlugin
 from core.database import get_pointer_size
-
+from core.scanner import find_text_pointers
 
 class GenericGBPlugin(GamePlugin):
     """Базовый плагин для игр Game Boy"""
@@ -31,10 +31,14 @@ class GenericGBPlugin(GamePlugin):
         return r'^GAME_[0-9A-F]{2}$'
 
     def get_text_segments(self, rom) -> list:
-        from core.scanner import find_text_pointers
-
         # Для GB используем 16-битные указатели
-        pointers = find_text_pointers(rom.data, pointer_size=get_pointer_size('gb'))
+
+        # Адреса в ROM часто имеют вид 0x08xxxxxx, маппим в смещение файла (минус 0x08000000)
+        pointers = find_text_pointers(
+            rom.data,
+            pointer_size=get_pointer_size('gba'),
+            address_base=0x08000000
+        )
 
         segments = []
         for i, (ptr_addr, text_addr) in enumerate(pointers):
@@ -92,7 +96,7 @@ class GenericGBAPlugin(GenericGBPlugin):
                 'start': text_addr,
                 'end': text_addr + segment_length,
                 'decoder': None,
-                'compression': 'gba_lz77'
+                'compression': None
             })
 
         # Если нет указателей, используем стандартные адреса для GBA
@@ -104,5 +108,20 @@ class GenericGBAPlugin(GenericGBPlugin):
                 'decoder': None,
                 'compression': 'gba_lz77'
             })
+            # Пробуем разумный фолбэк: конвертируем адресное пространство 0x08xxxxxx в смещения файла
+            start_va = 0x083D0000
+            end_va = 0x08400000
+            start = max(0, start_va - 0x08000000)
+            end = max(start, end_va - 0x08000000)
+            start = min(start, len(rom.data))
+            end = min(end, len(rom.data))
+            if end - start >= 0x100:
+                segments.append({
+                    'name': 'main_text',
+                    'start': start,
+                    'end': end,
+                    'decoder': None,
+                    'compression': None
+                })
 
         return segments

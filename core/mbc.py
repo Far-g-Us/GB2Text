@@ -19,7 +19,6 @@ GB Text Extraction Framework
 Поддержка различных Memory Bank Controllers
 """
 
-
 class MBC:
     """Базовый класс для MBC"""
 

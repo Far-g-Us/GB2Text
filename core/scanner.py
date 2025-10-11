@@ -27,9 +27,10 @@ logger = logging.getLogger('gb2text.scanner')
 
 
 def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
-                       pointer_size: int = 2, min_length: int = 4) -> List[Tuple[int, int]]:
+                       pointer_size: int = 2, min_length: int = 4,
+                       address_base: int = 0) -> List[Tuple[int, int]]:
     """
-    Поиск указателей на текст в ROM с учетом размера указателя
+    Поиск указателей на текст в ROM с учетом размера указателя и базового адреса (для GBA)
     Возвращает список кортежей (адрес, адрес_текста)
     """
     # Определяем конечный адрес
@@ -50,12 +51,19 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
         else:
             continue  # Неподдерживаемый размер указателя
 
+        # Маппим адрес для систем с базой адреса (например, GBA 0x08000000)
+        mapped = addr
+        if pointer_size == 4 and address_base:
+            mapped = addr - address_base
+            if mapped < 0:
+                continue
+
         # Проверяем, является ли значение возможным адресом
-        if 0x4000 <= addr < len(rom_data):
+        if 0x4000 <= mapped < len(rom_data):
             # Проверяем, похож ли текст по адресу на текст
-            if is_text_like(rom_data, addr, min_length):
-                pointers.append((i, addr))
-                logger.debug(f"Найден указатель: 0x{i:X} -> 0x{addr:X}")
+            if is_text_like(rom_data, mapped, min_length):
+                pointers.append((i, mapped))
+                logger.debug(f"Найден указатель: 0x{i:X} -> 0x{mapped:X} (raw=0x{addr:X}, base=0x{address_base:X})")
 
     logger.info(f"Найдено {len(pointers)} указателей")
     return pointers

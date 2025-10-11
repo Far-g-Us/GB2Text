@@ -232,6 +232,19 @@ class TextExtractor:
                     current_offset = base_offset + i
                     continue
 
+            # Разделение по переводу строки — синхронизация с инжектором
+            if char == '\n':
+                if current_msg:
+                    messages.append({
+                        'offset': current_offset,
+                        'text': current_msg
+                    })
+                    logger.debug(f"Найдено сообщение длиной {len(current_msg)}")
+                    current_msg = ""
+                i += 1
+                current_offset = base_offset + i
+                continue
+
             # Обработка обычного символа
             current_msg += char
             i += 1
