@@ -72,6 +72,15 @@ class GBTextExtractorGUI:
         self._setup_ui()
         self._setup_context_menu()
 
+        self.charset_var = tk.StringVar(value="auto")
+
+        ttk.Label(self.root, text="Charset:").pack()
+        ttk.Combobox(
+            self.root,
+            textvariable=self.charset_var,
+            values=["auto", "en", "ru", "ja"]
+        ).pack()
+
         # Если указан ROM при запуске, сразу загружаем
         if rom_path:
             self.update_game_info()
@@ -686,7 +695,8 @@ class GBTextExtractorGUI:
                 try:
                     extractor = TextExtractor(
                         self.rom_path.get(),
-                        cancellation_token=self.cancellation_token
+                        cancellation_token=self.cancellation_token,
+                        charset=self.charset_var.get()
                     )
                     self.current_results = extractor.extract()
                     return True
