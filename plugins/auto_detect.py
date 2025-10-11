@@ -26,14 +26,8 @@ from core.database import get_segment_patterns, get_pointer_size
 from core.scanner import auto_detect_segments, find_text_pointers, analyze_text_segment
 import logging
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    filename='gb2text.log'
-)
-logger = logging.getLogger('gb2text')
-
+# Настройки логирования выполняются в точках входа (main/run_gui)
+logger = logging.getLogger('gb2text.auto_detect')
 
 class AutoDetectPlugin(GamePlugin):
     """Плагин для автоматического определения текстовых сегментов"""
@@ -81,7 +75,12 @@ class AutoDetectPlugin(GamePlugin):
             # Используем кэширование результатов анализа
             analyzed_ranges = {}
 
-            pointers = find_text_pointers(rom.data, pointer_size=pointer_size)
+            address_base = 0x08000000 if rom.system == 'gba' else 0
+            pointers = find_text_pointers(
+                rom.data,
+                pointer_size=pointer_size,
+                address_base=address_base
+            )
 
             # Группируем близко расположенные указатели
             pointer_groups = self._group_close_pointers(pointers, max_distance=50)

@@ -65,9 +65,6 @@ class GBTextExtractorGUI:
         # Обработчик закрытия окна
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-        # Добавляем переменную для текущего языка интерфейса
-        self.ui_lang = tk.StringVar(value=lang)
-
         self.show_warning_dialog()
         self._setup_ui()
         self._setup_context_menu()
@@ -452,29 +449,15 @@ class GBTextExtractorGUI:
                 self.i18n.t("success.title"),
                 self.i18n.t("config.created", path=str(config_path))
             )
+            # Конфиг успешно создан, завершаем
+            self.set_status(self.i18n.t("config.created"))
+            return
 
         except Exception as e:
             messagebox.showerror(
                 self.i18n.t("error.title"),
                 self.i18n.t("config.error") + f": {str(e)}"
             )
-
-        # Сохраняем конфигурацию
-        config_dir = Path("plugins/config")
-        config_dir.mkdir(parents=True, exist_ok=True)
-
-        # Используем имя игры из заголовка ROM
-        safe_title = re.sub(r'\W+', '', self.current_rom.header['title']).lower()
-        config_path = config_dir / f"{safe_title}_{self.current_rom.header['cartridge_type']:02X}.json"
-
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(config, f, indent=2, ensure_ascii=False)
-
-        self.set_status(self.i18n.t("config.created"))
-        messagebox.showinfo(
-            self.i18n.t("success.title"),
-            self.i18n.t("config.created", path=config_path)
-        )
 
     def apply_encoding(self):
         """Применяет выбранную кодировку к текущему сегменту"""
@@ -695,8 +678,8 @@ class GBTextExtractorGUI:
                 try:
                     extractor = TextExtractor(
                         self.rom_path.get(),
-                        cancellation_token=self.cancellation_token,
-                        charset=self.charset_var.get()
+                        plugin_manager=self.plugin_manager,
+                        cancellation_token=self.cancellation_token
                     )
                     self.current_results = extractor.extract()
                     return True
@@ -1215,10 +1198,9 @@ class GBTextExtractorGUI:
 
         # Здесь сохраняем перевод
         entry = self.current_entries[self.current_entry_index]
+        # Сохраняем перевод в текущую запись (используется при инжекте)
+        entry['translation'] = translation
         print(f"Сохранен перевод для записи {self.current_entry_index}: {translation[:50]}...")
-
-        # Сохранение в файл или базу данных
-        # ...
 
         self.set_status(self.i18n.t("text.saved"))
         messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("translation.saved"))
@@ -1597,16 +1579,14 @@ class GBTextExtractorGUI:
             self.set_status(self.i18n.t("text.injecting"), 0)
 
             # Получаем переводы
-            translations = []
-            for i in range(len(self.current_entries)):
-                translation = self.translated_text.get(1.0, tk.END).strip()
-                translations.append(translation)
+            # Берем поштучно из entry['translation'], если не задан — оставляем оригинал
+            translations = [e.get('translation', e['text']) for e in self.current_entries]
 
             # Внедряем в ROM
             success = self.text_injector.inject_segment(
-                self.current_segment['name'],
+                self.current_segment,  # имя сегмента строкой
                 translations,
-                self.plugin_manager.get_plugin(self.current_rom.get_game_id())
+                self.plugin_manager.get_plugin(self.current_rom.get_game_id(), self.current_rom.system)
             )
 
             if success:

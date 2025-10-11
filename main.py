@@ -152,13 +152,25 @@ def main():
             from core.plugin_manager import get_safe_plugin_manager
             plugin_manager = get_safe_plugin_manager(get_resource_path(args.plugin_dir))
 
-            # Создаем инжектор
-            injector = TextInjector(args.rom, plugin_manager)
+            # Создаем инжектор (ВАЖНО: без plugin_manager)
+            injector = TextInjector(args.rom)
+
+            # Определяем плагин для этого ROM (ВАЖНО: по game_id и system)
+            rom_game_id = injector.rom.get_game_id()
+            rom_system = injector.rom.system
+            plugin = plugin_manager.get_plugin(rom_game_id, rom_system)
+            if not plugin:
+                raise RuntimeError(f"Не найден плагин для {rom_game_id} ({rom_system})")
 
             # Внедряем переводы
             for segment_name, entries in translations.items():
                 texts = [entry['translation'] for entry in entries]
-                injector.inject_segment(segment_name, texts, plugin_manager.get_plugin(args.rom))
+                ok = injector.inject_segment(segment_name, texts, plugin)
+                if not ok:
+                    raise RuntimeError(
+                        f"Не удалось внедрить сегмент '{segment_name}' "
+                        f"(несовпадение количества записей, decoder=None или длина перевода)"
+                    )
 
             # Сохраняем результат
             injector.save(args.output_rom)
