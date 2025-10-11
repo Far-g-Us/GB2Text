@@ -171,10 +171,10 @@ finally:
         for folder in existing_folders:
             folder_path = gb2text_dir / folder
             if folder == 'locales':
-                # Добавляем каждый JSON файл отдельно
-                locales_files = list(folder_path.glob('*.json'))
+                locales_files = list(folder_path.rglob('*.json'))
                 for locale_file in locales_files:
-                    cmd.extend([f"--add-data={locale_file};locales/"])
+                    rel_path = locale_file.relative_to(gb2text_dir)
+                    cmd.extend([f"--add-data={locale_file};{rel_path.parent}"])
                 print(f"✅ Добавлены файлы локализации: {len(locales_files)} файлов")
             else:
                 cmd.extend([f"--add-data={folder_path};{folder}"])
@@ -353,7 +353,14 @@ def create_spec_file():
     for folder in required_folders:
         folder_path = gb2text_dir / folder
         if folder_path.exists():
-            folders_to_include.append(f"    ('{folder}', '{folder}'),")
+            if folder == 'locales':
+                for root, _, files in os.walk(folder_path):
+                    for f in files:
+                        full_path = Path(root) / f
+                        rel_path = os.path.relpath(full_path, gb2text_dir)
+                        folders_to_include.append(f"    ('{full_path}', '{rel_path}'),")
+            else:
+                folders_to_include.append(f"    ('{folder}', '{folder}'),")
             print(f"✅ Найдена папка для включения: {folder}")
         else:
             print(f"⚠️ Папка не найдена: {folder}")
