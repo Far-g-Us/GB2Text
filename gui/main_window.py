@@ -31,7 +31,8 @@ from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager, CancellationToken
-from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
+from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, \
+    get_generic_russian_charmap, get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
 from core.scanner import analyze_text_segment, _detect_language
 from core.constants import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 
@@ -84,7 +85,7 @@ class GBTextExtractorGUI:
             self.update_game_info()
 
         # Применяем сохранённую тему
-        self.after(100, lambda: self.theme.set(self.theme.get()) or self.apply_theme())
+        self.root.after(100, lambda: self.theme.set(self.theme.get()) or self.apply_theme())
 
     def _setup_ui(self):
         """Настройка пользовательского интерфейса"""
@@ -337,7 +338,23 @@ class GBTextExtractorGUI:
 
     def _setup_settings_tab(self):
         """Настройка вкладки настроек"""
-        settings_frame = ttk.LabelFrame(self.settings_tab, text=self.i18n.t("settings.localization"), padding="20")
+        # Добавляем Canvas со скроллбаром для длинных списков
+        canvas = tk.Canvas(self.settings_tab)
+        scrollbar = ttk.Scrollbar(self.settings_tab, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        settings_frame = ttk.LabelFrame(scrollable_frame, text=self.i18n.t("settings.localization"), padding="20")
         settings_frame.pack(fill="both", expand=True, padx=20, pady=20)
 
         # Язык интерфейса
@@ -371,13 +388,21 @@ class GBTextExtractorGUI:
 
         ttk.Label(encoding_frame, text=self.i18n.t("encoding.type")).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=5)
 
+        # Выпадающий список для выбора кодировки
+        encoding_options = [
+            self.i18n.t("auto.detect"),
+            self.i18n.t("english"),
+            self.i18n.t("japanese"),
+            self.i18n.t("russian"),
+            self.i18n.t("chinese"),
+            "Shift-JIS (GBA)"
+        ]
+        encoding_values = ["auto", "en", "ja", "ru", "zh", "shiftjis"]
         self.encoding_type = tk.StringVar(value="auto")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("auto.detect"), variable=self.encoding_type, value="auto").grid(row=0, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("english"), variable=self.encoding_type, value="en").grid(row=1, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("japanese"), variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("russian"), variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("chinese"), variable=self.encoding_type, value="zh").grid(row=4, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text="Shift-JIS (GBA)", variable=self.encoding_type, value="shiftjis").grid(row=5, column=1, sticky="w")
+        self.encoding_combo = ttk.Combobox(encoding_frame, textvariable=self.encoding_type, values=encoding_options, state="readonly", width=20)
+        self.encoding_combo.grid(row=0, column=1, sticky="w", padx=5)
+        # Сохраняем маппинг для использования
+        self.encoding_map = dict(zip(encoding_options, encoding_values))
 
         # Тема оформления
         theme_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("settings.theme"), padding="10")
@@ -388,13 +413,18 @@ class GBTextExtractorGUI:
         ttk.Radiobutton(theme_frame, text="Dark", variable=self.theme, value="dark", command=self.apply_theme).pack(side="left", padx=5)
 
         # Создать конфигурацию
-        ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config).pack(pady=10)
+        ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config, width=25).pack(pady=10)
 
         # Кнопка применения кодировки
-        ttk.Button(settings_frame, text=self.i18n.t("apply.encoding"), command=self.apply_encoding).pack(pady=10)
+        ttk.Button(settings_frame, text=self.i18n.t("apply.encoding"), command=self.apply_encoding, width=25).pack(pady=10)
 
         # Сохранение настроек
-        ttk.Button(settings_frame, text=self.i18n.t("save.settings"), command=self.save_settings).pack(pady=10)
+        save_btn = ttk.Button(settings_frame, text=self.i18n.t("save.settings"), command=self.save_settings, width=25)
+        save_btn.pack(pady=10)
+        # Делаем кнопку более заметной
+        style = ttk.Style()
+        style.configure('Save.TButton', font=('Arial', 10, 'bold'))
+        save_btn.configure(style='Save.TButton')
 
     def refresh_guide_tab(self):
         """Обновляет текст вкладки руководства"""
@@ -994,7 +1024,14 @@ class GBTextExtractorGUI:
                     settings = json.load(f)
                 self.ui_lang = tk.StringVar(value=settings.get("ui_language", "en"))
                 self.target_lang = tk.StringVar(value=settings.get("target_language", "ru"))
-                self.encoding_type = tk.StringVar(value=settings.get("encoding_type", "auto"))
+                saved_encoding = settings.get("encoding_type", "auto")
+                # Обратное преобразование: код -> текст для Combobox
+                if hasattr(self, 'encoding_map'):
+                    reverse_map = {v: k for k, v in self.encoding_map.items()}
+                    display_encoding = reverse_map.get(saved_encoding, saved_encoding)
+                else:
+                    display_encoding = saved_encoding
+                self.encoding_type = tk.StringVar(value=display_encoding)
                 self.theme = tk.StringVar(value=settings.get("theme", "light"))
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {str(e)}")
@@ -1689,11 +1726,17 @@ class GBTextExtractorGUI:
 
     def save_settings(self):
         """Сохранение настроек локализации"""
+        # Получаем значение кодировки
+        encoding_value = self.encoding_type.get()
+        # Если это текстовое значение (из Combobox), преобразуем в код
+        if hasattr(self, 'encoding_map') and encoding_value in self.encoding_map:
+            encoding_value = self.encoding_map[encoding_value]
+        
         # Сохраняем выбранный язык интерфейса
         settings = {
             "ui_language": self.ui_lang.get(),
             "target_language": self.target_lang.get(),
-            "encoding_type": self.encoding_type.get(),
+            "encoding_type": encoding_value,
             "theme": self.theme.get()
         }
 
@@ -1723,12 +1766,43 @@ class GBTextExtractorGUI:
             
             self.root.configure(bg=dark_bg)
             
+            # Настраиваем стили TTK для тёмной темы
+            style = ttk.Style()
+            style.theme_use('clam')
+            style.configure('Dark.TFrame', background=dark_bg)
+            style.configure('Dark.TLabelframe', background=dark_bg, foreground=dark_fg)
+            style.configure('Dark.TLabel', background=dark_bg, foreground=dark_fg)
+            style.configure('Dark.TButton', background=dark_input_bg, foreground=dark_fg)
+            style.configure('Dark.TRadiobutton', background=dark_bg, foreground=dark_fg)
+            style.configure('Dark.TCheckbutton', background=dark_bg, foreground=dark_fg)
+            style.configure('Dark.TCombobox', fieldbackground=dark_input_bg, background=dark_input_bg, foreground=dark_fg)
+            style.configure('Dark.Treeview', background=dark_input_bg, foreground=dark_fg, fieldbackground=dark_input_bg)
+            style.configure('Dark.Notebook', background=dark_bg)
+            
             # Применяем ко всем виджетам
             for widget in self.root.winfo_children():
                 self._apply_dark_theme(widget, dark_bg, dark_fg, dark_input_bg)
         else:
-            # Светлая тема (по умолчанию)
-            self.root.configure(bg="SystemButtonFace")
+            # Светлая тема - современные цвета
+            light_bg = "#f5f5f5"
+            light_fg = "#333333"
+            light_input_bg = "#ffffff"
+            light_accent = "#0078d4"
+            
+            self.root.configure(bg=light_bg)
+            
+            # Настраиваем стили TTK для светлой темы
+            style = ttk.Style()
+            style.theme_use('clam')
+            style.configure('.', background=light_bg, foreground=light_fg)
+            style.configure('TFrame', background=light_bg)
+            style.configure('TLabelframe', background=light_bg, foreground=light_fg, bordercolor=light_accent)
+            style.configure('TLabel', background=light_bg, foreground=light_fg)
+            style.configure('TButton', background=light_accent, foreground='white', bordercolor=light_accent)
+            style.configure('TRadiobutton', background=light_bg, foreground=light_fg)
+            style.configure('TCheckbutton', background=light_bg, foreground=light_fg)
+            style.configure('TCombobox', fieldbackground=light_input_bg, background=light_input_bg, foreground=light_fg)
+            style.map('TButton', background=[('active', '#005a9e')])
             
             for widget in self.root.winfo_children():
                 self._apply_light_theme(widget)
@@ -1748,6 +1822,17 @@ class GBTextExtractorGUI:
                 widget.configure(background=input_bg, foreground=fg, selectbackground="#555555")
             elif widget_class == 'TButton':
                 widget.configure(style='Dark.TButton')
+            elif widget_class == 'TCombobox':
+                # Настраиваем Combobox для тёмной темы
+                widget.configure(background=input_bg, foreground=fg, fieldbackground=input_bg, selectbackground="#555555")
+            elif widget_class == 'Treeview':
+                # Treeview (таблицы)
+                widget.configure(style='Dark.Treeview')
+            elif widget_class == 'Notebook':
+                # Notebook (вкладки)
+                widget.configure(style='Dark.Notebook')
+            elif widget_class == 'TScrollbar':
+                widget.configure(style='Dark.Vertical.TScrollbar')
         except:
             pass
         
@@ -1760,17 +1845,30 @@ class GBTextExtractorGUI:
 
     def _apply_light_theme(self, widget):
         """Восстанавливает светлую тему"""
+        light_bg = "#f5f5f5"
+        light_fg = "#333333"
+        light_input_bg = "#ffffff"
+        
         try:
             widget_class = widget.winfo_class()
             
             if widget_class in ['TFrame', 'TLabelframe']:
                 widget.configure(style='')
+                widget.configure(background=light_bg)
             elif widget_class == 'TLabel':
                 widget.configure(background='', foreground='')
+                widget.configure(background=light_bg, foreground=light_fg)
             elif widget_class in ['Text', 'Entry']:
-                widget.configure(background='white', foreground='black', insertbackground='black')
+                widget.configure(background=light_input_bg, foreground=light_fg, insertbackground=light_fg)
             elif widget_class == 'Listbox':
-                widget.configure(background='white', foreground='black', selectbackground='#3399ff')
+                widget.configure(background=light_input_bg, foreground=light_fg, selectbackground='#0078d4')
+            elif widget_class == 'TCombobox':
+                widget.configure(background=light_input_bg, foreground=light_fg, fieldbackground=light_input_bg)
+            elif widget_class == 'Treeview':
+                widget.configure(style='')
+                widget.configure(background=light_input_bg, foreground=light_fg)
+            elif widget_class == 'Notebook':
+                widget.configure(style='')
         except:
             pass
         
