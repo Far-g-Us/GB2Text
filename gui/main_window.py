@@ -24,6 +24,7 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import json, re, os, logging, threading, time, sys
 from datetime import datetime
 from pathlib import Path
+from collections import Counter
 from core.rom import GameBoyROM
 from core.i18n import I18N
 from core.guide import GuideManager
@@ -32,7 +33,7 @@ from core.injector import TextInjector
 from core.plugin_manager import PluginManager, CancellationToken
 from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
 from core.scanner import analyze_text_segment, _detect_language
-from typing import Counter
+from core.constants import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 
 
 class GBTextExtractorGUI:
@@ -46,7 +47,7 @@ class GBTextExtractorGUI:
         self.i18n = I18N(default_lang=self.ui_lang.get())
         self.root = root
         self.root.title(self.i18n.t("app.title"))
-        self.root.geometry("1100x700")
+        self.root.geometry(f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
         self._set_app_icon()
 
         # Инициализация компонентов
@@ -475,12 +476,21 @@ class GBTextExtractorGUI:
         # Определяем, какую таблицу символов использовать
         if encoding_type == "auto":
             charmap = auto_detect_charmap(self.current_rom.data, self.current_segment['start'])
-        elif encoding_type == "en":
-            charmap = get_generic_english_charmap()
-        elif encoding_type == "ja":
-            charmap = get_generic_japanese_charmap()
-        elif encoding_type == "ru":
-            charmap = get_generic_russian_charmap()
+        elif encoding_type in ("en", "ja", "ru"):
+            # Сначала пытаемся загрузить из файла locales, затем используем generic
+            try:
+                from core.charset import load_charset
+                charmap = load_charset(encoding_type)
+                if not charmap:
+                    raise ValueError("Empty charset file")
+            except (FileNotFoundError, ValueError, ImportError):
+                # Fallback к программно построенным таблицам
+                if encoding_type == "en":
+                    charmap = get_generic_english_charmap()
+                elif encoding_type == "ja":
+                    charmap = get_generic_japanese_charmap()
+                else:
+                    charmap = get_generic_russian_charmap()
         else:
             charmap = get_generic_english_charmap()
 

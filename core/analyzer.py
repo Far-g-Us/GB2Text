@@ -18,6 +18,7 @@ GB Text Extraction Framework
 from core.rom import GameBoyROM
 import logging
 from typing import List, Dict, Tuple
+from core.constants import MIN_READABILITY_MEDIUM, QUALITY_GOOD
 
 logger = logging.getLogger('gb2text.analyzer')
 
@@ -50,7 +51,6 @@ class TextAnalyzer:
         terminators = []
         for byte in common_bytes:
             # Проверяем, часто ли этот байт встречается в конце "сообщений"
-            is_terminator = True
             message_count = 0
             terminator_count = 0
 
@@ -151,13 +151,13 @@ class TextAnalyzer:
                         has_invalid_sequence = True
                         break
 
-                if readability > 0.7 and not has_invalid_sequence:
+                if readability > QUALITY_GOOD and not has_invalid_sequence:
                     valid_messages += 1
                 else:
                     possible_errors.append({
                         'segment': segment_name,
                         'offset': offset,
-                        'issue': 'low_readability' if readability <= 0.7 else 'invalid_sequence',
+                        'issue': 'low_readability' if readability <= MIN_READABILITY_MEDIUM else 'invalid_sequence',
                         'readability': readability
                     })
 

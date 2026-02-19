@@ -23,9 +23,9 @@ from core.i18n import I18N
 class TextEditorFrame(ttk.Frame):
     """Редактор текста с возможностью предпросмотра"""
 
-    def __init__(self, parent, segment_data, rom_path, plugin):
+    def __init__(self, parent, segment_data, rom_path, plugin, lang='en'):
         super().__init__(parent)
-        self.i18n = I18N(default_lang=self.ui_lang.get())
+        self.i18n = I18N(default_lang=lang)
         self.segment_data = segment_data
         self.rom_path = rom_path
         self.plugin = plugin

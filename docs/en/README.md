@@ -137,4 +137,14 @@ We do NOT accept contributions that:
 
 - Thanks to the homebrew community for inspiration
 - Special thanks to contributors who helped make this project possible
+
+## 🧪 Testing
+
+Run tests with:
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+See [tests/README.md](../../tests/README.md) for detailed testing documentation.
      

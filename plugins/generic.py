@@ -22,6 +22,7 @@ GB Text Extraction Framework
 from core.plugin import GamePlugin
 from core.database import get_pointer_size
 from core.scanner import find_text_pointers
+from core.constants import GBA_ROM_BASE_ADDRESS
 
 class GenericGBPlugin(GamePlugin):
     """Базовый плагин для игр Game Boy"""
@@ -37,7 +38,7 @@ class GenericGBPlugin(GamePlugin):
         pointers = find_text_pointers(
             rom.data,
             pointer_size=get_pointer_size('gba'),
-            address_base=0x08000000
+            address_base=GBA_ROM_BASE_ADDRESS
         )
 
         segments = []

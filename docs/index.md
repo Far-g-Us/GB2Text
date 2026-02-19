@@ -14,6 +14,10 @@ Welcome to the documentation for GB Text Extraction Framework!
 ### 🇺🇸 [English](docs/en/CONTRIBUTING.md)
 ### 🇷🇺 [Русский](docs/ru/CONTRIBUTING.md)
 
+## 🗺️ Roadmap
+
+### [Development Roadmap](../ROADMAP.md)
+
 This documentation is available in multiple languages. Please select your preferred language from the links above.
 
 > **Note**: This project is intended ONLY for analysis of ROM files that you legally own. 
