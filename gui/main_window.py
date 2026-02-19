@@ -31,7 +31,7 @@ from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager, CancellationToken
-from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, auto_detect_charmap
+from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
 from core.scanner import analyze_text_segment, _detect_language
 from core.constants import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 
@@ -82,6 +82,9 @@ class GBTextExtractorGUI:
         # Если указан ROM при запуске, сразу загружаем
         if rom_path:
             self.update_game_info()
+
+        # Применяем сохранённую тему
+        self.after(100, lambda: self.theme.set(self.theme.get()) or self.apply_theme())
 
     def _setup_ui(self):
         """Настройка пользовательского интерфейса"""
@@ -173,6 +176,7 @@ class GBTextExtractorGUI:
             ("game.title", "title"),
             ("system", "system"),
             ("cartridge.type", "cartridge_type"),
+            ("mbc.type", "mbc_type"),
             ("rom.size", "rom_size"),
             ("supported.plugin", "supported_plugin")
         ]
@@ -372,6 +376,16 @@ class GBTextExtractorGUI:
         ttk.Radiobutton(encoding_frame, text=self.i18n.t("english"), variable=self.encoding_type, value="en").grid(row=1, column=1, sticky="w")
         ttk.Radiobutton(encoding_frame, text=self.i18n.t("japanese"), variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
         ttk.Radiobutton(encoding_frame, text=self.i18n.t("russian"), variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text=self.i18n.t("chinese"), variable=self.encoding_type, value="zh").grid(row=4, column=1, sticky="w")
+        ttk.Radiobutton(encoding_frame, text="Shift-JIS (GBA)", variable=self.encoding_type, value="shiftjis").grid(row=5, column=1, sticky="w")
+
+        # Тема оформления
+        theme_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("settings.theme"), padding="10")
+        theme_frame.pack(fill="x", expand=False, pady=10)
+
+        self.theme = tk.StringVar(value="light")
+        ttk.Radiobutton(theme_frame, text="Light", variable=self.theme, value="light", command=self.apply_theme).pack(side="left", padx=5)
+        ttk.Radiobutton(theme_frame, text="Dark", variable=self.theme, value="dark", command=self.apply_theme).pack(side="left", padx=5)
 
         # Создать конфигурацию
         ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config).pack(pady=10)
@@ -489,6 +503,10 @@ class GBTextExtractorGUI:
                     charmap = get_generic_english_charmap()
                 elif encoding_type == "ja":
                     charmap = get_generic_japanese_charmap()
+                elif encoding_type == "zh":
+                    charmap = get_generic_chinese_charmap()
+                elif encoding_type == "shiftjis":
+                    charmap = get_generic_shiftjis_charmap()
                 else:
                     charmap = get_generic_russian_charmap()
         else:
@@ -645,6 +663,7 @@ class GBTextExtractorGUI:
             self.game_info_labels["title"]["value"].config(text=rom.header['title'])
             self.game_info_labels["system"]["value"].config(text=system_name)
             self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
+            self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(rom.header['cartridge_type']))
             self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
 
             # Проверяем поддержку игры
@@ -898,6 +917,7 @@ class GBTextExtractorGUI:
             self.game_info_labels["title"]["value"].config(text=self.current_rom.header['title'])
             self.game_info_labels["system"]["value"].config(text=system_name)
             self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{self.current_rom.header['cartridge_type']:02X}")
+            self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(self.current_rom.header['cartridge_type']))
             self.game_info_labels["rom_size"]["value"].config(text=f"{len(self.current_rom.data) // 1024} KB")
 
             # Заполняем список сегментов
@@ -934,6 +954,37 @@ class GBTextExtractorGUI:
 
         return os.path.join(base_path, relative_path)
 
+    def _get_mbc_name(self, cartridge_type):
+        """Возвращает название MBC по типу картриджа"""
+        mbc_types = {
+            0x00: "ROM Only",
+            0x01: "MBC1",
+            0x02: "MBC1+RAM",
+            0x03: "MBC1+RAM+Battery",
+            0x05: "MBC2",
+            0x06: "MBC2+Battery",
+            0x08: "ROM+RAM",
+            0x09: "ROM+RAM+Battery",
+            0x0B: "MMM01",
+            0x0C: "MMM01+RAM",
+            0x0D: "MMM01+RAM+Battery",
+            0x0F: "MBC3+Timer+Battery",
+            0x10: "MBC3+Timer+RAM+Battery",
+            0x11: "MBC3",
+            0x12: "MBC3+RAM",
+            0x13: "MBC3+RAM+Battery",
+            0x19: "MBC5",
+            0x1A: "MBC5+RAM",
+            0x1B: "MBC5+RAM+Battery",
+            0x1C: "MBC5+Rumble",
+            0x1D: "MBC5+Rumble+RAM",
+            0x1E: "MBC5+Rumble+RAM+Battery",
+            0x1F: "MBC6",
+            0x20: "MBC7",
+            0x22: "MBC5+SRAM+Battery",  # Также известен как MBC5 для GBA
+        }
+        return mbc_types.get(cartridge_type, f"Unknown (0x{cartridge_type:02X})")
+
     def load_saved_settings(self):
         """Загружает сохраненные настройки"""
         settings_path = Path(self._get_resource_path("settings/settings.json"))
@@ -944,6 +995,7 @@ class GBTextExtractorGUI:
                 self.ui_lang = tk.StringVar(value=settings.get("ui_language", "en"))
                 self.target_lang = tk.StringVar(value=settings.get("target_language", "ru"))
                 self.encoding_type = tk.StringVar(value=settings.get("encoding_type", "auto"))
+                self.theme = tk.StringVar(value=settings.get("theme", "light"))
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {str(e)}")
                 self._init_default_settings()
@@ -955,6 +1007,7 @@ class GBTextExtractorGUI:
         self.ui_lang = tk.StringVar(value="en")
         self.target_lang = tk.StringVar(value="ru")
         self.encoding_type = tk.StringVar(value="auto")
+        self.theme = tk.StringVar(value="light")
 
     def on_segment_combo_select(self, event):
         """Обработка выбора сегмента в комбобоксе"""
@@ -1640,7 +1693,8 @@ class GBTextExtractorGUI:
         settings = {
             "ui_language": self.ui_lang.get(),
             "target_language": self.target_lang.get(),
-            "encoding_type": self.encoding_type.get()
+            "encoding_type": self.encoding_type.get(),
+            "theme": self.theme.get()
         }
 
         # Сохраняем в файл
@@ -1656,6 +1710,75 @@ class GBTextExtractorGUI:
         self._refresh_ui()
 
         messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("settings.saved"))
+
+    def apply_theme(self):
+        """Применяет выбранную тему оформления"""
+        theme = self.theme.get()
+        
+        if theme == "dark":
+            # Тёмная тема
+            dark_bg = "#2b2b2b"
+            dark_fg = "#ffffff"
+            dark_input_bg = "#3c3c3c"
+            
+            self.root.configure(bg=dark_bg)
+            
+            # Применяем ко всем виджетам
+            for widget in self.root.winfo_children():
+                self._apply_dark_theme(widget, dark_bg, dark_fg, dark_input_bg)
+        else:
+            # Светлая тема (по умолчанию)
+            self.root.configure(bg="SystemButtonFace")
+            
+            for widget in self.root.winfo_children():
+                self._apply_light_theme(widget)
+
+    def _apply_dark_theme(self, widget, bg, fg, input_bg):
+        """Рекурсивно применяет тёмную тему к виджету и его потомкам"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['TFrame', 'TLabelframe']:
+                widget.configure(style=bg)
+            elif widget_class == 'TLabel':
+                widget.configure(background=bg, foreground=fg)
+            elif widget_class in ['Text', 'Entry']:
+                widget.configure(background=input_bg, foreground=fg, insertbackground=fg)
+            elif widget_class == 'Listbox':
+                widget.configure(background=input_bg, foreground=fg, selectbackground="#555555")
+            elif widget_class == 'TButton':
+                widget.configure(style='Dark.TButton')
+        except:
+            pass
+        
+        # Рекурсивно обрабатываем дочерние виджеты
+        try:
+            for child in widget.winfo_children():
+                self._apply_dark_theme(child, bg, fg, input_bg)
+        except:
+            pass
+
+    def _apply_light_theme(self, widget):
+        """Восстанавливает светлую тему"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['TFrame', 'TLabelframe']:
+                widget.configure(style='')
+            elif widget_class == 'TLabel':
+                widget.configure(background='', foreground='')
+            elif widget_class in ['Text', 'Entry']:
+                widget.configure(background='white', foreground='black', insertbackground='black')
+            elif widget_class == 'Listbox':
+                widget.configure(background='white', foreground='black', selectbackground='#3399ff')
+        except:
+            pass
+        
+        try:
+            for child in widget.winfo_children():
+                self._apply_light_theme(child)
+        except:
+            pass
 
     def rate_current_guide(self, rating: int):
         """Оценивает текущее руководство"""

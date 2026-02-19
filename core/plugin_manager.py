@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import List, Optional, Dict
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
+from core.decoder import CompressionHandler
 from plugins.generic import GenericGBPlugin, GenericGBCPlugin, GenericGBAPlugin
 from plugins.auto_detect import AutoDetectPlugin
 
@@ -178,21 +179,24 @@ class PluginManager:
 
     def _is_config_safe(self, config: dict) -> bool:
         """Проверяет, что конфигурация безопасна с юридической точки зрения"""
+        logger = logging.getLogger('gb2text.plugin_manager')
+        
         # Разрешаем конфигурации, созданные через GUI
         if config.get('user_created', False):
             return True
 
-        # Проверяем, что нет прямых упоминаний коммерческих игр
-        game_id_pattern = config.get('game_id_pattern', '')
-        if re.search(r'POKEMON|ZELDA|NINTENDO|GAMEBOY', game_id_pattern, re.IGNORECASE):
-            return False
-
-        # Проверяем сегменты
+        # Проверяем сегменты на наличие специфичных таблиц символов
+        # Большие (>50 символов) нестандартные charmap могут указывать на
+        # коммерческие игры - выдаём предупреждение, но не блокируем
         for segment in config.get('segments', []):
             charmap = segment.get('charmap', {})
-            # Проверяем, что таблица символов не слишком специфична
             if len(charmap) > 50 and not self._is_generic_charmap(charmap):
-                return False
+                logger.warning(
+                    f"Конфиг содержит специфичную таблицу символов ({len(charmap)} символов). "
+                    f"Это может указывать на специфичную игру. "
+                    f"Вы используете этот инструмент на свой страх и риск."
+                )
+                return True
 
         return True
 
@@ -351,14 +355,17 @@ class ConfigurablePlugin(GamePlugin):
                 decoder = CharMapDecoder(charmap)
 
             compression = None
-            if 'compression' in seg and seg['compression'] == 'gba_lz77':
-                from core.gba_support import GBALZ77Handler
-                compression = GBALZ77Handler()
-                logger.info("Используется обработчик GBA LZ77 сжатия")
-            elif 'compression' in seg and seg['compression'] == 'lz77':
-                from core.decoder import LZ77Handler
-                compression = LZ77Handler()
-                logger.info("Используется стандартный LZ77 обработчик")
+            if seg.get('compression'):
+                compression_type = seg['compression']
+                if isinstance(compression_type, str):
+                    from core.compression import get_compression_handler
+                    compression = get_compression_handler(compression_type)
+                    if compression:
+                        logger.info(f"Используется обработчик сжатия: {compression_type}")
+                    else:
+                        logger.warning(f"Неизвестный тип сжатия: {compression_type}")
+                elif isinstance(compression_type, CompressionHandler):
+                    compression = compression_type
 
             segments.append({
                 'name': seg['name'],
