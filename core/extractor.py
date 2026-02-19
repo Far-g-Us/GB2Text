@@ -126,19 +126,20 @@ class TextExtractor:
 
             # Обработка сжатия если необходимо
             data = self.rom.data[start:end]
-            if segment.get('compression') == 'gba_lz77':
-                logger.info("Распаковка GBA LZ77 сжатия")
-                from core.gba_support import GBALZ77Handler
-                handler = GBALZ77Handler()
-                decompressed, _ = handler.decompress(data, 0)
-                data = decompressed
-            elif segment.get('compression'):
-                logger.info(f"Распаковка {segment['compression']}")
-                # Убедимся, что compression - это объект, а не строка
-                if isinstance(segment['compression'], str):
-                    logger.warning(f"Некорректная конфигурация сжатия для сегмента {name}")
-                else:
-                    decompressed, _ = segment['compression'].decompress(data, 0)
+            if segment.get('compression'):
+                compression_type = segment.get('compression')
+                if isinstance(compression_type, str):
+                    from core.compression import get_compression_handler
+                    handler = get_compression_handler(compression_type)
+                    if handler:
+                        logger.info(f"Распаковка: {compression_type}")
+                        decompressed, _ = handler.decompress(data, 0)
+                        data = decompressed
+                    else:
+                        logger.warning(f"Неизвестный тип сжатия: {compression_type}")
+                elif hasattr(compression_type, 'decompress'):
+                    logger.info("Распаковка (объект)")
+                    decompressed, _ = compression_type.decompress(data, 0)
                     data = decompressed
 
             # Декодирование текста

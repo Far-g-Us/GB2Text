@@ -4,6 +4,9 @@
 .venv/
 env/
 *.pyc
+.coverage
+nonexistent_dir/
+nonexistent_plugins_dir/
 1.txt
 */**/__pycache__/*
 build/

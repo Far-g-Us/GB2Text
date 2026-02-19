@@ -101,7 +101,7 @@ def is_text_like(rom_data: bytes, start: int, min_length: int) -> bool:
         if 0x20 <= byte <= 0x7E or byte in [0x00, 0x0A, 0x0D, 0xFF]:
             printable += 1
 
-    result = printable / min_length > 0.6  # 60% символов должны быть "читаемыми"
+    result = min_length > 0 and printable / min_length > 0.6  # 60% символов должны быть "читаемыми"
     if result:
         logger.debug(f"Область 0x{start:X} похожа на текст ({printable / min_length:.0%} читаемых символов)")
     return result

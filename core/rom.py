@@ -97,9 +97,17 @@ class GameBoyROM:
         logger.info("Определение типа системы...")
 
         # Проверка на Game Boy Advance
-        if len(self.data) > 0xB2 and self.data[0xA0:0xB2] == b'Nintendo Game Boy':
-            logger.info("Определена система: Game Boy Advance (gba)")
-            return 'gba'
+        # GBA имеет сигнатуру "GBA " в начале или больший размер
+        if len(self.data) > 0x100:
+            # Проверяем начало ROM на наличие GBA сигнатуры
+            header_start = self.data[:10]
+            if b'GBA ' in header_start or b'AGB' in header_start:
+                logger.info("Определена система: Game Boy Advance (gba)")
+                return 'gba'
+            # Также можно определить по расширению файла
+            if self.path.lower().endswith('.gba'):
+                logger.info("Определена система: Game Boy Advance (gba)")
+                return 'gba'
 
         # Проверка на Game Boy Color
         if self.header['cgb_flag'] == 0x80 or self.header['cgb_flag'] == 0xC0:

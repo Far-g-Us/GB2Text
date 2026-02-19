@@ -84,8 +84,12 @@ POINTER_SIZES = {
 }
 
 # === Compression Types ===
+COMPRESSION_NONE = 'none'
 COMPRESSION_GBA_LZ77 = 'gba_lz77'
 COMPRESSION_LZ77 = 'lz77'
+COMPRESSION_LZSS = 'lzss'
+COMPRESSION_RLE = 'rle'
+COMPRESSION_AUTO = 'auto'
 
 # === Plugin Settings ===
 MAX_CONFIGS = 20  # Максимальное количество конфигурационных плагинов

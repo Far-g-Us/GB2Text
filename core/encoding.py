@@ -134,6 +134,93 @@ def get_generic_russian_charmap() -> Dict[int, str]:
     return charmap
 
 
+def get_generic_chinese_charmap() -> Dict[int, str]:
+    """Базовая китайская таблица символов без привязки к конкретным играм"""
+    # Создаем на основе английской таблицы
+    charmap = get_generic_english_charmap().copy()
+    
+    # GB games обычно не используют китайские символы в стандартной кодировке,
+    # но добавляем расширенные символы для совместимости
+    extended = {
+        0xA0: '　',  #Ideographic Space
+        0xA1: '、',
+        0xA2: '。',
+        0xA3: '，',
+        0xA4: '．',
+        0xA5: '：',
+        0xA6: '；',
+        0xA7: '？',
+        0xA8: '！',
+        0xA9: '〃',
+        0xAA: '〄',
+        0xAB: '―',
+        0xAC: '…',
+        0xAD: '‥',
+        0xAE: '‧',
+        0xAF: '﹑',
+        0xB0: '・',
+        0xB1: '‐',
+        0xB2: '‑',
+        0xB3: '‒',
+        0xB4: '–',
+        0xB5: '—',
+        0xB6: '~',
+        0xB7: '∴',
+        0xB8: '∵',
+        0xB9: '∶',
+        0xBA: '∷',
+        0xBB: '∼',
+        0xBC: '∽',
+        0xBD: '≋',
+    }
+    charmap.update(extended)
+    return charmap
+
+
+def get_generic_shiftjis_charmap() -> Dict[int, str]:
+    """Базовая таблица Shift-JIS для японских GBA игр.
+    
+    GBA японские игры часто используют Shift-JIS кодировку.
+    Эта функция возвращает базовую таблицу символов.
+    """
+    # Базовая ASCII часть (такая же как в английской)
+    charmap = get_generic_english_charmap().copy()
+    
+    # Добавляем основные символы Shift-JIS (katakana + базовые kanji)
+    # Это упрощенная таблица - полная таблица слишком большая
+    shiftjis_base = {
+        # Katakana (часто используемые)
+        0xA1: 'ア', 0xA2: 'イ', 0xA3: 'ウ', 0xA4: 'エ', 0xA5: 'オ',
+        0xA6: 'カ', 0xA7: 'キ', 0xA8: 'ク', 0xA9: 'ケ', 0xAA: 'コ',
+        0xAB: 'サ', 0xAC: 'シ', 0xAD: 'ス', 0xAE: 'セ', 0xAF: 'ソ',
+        0xB0: 'タ', 0xB1: 'チ', 0xB2: 'ツ', 0xB3: 'テ', 0xB4: 'ト',
+        0xB5: 'ナ', 0xB6: 'ニ', 0xB7: 'ヌ', 0xB8: 'ネ', 0xB9: 'ノ',
+        0xBA: 'ハ', 0xBB: 'ヒ', 0xBC: 'フ', 0xBD: 'ヘ', 0xBE: 'ホ',
+        0xBF: 'マ', 0xC0: 'ミ', 0xC1: 'ム', 0xC2: 'メ', 0xC3: 'モ',
+        0xC4: 'ヤ', 0xC5: 'ユ', 0xC6: 'ヨ',
+        0xC7: 'ラ', 0xC8: 'リ', 0xC9: 'ル', 0xCA: 'レ', 0xCB: 'ロ',
+        0xCC: 'ワ', 0xCD: 'ヲ', 0xCE: 'ン',
+        
+        # Punctuation
+        0x81: '、', 0x82: '。', 0x83: '，', 0x84: '．', 0x85: '：',
+        0x86: '；', 0x87: '？', 0x88: '！', 0x89: '／', 0x8A: '－',
+        0x8B: '（', 0x8C: '）', 0x8D: '［', 0x8E: '］', 0x8F: '｛',
+        0x90: '｝', 
+        
+        # Numbers
+        0x82: '0',  # будет перезаписано ниже
+    }
+    
+    # Переопределим цифры правильно
+    for i, digit in enumerate('0123456789'):
+        charmap[0x82, 0x30 + i] = digit
+    
+    # Обновляем базовую таблицу
+    charmap.update(shiftjis_base)
+    
+    return charmap
+
+
 def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> Dict[int, str]:
     """
     Автоматическое определение возможной таблицы символов.
