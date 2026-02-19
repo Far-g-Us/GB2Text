@@ -45,7 +45,7 @@ def create_exe():
     dist_dir = gb2text_dir / "dist"
     build_dir = gb2text_dir / "build"
     
-    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core', 'guides']
     existing_folders = []
     
     for folder in required_folders:
@@ -348,7 +348,7 @@ def create_spec_file():
         return
 
     folders_to_include = []
-    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core', 'guides']
 
     for folder in required_folders:
         folder_path = gb2text_dir / folder
