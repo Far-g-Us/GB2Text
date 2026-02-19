@@ -19,9 +19,11 @@ GB Text Extraction Framework
 Модуль для интернационализации приложения
 """
 
-import json, os, sys
+import json, os, sys, logging
 from pathlib import Path
 from typing import Dict, Any
+
+logger = logging.getLogger('gb2text.i18n')
 
 
 class I18N:
@@ -51,21 +53,15 @@ class I18N:
         try:
             # Использование _get_resource_path для правильного пути к locales в exe
             locales_dir = Path(self._get_resource_path("locales"))
-            print(f"[DEBUG] Ищем папку locales по пути: {locales_dir}")
-            print(f"[DEBUG] Папка существует: {locales_dir.exists()}")
-            if hasattr(sys, '_MEIPASS'):
-                print(f"[DEBUG] Запуск из exe, _MEIPASS: {sys._MEIPASS}")
-                print(
-                    f"[DEBUG] Содержимое _MEIPASS: {os.listdir(sys._MEIPASS) if os.path.exists(sys._MEIPASS) else 'не существует'}")
-            else:
-                print(f"[DEBUG] Обычный запуск, текущая директория: {os.path.abspath('.')}")
+            logger.debug(f"Ищем папку locales по пути: {locales_dir}")
+            logger.debug(f"Папка существует: {locales_dir.exists()}")
 
             if not locales_dir.exists():
-                print("Папка locales не найдена, используются встроенные переводы")
+                logger.warning("Папка locales не найдена, используются встроенные переводы")
                 self._create_default_translations()
                 return
 
-            print(f"[DEBUG] Файлы в папке locales: {list(locales_dir.glob('*.json'))}")
+            logger.debug(f"Файлы в папке locales: {list(locales_dir.glob('*.json'))}")
 
             # Загружаем все доступные языки
             for lang_file in locales_dir.glob("*.json"):
@@ -73,17 +69,25 @@ class I18N:
                 try:
                     with open(lang_file, 'r', encoding='utf-8') as f:
                         self.translations[lang_code] = json.load(f)
-                    print(f"Загружен перевод: {lang_code}")
-                except Exception as e:
-                    print(f"Ошибка загрузки перевода {lang_code}: {e}")
+                    logger.info(f"Загружен перевод: {lang_code}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Ошибка парсинга JSON для языка {lang_code}: {e}")
+                except OSError as e:
+                    logger.error(f"Ошибка чтения файла перевода {lang_code}: {e}")
 
             # Если переводы не загрузились, создаем базовые
             if not self.translations:
-                print("Не удалось загрузить переводы, используются встроенные")
+                logger.warning("Не удалось загрузить переводы, используются встроенные")
                 self._create_default_translations()
 
-        except Exception as e:
-            print(f"Ошибка загрузки переводов: {e}")
+        except PermissionError as e:
+            logger.error(f"Нет доступа к папке locales: {e}")
+            self._create_default_translations()
+        except OSError as e:
+            logger.error(f"Ошибка доступа к файловой системе: {e}")
+            self._create_default_translations()
+        except RuntimeError as e:
+            logger.error(f"Ошибка инициализации i18n: {e}")
             self._create_default_translations()
 
     def _create_default_translations(self):

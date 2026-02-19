@@ -325,15 +325,24 @@ class ConfigurablePlugin(GamePlugin):
             # Автоматическое определение таблицы символов, если не предоставлена
             charmap = seg.get('charmap', {})
             if not charmap:
-                logger.info("Таблица символов не предоставлена, пытаемся определить автоматически")
+                logger.info("Таблица символов не предоставлена, пытаемся загрузить из locales или определить автоматически")
+                # Пробуем загрузить из locales
+                lang = seg.get('language', 'en')
                 try:
-                    from core.scanner import auto_detect_charmap
-                    charmap = auto_detect_charmap(rom.data, start_addr)
-                    logger.info(f"Автоопределена таблица символов с {len(charmap)} символами")
-                    logger.debug(f"Таблица символов: {charmap}")
-                except Exception as e:
-                    logger.error(f"Ошибка автоопределения таблицы символов: {e}")
-                    charmap = {}
+                    from core.charset import load_charset
+                    charmap = load_charset(lang)
+                    if charmap:
+                        logger.info(f"Загружена таблица символов из locales/{lang}")
+                except (FileNotFoundError, ImportError):
+                    # Fallback к автоопределению
+                    try:
+                        from core.scanner import auto_detect_charmap
+                        charmap = auto_detect_charmap(rom.data, start_addr)
+                        logger.info(f"Автоопределена таблица символов с {len(charmap)} символами")
+                        logger.debug(f"Таблица символов: {charmap}")
+                    except Exception as e:
+                        logger.error(f"Ошибка автоопределения таблицы символов: {e}")
+                        charmap = {}
 
             decoder = None
             if charmap:

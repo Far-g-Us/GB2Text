@@ -23,11 +23,29 @@ import logging
 from collections import Counter
 from typing import List, Dict, Tuple
 
+from core.constants import (
+    ROM_HEADER_SIZE,
+    MIN_SEGMENT_LENGTH,
+    MIN_READABILITY,
+    MIN_POINTER_LENGTH,
+    READABLE_BLOCK_SIZE,
+    TEXT_TERMINATORS,
+    ASCII_PRINTABLE_START,
+    ASCII_PRINTABLE_END,
+    KATAKANA_RANGE,
+    HIRAGANA_RANGE,
+    BANK_0_START,
+    VRAM_START,
+    VRAM_END,
+    CYRILLIC_UPPER,
+    CYRILLIC_LOWER,
+)
+
 logger = logging.getLogger('gb2text.scanner')
 
 
 def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
-                       pointer_size: int = 2, min_length: int = 4,
+                       pointer_size: int = 2, min_length: int = MIN_POINTER_LENGTH,
                        address_base: int = 0) -> List[Tuple[int, int]]:
     """
     Поиск указателей на текст в ROM с учетом размера указателя и базового адреса (для GBA)
@@ -115,7 +133,7 @@ def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 200
         logger.info(f"Обнаружен японский язык (катакана символов: {japanese_count})")
 
     # Проверка на русский
-    cyrillic_count = sum(1 for i in range(0xC0, 0xFF) if i in freq and freq[i] > 2)
+    cyrillic_count = sum(1 for i in range(CYRILLIC_UPPER[0], CYRILLIC_UPPER[1]) if i in freq and freq[i] > 2)
     if cyrillic_count > 10:
         detected_languages.append('russian')
         logger.info(f"Обнаружен русский язык (кириллица символов: {cyrillic_count})")
@@ -139,11 +157,9 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
         primary_language = detected_languages[0]
         logger.info(f"Выбран язык: {primary_language}")
 
-    # Анализ статистики использования байтов
-    freq = Counter()
-    for i in range(start, min(start + length, len(rom_data))):
-        byte = rom_data[i]
-        freq[byte] += 1
+    # Анализ статистики использования байтов (оптимизировано)
+    # Используем Counter.update() вместо ручного инкрементирования
+    freq = Counter(rom_data[start:min(start + length, len(rom_data))])
 
     # # Определение вероятных пробелов и терминаторов
     # common_bytes = freq.most_common()
@@ -156,9 +172,9 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
     # logger.info(f"Определен язык игры: {language}")
 
     # Проверяем минимальный размер ROM
-    if len(rom_data) < 0x150:
+    if len(rom_data) < ROM_HEADER_SIZE:
         logger.error("ROM слишком маленький для анализа")
-        for byte in range(0x20, 0x7F):
+        for byte in range(ASCII_PRINTABLE_START, ASCII_PRINTABLE_END + 1):
             charmap[byte] = chr(byte)
         return charmap
 
@@ -194,7 +210,7 @@ def _detect_language(rom_data: bytes, start: int, length: int, freq: Counter) ->
         return 'japanese'
 
     # Проверка на русский
-    cyrillic_count = sum(1 for i in range(0xC0, 0xFF) if i in freq and freq[i] > 3)
+    cyrillic_count = sum(1 for i in range(CYRILLIC_LOWER[0], CYRILLIC_LOWER[1] + 1) if i in freq and freq[i] > 3)
     if cyrillic_count > 15:
         return 'russian'
 
@@ -237,7 +253,7 @@ def _setup_russian_charmap(charmap: Dict):
 def _setup_english_charmap(charmap: Dict):
     """Настраивает таблицу символов для английского языка"""
     # Добавляем только стандартные ASCII символы
-    for byte in range(0x20, 0x7F):
+    for byte in range(ASCII_PRINTABLE_START, ASCII_PRINTABLE_END + 1):
         charmap[byte] = chr(byte)
 
         # Добавляем основные управляющие символы
@@ -253,8 +269,8 @@ def _setup_japanese_charmap(charmap: Dict, freq: Counter):
     """Настраивает таблицу символов для японского языка с поддержкой катаканы и хираганы"""
 
     # Проверяем, какие диапазоны реально используются
-    katakana_used = any(i in freq and freq[i] > 2 for i in range(0xA0, 0xDF))
-    hiragana_used = any(i in freq and freq[i] > 2 for i in range(0x80, 0x9F))
+    katakana_used = any(i in freq and freq[i] > 2 for i in range(KATAKANA_RANGE[0], KATAKANA_RANGE[1] + 1))
+    hiragana_used = any(i in freq and freq[i] > 2 for i in range(HIRAGANA_RANGE[0], HIRAGANA_RANGE[1] + 1))
 
     logger.info(f"Японские диапазоны: катакана={katakana_used}, хирагана={hiragana_used}")
 
@@ -320,7 +336,7 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
         most_common = freq.most_common(10)
         for byte, count in most_common:
             # Если байт встречается часто и не является ASCII символом
-            if count > len(rom_data) * 0.01 and byte not in charmap and byte not in [0x00, 0xFF]:
+            if count > len(rom_data) * 0.01 and byte not in charmap and byte not in TEXT_TERMINATORS:
                 charmap[byte] = ' '
                 logger.info(f"Определен символ пробела: 0x{byte:02X}")
                 break
@@ -334,13 +350,12 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
 
             # Проверяем, часто ли этот байт встречается перед другими символами
             if rom_data is not None:
-                for i in range(0, min(100, len(rom_data) - 1)):
-                    if rom_data[i] == byte and rom_data[i + 1] != byte:
-                        # Если после этого байта часто идут другие символы
-                        pass
-                    else:
-                        is_terminator = False
-                        break
+                data_slice = rom_data[:min(100, len(rom_data) - 1)]
+                # Эффективная проверка с использованием any()
+                is_terminator = any(
+                    rom_data[i] == byte and rom_data[i + 1] != byte
+                    for i in range(min(100, len(rom_data) - 1))
+                )
 
             if is_terminator:
                 terminators.append(byte)
@@ -356,8 +371,8 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
         charmap[0xFF] = '\n'
 
 
-def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_readability: float = 0.7,
-                         block_size: int = 32) -> List[Dict]:
+def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH, min_readability: float = MIN_READABILITY,
+                         block_size: int = READABLE_BLOCK_SIZE) -> List[Dict]:
     """Автоматическое определение текстовых сегментов с улучшенной фильтрацией"""
 
     logger = logging.getLogger('gb2text.scanner')
@@ -374,33 +389,19 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_rea
 
     # Пропускаем известные нетекстовые области
     skip_ranges = [
-        (0x0000, 0x4000),  # Область кода
-        (0xA000, 0xC000)  # Область VRAM
+        (0x0000, BANK_0_START),  # Область кода
+        (VRAM_START, VRAM_END)   # Область VRAM
     ]
 
     i = 0
     while i < len(rom_data):
         # Пропускаем известные нетекстовые области
-        skip = False
-        for start_skip, end_skip in skip_ranges:
-            if start_skip <= i < end_skip:
-                i = end_skip
-                skip = True
-                break
-
-        if skip:
-            continue
+        i = _skip_non_text_regions(i, rom_data, skip_ranges)
+        if i >= len(rom_data):
+            break
 
         # Анализируем блок
-        readable_chars = 0
-        end_block = min(i + block_size, len(rom_data))
-        for j in range(i, end_block):
-            byte = rom_data[j]
-            # ASCII символы и распространенные терминаторы
-            if 0x20 <= byte <= 0x7E or byte in [0x00, 0x0A, 0x0D, 0xFF]:
-                readable_chars += 1
-
-        readability = readable_chars / (end_block - i)
+        readability = _compute_block_readability(rom_data, i, block_size)
 
         # Проверяем, начинается ли потенциальный сегмент
         if readability >= min_readability:
@@ -417,13 +418,7 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_rea
 
                 # Проверяем минимальную длину и плотность текста
                 if segment_length >= min_segment_length:
-                    segments.append({
-                        'name': f'auto_segment_{len(segments)}',
-                        'start': segment_start,
-                        'end': segment_end
-                    })
-                    logger.info(f"Найден сегмент: 0x{segment_start:X} - 0x{segment_end:X} "
-                                f"(длина={segment_length}, читаемость={readability:.2%})")
+                    segments = _add_segment(segments, segment_start, segment_end, readability, logger)
 
                 in_segment = False
                 current_run = 0
@@ -442,15 +437,39 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = 200, min_rea
         segment_length = segment_end - segment_start
 
         if segment_length >= min_segment_length:
-            segments.append({
-                'name': f'auto_segment_{len(segments)}',
-                'start': segment_start,
-                'end': segment_end
-            })
-            logger.info(f"Найден последний сегмент: 0x{segment_start:X} - 0x{segment_end:X} "
-                        f"(длина={segment_length})")
+            segments = _add_segment(segments, segment_start, segment_end, 0, logger)
 
     logger.info(f"Автоопределено {len(segments)} текстовых сегментов")
+    return segments
+
+
+def _skip_non_text_regions(i: int, rom_data: bytes, skip_ranges: List[Tuple[int, int]]) -> int:
+    """Пропускает известные нетекстовые области"""
+    for start_skip, end_skip in skip_ranges:
+        if start_skip <= i < end_skip:
+            return end_skip
+    return i
+
+
+def _compute_block_readability(rom_data: bytes, start: int, block_size: int) -> float:
+    """Вычисляет читаемость блока"""
+    end_block = min(start + block_size, len(rom_data))
+    readable_chars = sum(
+        1 for j in range(start, end_block)
+        if 0x20 <= rom_data[j] <= 0x7E or rom_data[j] in TEXT_TERMINATORS
+    )
+    return readable_chars / (end_block - start) if end_block > start else 0
+
+
+def _add_segment(segments: List[Dict], start: int, end: int, readability: float, logger) -> List[Dict]:
+    """Добавляет сегмент в список"""
+    segments.append({
+        'name': f'auto_segment_{len(segments)}',
+        'start': start,
+        'end': end
+    })
+    logger.info(f"Найден сегмент: 0x{start:X} - 0x{end:X} "
+                f"(длина={end - start}, читаемость={readability:.2%})")
     return segments
 
 

@@ -39,7 +39,7 @@ class GuideManager:
             try:
                 with open(guide_path) as f:
                     return json.load(f)
-            except Exception:
+            except (json.JSONDecodeError, IOError):
                 pass
         return None
 
@@ -50,7 +50,7 @@ class GuideManager:
             with open(guide_path, 'w', encoding='utf-8') as f:
                 json.dump(guide, f, indent=2, ensure_ascii=False)
             return True
-        except Exception:
+        except (IOError, TypeError):
             return False
 
     def create_template(self, game_id: str) -> Dict[str, Any]:
@@ -78,7 +78,7 @@ class GuideManager:
             ]
         }
 
-    def rate_guide(self, game_id: str, rating: int):
+    def rate_guide(self, game_id: str, rating: int) -> bool:
         """Оценивает руководство (1-5)"""
         if not 1 <= rating <= 5:
             return False
@@ -95,6 +95,6 @@ class GuideManager:
             try:
                 with open(rating_file, 'r') as f:
                     return int(f.read().strip())
-            except:
+            except (ValueError, IOError):
                 pass
         return None
