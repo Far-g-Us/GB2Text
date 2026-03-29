@@ -19,6 +19,7 @@ diagnostics_*
 # Временные файлы
 *.log
 *.tmp
+gb2text.log
 
 # https://jrsoftware.org/isinfo.php
 # installer.iss

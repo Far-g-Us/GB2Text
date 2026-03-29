@@ -29,7 +29,7 @@ class TestTextInjector:
     
     def test_init_valid_path(self):
         """Тест инициализации с валидным путём"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -48,7 +48,7 @@ class TestTextInjector:
     
     def test_ensure_decoder_with_decoder(self):
         """Тест ensure_decoder когда decoder уже есть"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -62,7 +62,7 @@ class TestTextInjector:
     
     def test_ensure_decoder_without_decoder(self):
         """Тест ensure_decoder когда decoder нет"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -77,7 +77,7 @@ class TestTextInjector:
     
     def test_extract_original_messages(self):
         """Тест извлечения оригинальных сообщений"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -106,7 +106,7 @@ class TestTextInjector:
 
     def test_save(self):
         """Тест сохранения ROM"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -124,7 +124,7 @@ class TestTextInjector:
 
     def test_inject_message(self):
         """Тест внедрения сообщения"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -161,7 +161,7 @@ class TestTextInjector:
 
     def test_inject_segment_empty_translations(self):
         """Тест внедрения с пустым списком переводов"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -186,7 +186,7 @@ class TestTextInjector:
 
     def test_inject_save_to_different_path(self):
         """Тест сохранения в другой путь"""
-        with tempfile.NamedTemporaryFile(delete=False) as f:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
         
@@ -201,5 +201,140 @@ class TestTextInjector:
                 pass
             if os.path.exists(output_path):
                 os.unlink(output_path)
+        finally:
+            os.unlink(temp_path)
+
+    def test_init_invalid_type_raises_error(self):
+        """Тест что инициализация с неправильным типом вызывает TypeError"""
+        try:
+            TextInjector(12345)
+            assert False, "Должно вызвать TypeError"
+        except TypeError as e:
+            assert "rom_path" in str(e).lower() or "должен" in str(e).lower()
+
+    def test_inject_segment_without_plugin(self):
+        """Тест внедрения сегмента без плагина"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            result = injector.inject_segment("test", ["Hello"], None)
+            assert result == False
+        finally:
+            os.unlink(temp_path)
+
+    def test_inject_segment_nonexistent_segment(self):
+        """Тест внедрения в несуществующий сегмент"""
+        class MockPluginWithSegments:
+            system = "gba"
+            def get_text_segments(self, rom):
+                return [{'name': 'existing', 'start': 0, 'end': 100, 'decoder': None}]
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            result = injector.inject_segment("nonexistent", ["Hello"], MockPluginWithSegments())
+            assert result == False
+        finally:
+            os.unlink(temp_path)
+
+    def test_inject_segment_message_count_mismatch(self):
+        """Тест внедрения когда количество сообщений не совпадает"""
+        class MockPluginWithSegments:
+            system = "gba"
+            def get_text_segments(self, rom):
+                return [{'name': 'test', 'start': 0, 'end': 100, 'decoder': None}]
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            # Передаём 2 перевода но в оригинале будет другое количество
+            result = injector.inject_segment("test", ["Hello", "World"], MockPluginWithSegments())
+        except Exception:
+            pass
+        finally:
+            os.unlink(temp_path)
+
+    def test_ensure_decoder_with_exception(self):
+        """Тест ensure_decoder когда возникает исключение"""
+        class MockROM:
+            data = b'\x00' * 1000
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            injector.rom = MockROM()  # Replace with mock
+            segment = {'start': -1, 'end': 100, 'decoder': None}  # Invalid start
+            injector._ensure_decoder(segment)
+        finally:
+            os.unlink(temp_path)
+
+    def test_extract_original_messages_with_terminators(self):
+        """Тест извлечения оригинальных сообщений с разными терминаторами"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            # Создаём данные с разными терминаторами (нужен минимальный размер)
+            data = b'\x00' * 0x150 + b'Hello\x00World\xFFTest\xFEEnd\x0DMore\x0A'
+            f.write(data)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            from core.decoder import CharMapDecoder
+            # Create charmap with string values
+            charmap = {'H': 'H', 'e': 'e', 'l': 'l', 'o': 'o', 'W': 'W', 'r': 'r', 'd': 'd'}
+            segment = {
+                'data': data[0x150:],
+                'start': 0x150,
+                'end': len(data),
+                'decoder': CharMapDecoder(charmap)
+            }
+            messages = injector._extract_original_messages(segment)
+            assert isinstance(messages, list)
+        finally:
+            os.unlink(temp_path)
+
+    def test_inject_message_with_padding(self):
+        """Тест внедрения сообщения с дополнением"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            segment = {'start': 100, 'end': 120}
+            # Внедряем короткое сообщение в больший слот
+            injector._inject_message(segment, 0, b'Hi', 10)
+        finally:
+            os.unlink(temp_path)
+
+    def test_inject_segment_with_long_translation(self):
+        """Тест внедрения когда перевод длиннее оригинала"""
+        class MockPluginWithSegments:
+            system = "gba"
+            def get_text_segments(self, rom):
+                # Сегмент с очень маленьким окном
+                return [{'name': 'test', 'start': 0, 'end': 10, 'decoder': None}]
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
+            f.write(b'\x00' * 1000)
+            temp_path = f.name
+        
+        try:
+            injector = TextInjector(temp_path)
+            # Пытаемся внедрить очень длинный перевод
+            result = injector.inject_segment("test", ["This is a very long translation that exceeds original"], MockPluginWithSegments())
+        except Exception:
+            pass
         finally:
             os.unlink(temp_path)

@@ -20,21 +20,67 @@ GB Text Extraction Framework
 """
 
 import logging
-from typing import Dict
+from typing import Dict, Optional
 from core.mbc import create_mbc
+
+
+# Валидные расширения файлов
+VALID_EXTENSIONS = {'.gb', '.gbc', '.gba'}
+
+# Минимальный размер ROM (меньше - явно невалидный)
+MIN_ROM_SIZE = 0x8000  # 32KB
+
+# Максимальный размер ROM (для безопасности)
+MAX_ROM_SIZE = 0x4000000  # 64MB
+
+
+def validate_rom_file(path: str) -> Optional[str]:
+    """
+    Валидирует ROM файл перед загрузкой.
+    
+    Returns:
+        None если валиден, строку с ошибкой если нет
+    """
+    import os
+    
+    # Проверка расширения
+    ext = os.path.splitext(path)[1].lower()
+    if ext not in VALID_EXTENSIONS:
+        return f"Неверное расширение файла: {ext}. Ожидалось .gb, .gbc или .gba"
+    
+    # Проверка существования
+    if not os.path.exists(path):
+        return f"Файл не существует: {path}"
+    
+    # Проверка размера
+    size = os.path.getsize(path)
+    if size < MIN_ROM_SIZE:
+        return f"Файл слишком маленький: {size} байт. Минимум {MIN_ROM_SIZE} байт"
+    
+    if size > MAX_ROM_SIZE:
+        return f"Файл слишком большой: {size} байт. Максимум {MAX_ROM_SIZE} байт"
+    
+    return None
 
 
 class GameBoyROM:
     """Загрузка и базовый анализ ROM-файла"""
 
-    def __init__(self, rom_path: str):
+    def __init__(self, rom_path: str, validate: bool = False):
         logger = logging.getLogger('gb2text.rom')
         logger.info(f"Загрузка ROM из файла: {rom_path}")
 
         if not isinstance(rom_path, str):
             logger.error(f"rom_path должен быть строкой, а не {type(rom_path)}")
             raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
-
+        
+        # Валидация файла перед загрузкой (может быть отключена для тестов)
+        if validate:
+            validation_error = validate_rom_file(rom_path)
+            if validation_error:
+                logger.error(f"Валидация ROM не пройдена: {validation_error}")
+                raise ValueError(validation_error)
+        
         self.path = rom_path
         self.data = self._load_rom(rom_path)
         self.header = self._parse_header()

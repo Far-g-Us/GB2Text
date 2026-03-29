@@ -41,6 +41,13 @@ from core.constants import (
     CYRILLIC_LOWER,
 )
 
+# ML-based segment classification
+try:
+    from core.ml_classifier import get_ml_classifier, SKLEARN_AVAILABLE
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    get_ml_classifier = None
+
 logger = logging.getLogger('gb2text.scanner')
 
 
@@ -440,6 +447,118 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_
             segments = _add_segment(segments, segment_start, segment_end, 0, logger)
 
     logger.info(f"Автоопределено {len(segments)} текстовых сегментов")
+    return segments
+
+
+def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH,
+                              block_size: int = 16, ml_threshold: float = 0.6) -> List[Dict]:
+    """
+    ML-based автоматическое определение текстовых сегментов
+    Использует Random Forest классификатор для более точного определения текста
+    
+    Args:
+        rom_data: данные ROM файла
+        min_segment_length: минимальная длина сегмента
+        block_size: размер блока для анализа
+        ml_threshold: порог ML классификатора (0-1)
+    
+    Returns:
+        список найденных текстовых сегментов
+    """
+    
+    logger = logging.getLogger('gb2text.scanner')
+    
+    if get_ml_classifier is None or not SKLEARN_AVAILABLE:
+        logger.warning("ML not available, falling back to heuristic method")
+        return auto_detect_segments(rom_data, min_segment_length, MIN_READABILITY, block_size)
+    
+    logger.info(
+        f"ML автоопределение текстовых сегментов (мин. длина={min_segment_length}, "
+        f"размер блока={block_size}, порог={ml_threshold})")
+    
+    ml_classifier = get_ml_classifier()
+    
+    segments = []
+    in_segment = False
+    segment_start = 0
+    ml_scores = []
+    
+    # Пропускаем известные нетекстовые области
+    skip_ranges = [
+        (0x0000, BANK_0_START),  # Область кода
+        (VRAM_START, VRAM_END)   # Область VRAM
+    ]
+    
+    i = 0
+    while i + block_size <= len(rom_data):
+        # Пропускаем известные нетекстовые области
+        i = _skip_non_text_regions(i, rom_data, skip_ranges)
+        if i >= len(rom_data):
+            break
+        
+        # Получаем блок данных
+        block = rom_data[i:i + block_size]
+        
+        # ML классификация
+        ml_score = ml_classifier.predict(block)
+        ml_scores.append(ml_score)
+        
+        # Также вычисляем читаемость
+        readability = _compute_block_readability(rom_data, i, block_size)
+        
+        # Комбинированный скор (70% ML + 30% эвристика)
+        combined_score = ml_score * 0.7 + readability * 0.3
+        
+        if combined_score >= ml_threshold:
+            if not in_segment:
+                in_segment = True
+                segment_start = i
+        else:
+            if in_segment:
+                # Завершаем сегмент
+                segment_end = i
+                segment_length = segment_end - segment_start
+                
+                if segment_length >= min_segment_length:
+                    # Вычисляем средний ML скор для сегмента
+                    start_idx = segment_start // block_size
+                    end_idx = segment_end // block_size
+                    avg_ml = sum(ml_scores[start_idx:end_idx]) / max(1, end_idx - start_idx)
+                    
+                    segments.append({
+                        'name': f'ml_segment_{len(segments)}',
+                        'start': segment_start,
+                        'end': segment_end,
+                        'ml_score': avg_ml,
+                        'method': 'ml'
+                    })
+                
+                in_segment = False
+        
+        i += block_size
+    
+    # Проверяем последний сегмент
+    if in_segment:
+        segment_end = len(rom_data)
+        segment_length = segment_end - segment_start
+        
+        if segment_length >= min_segment_length:
+            start_idx = segment_start // block_size
+            avg_ml = sum(ml_scores[start_idx:]) / max(1, len(ml_scores) - start_idx)
+            
+            segments.append({
+                'name': f'ml_segment_{len(segments)}',
+                'start': segment_start,
+                'end': segment_end,
+                'ml_score': avg_ml,
+                'method': 'ml'
+            })
+    
+    logger.info(f"ML автоопределено {len(segments)} текстовых сегментов")
+    
+    if SKLEARN_AVAILABLE:
+        logger.info(f"ML классификатор доступен и используется")
+    
     return segments
 
 

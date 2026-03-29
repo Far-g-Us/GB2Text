@@ -21,6 +21,9 @@ from core.i18n import I18N
 import os
 import shutil
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class TextEditorFrame(ttk.Frame):
@@ -211,7 +214,7 @@ class TextEditorFrame(ttk.Frame):
         def confirm_save():
             # Фактическое сохранение перевода
             self.segment_data[self.current_index]['translation'] = translation
-            print(f"Сохранен перевод для записи {self.current_index}: {translation[:50]}...")
+            logger.info(f"Сохранен перевод для записи {self.current_index}: {translation[:50]}...")
             preview_window.destroy()
         
         ttk.Button(btn_frame, text="Подтвердить", command=confirm_save).pack(side="left", padx=10)

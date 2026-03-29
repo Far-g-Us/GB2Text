@@ -1,11 +1,28 @@
 # Диагностический скрипт для GB Text Extraction Framework
 # Использование: ./diagnostics.sh ваш_файл.gb
 
-echo "### Диагностика GB Text Extraction Framework"
-echo "Версия: $(python main.py --version 2>/dev/null || echo 'не установлена')"
+# Сначала проверим версию
+echo "=== GB Text Extraction Framework Diagnostics ==="
+echo ""
 echo "ОС: $(uname -a)"
 echo "Дата: $(date)"
 echo "Python версия: $(python --version 2>&1)"
+echo ""
+
+# Проверяем наличие main.py
+if [ ! -f "main.py" ]; then
+    echo "Ошибка: main.py не найден"
+    exit 1
+fi
+
+# Проверяем версию через VERSION файл
+if [ -f "VERSION" ]; then
+    VERSION=$(cat VERSION)
+else
+    VERSION="unknown"
+fi
+echo "Версия приложения: $VERSION"
+echo ""
 
 if [ -z "$1" ]; then
     echo "Ошибка: Не указан ROM-файл"

@@ -25,15 +25,30 @@ import json, re, os, logging, threading, time, sys
 from datetime import datetime
 from pathlib import Path
 from collections import Counter
+
+# Опциональный импорт для drag & drop
+try:
+    import tkinterdnd2
+    TKINTERDND2_AVAILABLE = True
+except ImportError:
+    tkinterdnd2 = None
+    TKINTERDND2_AVAILABLE = False
+
+# Инициализация логгера
+logger = logging.getLogger('gb2text.gui')
+
 from core.rom import GameBoyROM
 from core.i18n import I18N
 from core.guide import GuideManager
 from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager, CancellationToken
-from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
+from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, \
+    get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
 from core.scanner import analyze_text_segment, _detect_language
 from core.constants import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
+from core.machine_translation import MachineTranslation
+from core.tmx import TMXHandler
 
 
 class GBTextExtractorGUI:
@@ -45,6 +60,9 @@ class GBTextExtractorGUI:
         self.load_saved_settings()
 
         self.i18n = I18N(default_lang=self.ui_lang.get())
+        self.machine_translation = MachineTranslation()
+        self.tmx_handler = TMXHandler()
+        self._apply_mt_settings()
         self.root = root
         self.root.title(self.i18n.t("app.title"))
         self.root.geometry(f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
@@ -58,10 +76,19 @@ class GBTextExtractorGUI:
         self.current_guide = None
         self.current_results = None
         self.current_rom = None
+        self._loaded_rom_path = None  # Кэш пути загруженного ROM
         self.text_injector = None
         self.current_segment = None
         self.current_entries = None
         self.current_entry_index = 0
+        
+        # Поиск и замена
+        self.search_results = []
+        self.search_index = 0
+        self.search_term = ""
+        self.replace_term = ""
+        self.search_dialog = None
+        self.replace_dialog = None
 
         # Обработчик закрытия окна
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -69,6 +96,8 @@ class GBTextExtractorGUI:
         self.show_warning_dialog()
         self._setup_ui()
         self._setup_context_menu()
+        self._setup_search()
+        self._setup_drag_drop()
 
         self.charset_var = tk.StringVar(value="auto")
 
@@ -84,7 +113,7 @@ class GBTextExtractorGUI:
             self.update_game_info()
 
         # Применяем сохранённую тему
-        self.after(100, lambda: self.theme.set(self.theme.get()) or self.apply_theme())
+        self.root.after(100, lambda: self.theme.set(self.theme.get()) or self.apply_theme())
 
     def _setup_ui(self):
         """Настройка пользовательского интерфейса"""
@@ -99,6 +128,15 @@ class GBTextExtractorGUI:
         # Вкладка редактирования и локализации
         self.edit_tab = ttk.Frame(self.tab_control)
         self.tab_control.add(self.edit_tab, text=self.i18n.t("tab.edit"))
+
+        # Вкладка пакетной обработки
+        self.batch_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.batch_tab, text=self.i18n.t("batch.tab"))
+        self._setup_batch_tab()
+
+        # Вкладка сравнения ROM
+        self.compare_tab = ttk.Frame(self.tab_control)
+        self.tab_control.add(self.compare_tab, text=self.i18n.t("compare.tab"))
 
         # Вкладка руководства
         self.guide_tab = ttk.Frame(self.tab_control)
@@ -142,6 +180,9 @@ class GBTextExtractorGUI:
 
         # Настройка вкладки редактирования
         self._setup_edit_tab()
+
+        # Настройка вкладки сравнения ROM
+        self._setup_compare_tab()
 
         # Настройка вкладки настроек
         self._setup_settings_tab()
@@ -230,6 +271,10 @@ class GBTextExtractorGUI:
 
         ttk.Button(toolbar, text=self.i18n.t("export.json"), command=self.export_json).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("export.txt"), command=self.export_txt).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("export.csv"), command=self.export_csv).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="Export TMX", command=self.export_tmx).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("import.csv"), command=self.import_csv).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="Import TMX", command=self.import_tmx).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("extract.text"), command=self.switch_to_edit_tab).pack(side="left", padx=2)
 
         self.text_output = scrolledtext.ScrolledText(
@@ -284,6 +329,8 @@ class GBTextExtractorGUI:
                    command=self.save_translation).pack(side="left", padx=2)
         ttk.Button(button_frame, text=self.i18n.t("inject.translation"),
                    command=self.inject_translation).pack(side="left", padx=2)
+        ttk.Button(button_frame, text=self.i18n.t("machine.translate"),
+                   command=self.machine_translate_current).pack(side="left", padx=2)
 
         # Добавляем пагинацию
         pagination_frame = ttk.Frame(entry_frame)
@@ -328,6 +375,10 @@ class GBTextExtractorGUI:
                                    command=self.next_entry)
         self.next_btn.pack(side="right")
 
+        # Включаем undo для текстовых виджетов
+        self.original_text.config(undo=True)
+        self.translated_text.config(undo=True)
+
         # Добавляем поддержку горячих клавиш
         self.original_text.bind("<Control-c>", lambda e: self.copy_original_text())
         self.translated_text.bind("<Control-v>", lambda e: self.paste_translation())
@@ -335,10 +386,377 @@ class GBTextExtractorGUI:
         self.translated_text.bind("<Control-Left>", self.prev_segment)
         self.translated_text.bind("<Control-Right>", self.next_segment)
 
+    def _setup_batch_tab(self):
+        """Настройка вкладки пакетной обработки"""
+        # Верхняя панель с кнопками
+        top_frame = ttk.Frame(self.batch_tab, padding="10")
+        top_frame.pack(fill="x", expand=False)
+
+        ttk.Button(
+            top_frame,
+            text=self.i18n.t("batch.add.files"),
+            command=self._batch_add_files
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            top_frame,
+            text=self.i18n.t("batch.clear.list"),
+            command=self._batch_clear_list
+        ).pack(side="left", padx=5)
+
+        # Список файлов
+        list_frame = ttk.LabelFrame(
+            self.batch_tab,
+            text=self.i18n.t("batch.rom.list"),
+            padding="10"
+        )
+        list_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.batch_listbox = tk.Listbox(list_frame, width=60, height=15)
+        self.batch_listbox.pack(side="left", fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=self.batch_listbox.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.batch_listbox.config(yscrollcommand=scrollbar.set)
+
+        # Нижняя панель с кнопками обработки
+        bottom_frame = ttk.Frame(self.batch_tab, padding="10")
+        bottom_frame.pack(fill="x", expand=False)
+
+        ttk.Label(
+            bottom_frame,
+            textvariable=self.batch_count_var if hasattr(self, 'batch_count_var') else tk.StringVar(value="0")
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            bottom_frame,
+            text=self.i18n.t("batch.start"),
+            command=self._batch_start
+        ).pack(side="left", padx=5)
+
+        ttk.Button(
+            bottom_frame,
+            text=self.i18n.t("batch.export.all"),
+            command=self._batch_export_all
+        ).pack(side="left", padx=5)
+
+        # Инициализация списка файлов
+        self.batch_files = []
+        self.batch_count_var = tk.StringVar(value=self.i18n.t("batch.rom.count").format(count=0))
+
+    def _setup_compare_tab(self):
+        """Настройка вкладки сравнения ROM"""
+        # Заголовок
+        header_frame = ttk.Frame(self.compare_tab, padding="10")
+        header_frame.pack(fill="x")
+
+        # Выбор ROM файлов
+        rom_frame = ttk.LabelFrame(
+            self.compare_tab,
+            text=self.i18n.t("compare.select.roms"),
+            padding="10"
+        )
+        rom_frame.pack(fill="x", padx=10, pady=5)
+
+        # ROM 1
+        rom1_frame = ttk.Frame(rom_frame)
+        rom1_frame.pack(fill="x", pady=5)
+        ttk.Label(rom1_frame, text=self.i18n.t("compare.rom1")).pack(side="left", padx=5)
+        self.compare_rom1_path = tk.StringVar()
+        ttk.Entry(rom1_frame, textvariable=self.compare_rom1_path, width=50).pack(side="left", padx=5)
+        ttk.Button(
+            rom1_frame,
+            text=self.i18n.t("button.browse"),
+            command=lambda: self._browse_compare_rom(1)
+        ).pack(side="left", padx=5)
+
+        # ROM 2
+        rom2_frame = ttk.Frame(rom_frame)
+        rom2_frame.pack(fill="x", pady=5)
+        ttk.Label(rom2_frame, text=self.i18n.t("compare.rom2")).pack(side="left", padx=5)
+        self.compare_rom2_path = tk.StringVar()
+        ttk.Entry(rom2_frame, textvariable=self.compare_rom2_path, width=50).pack(side="left", padx=5)
+        ttk.Button(
+            rom2_frame,
+            text=self.i18n.t("button.browse"),
+            command=lambda: self._browse_compare_rom(2)
+        ).pack(side="left", padx=5)
+
+        # Кнопка сравнения
+        btn_frame = ttk.Frame(self.compare_tab, padding="10")
+        btn_frame.pack(fill="x")
+        ttk.Button(
+            btn_frame,
+            text=self.i18n.t("compare.start"),
+            command=self._compare_roms
+        ).pack(pady=10)
+
+        # Результаты сравнения
+        result_frame = ttk.LabelFrame(
+            self.compare_tab,
+            text=self.i18n.t("compare.results"),
+            padding="10"
+        )
+        result_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Текстовые области для результатов
+        text_frame = ttk.Frame(result_frame)
+        text_frame.pack(fill="both", expand=True)
+
+        # Добавленные тексты
+        added_frame = ttk.LabelFrame(text_frame, text=self.i18n.t("compare.added"), padding="5")
+        added_frame.pack(side="left", fill="both", expand=True, padx=2)
+        self.compare_added_list = tk.Listbox(added_frame, width=30, height=15)
+        self.compare_added_list.pack(side="left", fill="both", expand=True)
+        added_scroll = ttk.Scrollbar(added_frame, command=self.compare_added_list.yview)
+        added_scroll.pack(side="right", fill="y")
+        self.compare_added_list.config(yscrollcommand=added_scroll.set)
+
+        # Удалённые тексты
+        removed_frame = ttk.LabelFrame(text_frame, text=self.i18n.t("compare.removed"), padding="5")
+        removed_frame.pack(side="left", fill="both", expand=True, padx=2)
+        self.compare_removed_list = tk.Listbox(removed_frame, width=30, height=15)
+        self.compare_removed_list.pack(side="left", fill="both", expand=True)
+        removed_scroll = ttk.Scrollbar(removed_frame, command=self.compare_removed_list.yview)
+        removed_scroll.pack(side="right", fill="y")
+        self.compare_removed_list.config(yscrollcommand=removed_scroll.set)
+
+        # Изменённые тексты
+        changed_frame = ttk.LabelFrame(text_frame, text=self.i18n.t("compare.changed"), padding="5")
+        changed_frame.pack(side="left", fill="both", expand=True, padx=2)
+        self.compare_changed_list = tk.Listbox(changed_frame, width=30, height=15)
+        self.compare_changed_list.pack(side="left", fill="both", expand=True)
+        changed_scroll = ttk.Scrollbar(changed_frame, command=self.compare_changed_list.yview)
+        changed_scroll.pack(side="right", fill="y")
+        self.compare_changed_list.config(yscrollcommand=changed_scroll.set)
+
+    def _browse_compare_rom(self, rom_num):
+        """Выбор ROM файла для сравнения"""
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("ROM files", "*.gb *.gbc *.gba"),
+                ("All files", "*.*")
+            ],
+            title=self.i18n.t("compare.select.rom")
+        )
+        if path:
+            if rom_num == 1:
+                self.compare_rom1_path.set(path)
+            else:
+                self.compare_rom2_path.set(path)
+
+    def _compare_roms(self):
+        """Сравнение двух ROM файлов"""
+        rom1_path = self.compare_rom1_path.get()
+        rom2_path = self.compare_rom2_path.get()
+
+        if not rom1_path or not rom2_path:
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("compare.select.both")
+            )
+            return
+
+        if not os.path.exists(rom1_path) or not os.path.exists(rom2_path):
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("compare.file.not.found")
+            )
+            return
+
+        # Очищаем списки
+        self.compare_added_list.delete(0, tk.END)
+        self.compare_removed_list.delete(0, tk.END)
+        self.compare_changed_list.delete(0, tk.END)
+
+        try:
+            # Загружаем ROM файлы
+            rom1 = GameBoyROM(rom1_path)
+            rom2 = GameBoyROM(rom2_path)
+
+            # Получаем плагины
+            game_id1 = rom1.get_game_id()
+            game_id2 = rom2.get_game_id()
+
+            plugin1 = self.plugin_manager.get_plugin(game_id1, rom1.system)
+            plugin2 = self.plugin_manager.get_plugin(game_id2, rom2.system)
+
+            if not plugin1 or not plugin2:
+                messagebox.showwarning(
+                    self.i18n.t("warning.title"),
+                    self.i18n.t("compare.no.plugin")
+                )
+                return
+
+            # Извлекаем тексты
+            segments1 = plugin1.get_text_segments(rom1)
+            segments2 = plugin2.get_text_segments(rom2)
+
+            # Сравниваем
+            texts1 = self._extract_texts_from_segments(rom1, segments1)
+            texts2 = self._extract_texts_from_segments(rom2, segments2)
+
+            # Находим различия
+            self._find_text_differences(texts1, texts2)
+
+            self.set_status(self.i18n.t("compare.complete"))
+
+        except Exception as e:
+            logger.error(f"Ошибка сравнения ROM: {e}")
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                self.i18n.t("compare.error").format(error=str(e))
+            )
+
+    def _extract_texts_from_segments(self, rom, segments):
+        """Извлечение текстов из сегментов ROM"""
+        texts = {}
+        for seg in segments:
+            start = seg.get('start', 0)
+            end = seg.get('end', len(rom.data))
+            data = rom.data[start:end]
+
+            # Пробуем декодировать
+            try:
+                from core.decoder import TextDecoder
+                decoder = TextDecoder(seg.get('encoding', 'ascii'))
+                text = decoder.decode(data)
+                texts[seg.get('name', f'Segment_{start}')] = text
+            except Exception:
+                pass
+        return texts
+
+    def _find_text_differences(self, texts1, texts2):
+        """Нахождение различий между текстами"""
+        keys1 = set(texts1.keys())
+        keys2 = set(texts2.keys())
+
+        # Добавленные сегменты
+        added = keys2 - keys1
+        for key in sorted(added):
+            self.compare_added_list.insert(tk.END, key)
+            self.compare_added_list.itemconfigure(tk.END, fg="green", bg="lightgray")
+
+        # Удалённые сегменты
+        removed = keys1 - keys2
+        for key in sorted(removed):
+            self.compare_removed_list.insert(tk.END, key)
+            self.compare_removed_list.itemconfigure(tk.END, fg="red", bg="lightgray")
+
+        # Изменённые сегменты
+        common = keys1 & keys2
+        for key in sorted(common):
+            if texts1[key] != texts2[key]:
+                self.compare_changed_list.insert(tk.END, key)
+                self.compare_changed_list.itemconfigure(tk.END, fg="orange", bg="lightgray")
+
+        # Статистика
+        added_count = len(added)
+        removed_count = len(removed)
+        changed_count = sum(1 for k in common if texts1[k] != texts2[k])
+
+        self.set_status(
+            self.i18n.t("compare.stats").format(
+                added=added_count,
+                removed=removed_count,
+                changed=changed_count
+            )
+        )
+
+    def _batch_add_files(self):
+        """Добавить файлы для пакетной обработки"""
+        files = filedialog.askopenfilenames(
+            filetypes=[
+                ("ROM files", "*.gb *.gbc *.gba"),
+                ("All files", "*.*")
+            ],
+            title=self.i18n.t("batch.select.files")
+        )
+
+        if files:
+            self.batch_files.extend(files)
+            self._batch_update_list()
+
+    def _batch_clear_list(self):
+        """Очистить список файлов"""
+        self.batch_files = []
+        self._batch_update_list()
+
+    def _batch_update_list(self):
+        """Обновить список файлов в listbox"""
+        self.batch_listbox.delete(0, tk.END)
+        for f in self.batch_files:
+            self.batch_listbox.insert(tk.END, os.path.basename(f))
+        self.batch_count_var.set(self.i18n.t("batch.rom.count").format(count=len(self.batch_files)))
+
+    def _batch_start(self):
+        """Запустить пакетную обработку"""
+        if not self.batch_files:
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("batch.no.files")
+            )
+            return
+
+        # Запускаем обработку в отдельном потоке
+        thread = threading.Thread(target=self._batch_process_files, daemon=True)
+        thread.start()
+
+    def _batch_process_files(self):
+        """Обработать все файлы"""
+        from core.extractor import TextExtractor
+
+        self.start_progress(self.i18n.t("batch.processing"), len(self.batch_files))
+        results = {}
+
+        for i, rom_path in enumerate(self.batch_files):
+            self.update_progress(i, self.i18n.t("batch.processing").format(file=os.path.basename(rom_path)))
+
+            try:
+                extractor = TextExtractor(rom_path)
+                result = extractor.extract()
+                results[rom_path] = result
+            except Exception as e:
+                logger.error(f"Error processing {rom_path}: {e}")
+
+        self.end_progress(self.i18n.t("batch.complete"))
+        self.batch_results = results
+
+        messagebox.showinfo(
+            self.i18n.t("success.title"),
+            self.i18n.t("batch.complete.success").format(count=len(results))
+        )
+
+    def _batch_export_all(self):
+        """Экспортировать все результаты"""
+        if not hasattr(self, 'batch_results') or not self.batch_results:
+            messagebox.showwarning(
+                self.i18n.t("warning.title"),
+                self.i18n.t("batch.no.results")
+            )
+            return
+
+        export_dir = filedialog.askdirectory(
+            title=self.i18n.t("export.directory")
+        )
+
+        if export_dir:
+            for rom_path, result in self.batch_results.items():
+                game_name = os.path.splitext(os.path.basename(rom_path))[0]
+                export_path = os.path.join(export_dir, f"{game_name}.json")
+
+                with open(export_path, 'w', encoding='utf-8') as f:
+                    json.dump(result, f, indent=2, ensure_ascii=False)
+
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("batch.export.success")
+            )
+
     def _setup_settings_tab(self):
         """Настройка вкладки настроек"""
-        settings_frame = ttk.LabelFrame(self.settings_tab, text=self.i18n.t("settings.localization"), padding="20")
-        settings_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        settings_frame = ttk.LabelFrame(self.settings_tab, text=self.i18n.t("settings.localization"), padding="10")
+        settings_frame.pack(fill="both", expand=True, padx=10, pady=(5, 0))
 
         # Язык интерфейса
         ui_lang_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("ui.language"), padding="10")
@@ -346,11 +764,13 @@ class GBTextExtractorGUI:
 
         ttk.Label(ui_lang_frame, text=self.i18n.t("ui.language")).pack(side="left", padx=(0, 10))
 
-        self.ui_lang = tk.StringVar(value=self.i18n.current_lang)
+        self.ui_lang = tk.StringVar(value=self.i18n.get_available_languages().get(self.i18n.current_lang, "English"))
         lang_combo = ttk.Combobox(ui_lang_frame, textvariable=self.ui_lang, state="readonly", width=15)
-        lang_combo['values'] = list(self.i18n.get_available_languages().keys())
+        lang_combo['values'] = list(self.i18n.get_available_languages().values())
         lang_combo.pack(side="left")
-        lang_combo.current(list(self.i18n.get_available_languages().keys()).index(self.i18n.current_lang))
+        # Устанавливаем текущее значение по названию
+        current_name = self.i18n.get_available_languages().get(self.i18n.current_lang, "English")
+        lang_combo.current(list(self.i18n.get_available_languages().values()).index(current_name))
         lang_combo.bind("<<ComboboxSelected>>", self.change_ui_language)
 
         # Язык перевода
@@ -386,6 +806,29 @@ class GBTextExtractorGUI:
         self.theme = tk.StringVar(value="light")
         ttk.Radiobutton(theme_frame, text="Light", variable=self.theme, value="light", command=self.apply_theme).pack(side="left", padx=5)
         ttk.Radiobutton(theme_frame, text="Dark", variable=self.theme, value="dark", command=self.apply_theme).pack(side="left", padx=5)
+
+        # Machine Translation
+        mt_frame = ttk.LabelFrame(settings_frame, text="Machine Translation", padding="10")
+        mt_frame.pack(fill="x", expand=False, pady=10)
+
+        # Service selection
+        ttk.Label(mt_frame, text="Service:").grid(row=0, column=0, sticky="w", padx=(0, 10), pady=2)
+        service_combo = ttk.Combobox(mt_frame, textvariable=self.mt_service, state="readonly", width=15)
+        service_combo['values'] = ('google', 'deepl', 'bing')
+        service_combo.grid(row=0, column=1, sticky="w", pady=2)
+        service_combo.current(0)
+
+        # DeepL API Key
+        ttk.Label(mt_frame, text="DeepL API Key:").grid(row=1, column=0, sticky="w", padx=(0, 10), pady=2)
+        ttk.Entry(mt_frame, textvariable=self.deepl_key, width=30, show="*").grid(row=1, column=1, sticky="w", pady=2)
+
+        # Bing API Key
+        ttk.Label(mt_frame, text="Bing API Key:").grid(row=2, column=0, sticky="w", padx=(0, 10), pady=2)
+        ttk.Entry(mt_frame, textvariable=self.bing_key, width=30, show="*").grid(row=2, column=1, sticky="w", pady=2)
+
+        # Bing Region
+        ttk.Label(mt_frame, text="Bing Region:").grid(row=3, column=0, sticky="w", padx=(0, 10), pady=2)
+        ttk.Entry(mt_frame, textvariable=self.bing_region, width=15).grid(row=3, column=1, sticky="w", pady=2)
 
         # Создать конфигурацию
         ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config).pack(pady=10)
@@ -648,37 +1091,40 @@ class GBTextExtractorGUI:
         if not self.rom_path.get():
             return
 
-        try:
-            rom = GameBoyROM(self.rom_path.get())
-            self.current_rom = rom
+        # Проверяем кэш - если ROM уже загружен, не перезагружаем
+        if self._loaded_rom_path == self.rom_path.get() and self.current_rom:
+            # ROM уже загружен, просто обновляем отображение
+            rom = self.current_rom
+        else:
+            try:
+                rom = GameBoyROM(self.rom_path.get())
+                self.current_rom = rom
+                self._loaded_rom_path = self.rom_path.get()
+            except Exception as e:
+                logger.error(f"Ошибка загрузки ROM: {e}")
+                return
 
-            # Определяем систему
-            system_name = {
-                'gb': 'Game Boy',
-                'gbc': 'Game Boy Color',
-                'gba': 'Game Boy Advance'
-            }.get(rom.system, rom.system.upper())
+        # Определяем систему
+        system_name = {
+            'gb': 'Game Boy',
+            'gbc': 'Game Boy Color',
+            'gba': 'Game Boy Advance'
+        }.get(rom.system, rom.system.upper())
 
-            # Обновляем информацию
-            self.game_info_labels["title"]["value"].config(text=rom.header['title'])
-            self.game_info_labels["system"]["value"].config(text=system_name)
-            self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
-            self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(rom.header['cartridge_type']))
-            self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
+        # Обновляем информацию
+        self.game_info_labels["title"]["value"].config(text=rom.header['title'])
+        self.game_info_labels["system"]["value"].config(text=system_name)
+        self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{rom.header['cartridge_type']:02X}")
+        self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(rom.header['cartridge_type']))
+        self.game_info_labels["rom_size"]["value"].config(text=f"{len(rom.data) // 1024} KB")
 
-            # Проверяем поддержку игры
-            game_id = rom.get_game_id()
-            plugin = self.plugin_manager.get_plugin(game_id, rom.system)
-            if plugin:
-                self.game_info_labels["supported_plugin"]["value"].config(text=plugin.__class__.__name__)
-            else:
-                self.game_info_labels["supported_plugin"]["value"].config(text=self.i18n.t("not_found"))
-
-        except Exception as e:
-            messagebox.showerror(
-                self.i18n.t("error.title"),
-                self.i18n.t("rom.load.error", error=str(e))
-            )
+        # Проверяем поддержку игры
+        game_id = rom.get_game_id()
+        plugin = self.plugin_manager.get_plugin(game_id, rom.system)
+        if plugin:
+            self.game_info_labels["supported_plugin"]["value"].config(text=plugin.__class__.__name__)
+        else:
+            self.game_info_labels["supported_plugin"]["value"].config(text=self.i18n.t("not_found"))
 
     def extract_text(self):
         """Извлечение текста из ROM"""
@@ -869,6 +1315,175 @@ class GBTextExtractorGUI:
                 self.i18n.t("export.txt.success")
             )
 
+    def export_csv(self):
+        """Экспорт результатов в CSV"""
+        if not self.current_results:
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title=self.i18n.t("file.export.csv")
+        )
+
+        if path:
+            try:
+                import csv
+                with open(path, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['segment', 'offset', 'original_text', 'translation'])
+                    
+                    for segment_name, messages in self.current_results.items():
+                        for msg in messages:
+                            translation = msg.get('translation', '')
+                            writer.writerow([
+                                segment_name,
+                                f"0x{msg['offset']:04X}",
+                                msg.get('text', ''),
+                                translation
+                            ])
+                
+                messagebox.showinfo(
+                    self.i18n.t("success.title"),
+                    self.i18n.t("export.csv.success")
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    f"{self.i18n.t('export.error')}: {e}"
+                )
+
+    def import_csv(self):
+        """Импорт переводов из CSV"""
+        path = filedialog.askopenfilename(
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title=self.i18n.t("file.import.csv")
+        )
+
+        if not path:
+            return
+
+        try:
+            import csv
+            translations = {}
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    segment = row.get('segment', '')
+                    offset_str = row.get('offset', '')
+                    translation = row.get('translation', '')
+                    
+                    if segment and offset_str and translation:
+                        # Конвертируем offset из hex
+                        try:
+                            offset = int(offset_str.replace('0x', ''), 16)
+                        except ValueError:
+                            offset = 0
+                        
+                        if segment not in translations:
+                            translations[segment] = {}
+                        translations[segment][offset] = translation
+            
+            # Применяем переводы
+            if self.current_results:
+                for segment_name, messages in self.current_results.items():
+                    if segment_name in translations:
+                        for msg in messages:
+                            offset = msg.get('offset')
+                            if offset in translations[segment_name]:
+                                msg['translation'] = translations[segment_name][offset]
+            
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("import.csv.success")
+            )
+            
+            # Обновляем отображение
+            self._display_current_entry()
+            
+        except Exception as e:
+            messagebox.showerror(
+                self.i18n.t("error.title"),
+                f"{self.i18n.t('import.error')}: {e}"
+            )
+
+    def export_tmx(self):
+        """Экспорт результатов в TMX"""
+        if not self.current_results:
+            messagebox.showwarning("Warning", "No results to export")
+            return
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".tmx",
+            filetypes=[("TMX files", "*.tmx"), ("All files", "*.*")],
+            title="Export to TMX"
+        )
+
+        if path:
+            try:
+                # Получаем название игры
+                game_title = "Unknown Game"
+                if self.current_rom:
+                    game_title = self.current_rom.get_title() or "Unknown Game"
+
+                # Экспортируем в TMX
+                source_lang = self.encoding_type.get()
+                if source_lang == "auto":
+                    source_lang = "en"  # По умолчанию английский
+                target_lang = self.target_lang.get()
+
+                tmx_content = self.tmx_handler.export_tmx(
+                    self.current_results,
+                    source_lang=source_lang,
+                    target_lang=target_lang,
+                    game_title=game_title
+                )
+
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(tmx_content)
+
+                messagebox.showinfo("Success", f"TMX exported to {path}")
+
+            except Exception as e:
+                messagebox.showerror("Error", f"TMX export failed: {e}")
+
+    def import_tmx(self):
+        """Импорт переводов из TMX"""
+        path = filedialog.askopenfilename(
+            filetypes=[("TMX files", "*.tmx"), ("All files", "*.*")],
+            title="Import from TMX"
+        )
+
+        if not path:
+            return
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                tmx_content = f.read()
+
+            # Импортируем переводы
+            translations = self.tmx_handler.import_tmx(tmx_content)
+
+            # Применяем переводы
+            if self.current_results:
+                applied_count = 0
+                for segment_name, messages in self.current_results.items():
+                    if segment_name in translations:
+                        for msg in messages:
+                            offset = msg.get('offset')
+                            if offset in translations[segment_name]:
+                                msg['translation'] = translations[segment_name][offset]
+                                applied_count += 1
+
+                messagebox.showinfo("Success", f"Imported {applied_count} translations from TMX")
+
+                # Обновляем отображение
+                self._display_current_entry()
+
+        except Exception as e:
+            messagebox.showerror("Error", f"TMX import failed: {e}")
+
     def switch_to_edit_tab(self):
         """Переключение на вкладку редактирования"""
         if not self.current_results:
@@ -893,54 +1508,58 @@ class GBTextExtractorGUI:
             )
             return
 
-        try:
-            # Проверяем, что файл существует
-            if not os.path.exists(rom_path):
-                raise FileNotFoundError(f"Файл не найден: {rom_path}")
+        # Проверяем кэш - если ROM уже загружен и путь тот же, не перезагружаем
+        if self._loaded_rom_path == rom_path and self.current_rom:
+            logger.info("Используем кэшированный ROM")
+        else:
+            try:
+                # Проверяем, что файл существует
+                if not os.path.exists(rom_path):
+                    raise FileNotFoundError(f"Файл не найден: {rom_path}")
 
-            # Проверяем размер файла
-            file_size = os.path.getsize(rom_path)
-            if file_size < 32 * 1024:  # 32 KB
-                raise ValueError("ROM файл слишком маленький")
+                # Проверяем размер файла
+                file_size = os.path.getsize(rom_path)
+                if file_size < 32 * 1024:  # 32 KB
+                    raise ValueError("ROM файл слишком маленький")
 
-            self.current_rom = GameBoyROM(rom_path)
-            self.text_injector = TextInjector(rom_path)
+                self.current_rom = GameBoyROM(rom_path)
+                self.text_injector = TextInjector(rom_path)
+                self._loaded_rom_path = rom_path
 
-            # Определяем систему
-            system_name = {
-                'gb': 'Game Boy',
-                'gbc': 'Game Boy Color',
-                'gba': 'Game Boy Advance'
-            }.get(self.current_rom.system, self.current_rom.system.upper())
+                # Определяем систему
+                system_name = {
+                    'gb': 'Game Boy',
+                    'gbc': 'Game Boy Color',
+                    'gba': 'Game Boy Advance'
+                }.get(self.current_rom.system, self.current_rom.system.upper())
 
-            # Обновляем информацию
-            self.game_info_labels["title"]["value"].config(text=self.current_rom.header['title'])
-            self.game_info_labels["system"]["value"].config(text=system_name)
-            self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{self.current_rom.header['cartridge_type']:02X}")
-            self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(self.current_rom.header['cartridge_type']))
-            self.game_info_labels["rom_size"]["value"].config(text=f"{len(self.current_rom.data) // 1024} KB")
+                # Обновляем информацию
+                self.game_info_labels["title"]["value"].config(text=self.current_rom.header['title'])
+                self.game_info_labels["system"]["value"].config(text=system_name)
+                self.game_info_labels["cartridge_type"]["value"].config(text=f"0x{self.current_rom.header['cartridge_type']:02X}")
+                self.game_info_labels["mbc_type"]["value"].config(text=self._get_mbc_name(self.current_rom.header['cartridge_type']))
+                self.game_info_labels["rom_size"]["value"].config(text=f"{len(self.current_rom.data) // 1024} KB")
 
-            # Заполняем список сегментов
-            game_id = self.current_rom.get_game_id()
-            plugin = self.plugin_manager.get_plugin(game_id, self.current_rom.system)
+                # Заполняем список сегментов
+                game_id = self.current_rom.get_game_id()
+                plugin = self.plugin_manager.get_plugin(game_id, self.current_rom.system)
 
-            if plugin:
-                segments = plugin.get_text_segments(self.current_rom)
-                self.segment_combo['values'] = [seg['name'] for seg in segments]
-                if self.segment_combo['values']:
-                    self.segment_combo.current(0)
-                    self.load_segment()
-            else:
-                messagebox.showwarning(
-                    self.i18n.t("warning.title"),
-                    self.i18n.t("plugin.not.found")
+                if plugin:
+                    segments = plugin.get_text_segments(self.current_rom)
+                    self.segment_combo['values'] = [seg['name'] for seg in segments]
+                    if self.segment_combo['values']:
+                        self.segment_combo.current(0)
+                        self.load_segment()
+                else:
+                    messagebox.showwarning(
+                        self.i18n.t("warning.title"),
+                        self.i18n.t("plugin.not.found")
+                    )
+            except Exception as e:
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("rom.load.error", error=str(e))
                 )
-
-        except Exception as e:
-            messagebox.showerror(
-                self.i18n.t("error.title"),
-                self.i18n.t("rom.load.error", error=str(e))
-            )
 
     def _get_resource_path(self, relative_path):
         """Получает абсолютный путь к ресурсу"""
@@ -996,6 +1615,10 @@ class GBTextExtractorGUI:
                 self.target_lang = tk.StringVar(value=settings.get("target_language", "ru"))
                 self.encoding_type = tk.StringVar(value=settings.get("encoding_type", "auto"))
                 self.theme = tk.StringVar(value=settings.get("theme", "light"))
+                self.mt_service = tk.StringVar(value=settings.get("mt_service", "google"))
+                self.deepl_key = tk.StringVar(value=settings.get("deepl_key", ""))
+                self.bing_key = tk.StringVar(value=settings.get("bing_key", ""))
+                self.bing_region = tk.StringVar(value=settings.get("bing_region", "global"))
             except Exception as e:
                 print(f"Ошибка загрузки настроек: {str(e)}")
                 self._init_default_settings()
@@ -1008,6 +1631,10 @@ class GBTextExtractorGUI:
         self.target_lang = tk.StringVar(value="ru")
         self.encoding_type = tk.StringVar(value="auto")
         self.theme = tk.StringVar(value="light")
+        self.mt_service = tk.StringVar(value="google")
+        self.deepl_key = tk.StringVar(value="")
+        self.bing_key = tk.StringVar(value="")
+        self.bing_region = tk.StringVar(value="global")
 
     def on_segment_combo_select(self, event):
         """Обработка выбора сегмента в комбобоксе"""
@@ -1244,6 +1871,271 @@ class GBTextExtractorGUI:
         finally:
             self.context_menu.grab_release()
 
+    def _setup_search(self):
+        """Настройка горячих клавиш для поиска и замены"""
+        # Горячие клавиши для поиска
+        self.root.bind('<Control-f>', lambda e: self.show_search_dialog())
+        self.root.bind('<Control-F>', lambda e: self.show_search_dialog())
+        self.root.bind('<F3>', lambda e: self.find_next())
+        self.root.bind('<Shift-F3>', lambda e: self.find_prev())
+        self.root.bind('<Control-h>', lambda e: self.show_replace_dialog())
+        self.root.bind('<Control-H>', lambda e: self.show_replace_dialog())
+
+        # Undo/Redo
+        self.root.bind('<Control-z>', lambda e: self._undo())
+        self.root.bind('<Control-Z>', lambda e: self._undo())
+        self.root.bind('<Control-y>', lambda e: self._redo())
+        self.root.bind('<Control-Y>', lambda e: self._redo())
+
+    def _undo(self):
+        """Отмена последнего действия"""
+        widget = self.root.focus_get()
+        if hasattr(widget, 'edit_undo'):
+            try:
+                widget.edit_undo()
+            except tk.TclError:
+                pass  # Нельзя отменить
+
+    def _redo(self):
+        """Повтор отменённого действия"""
+        widget = self.root.focus_get()
+        if hasattr(widget, 'edit_redo'):
+            try:
+                widget.edit_redo()
+            except tk.TclError:
+                pass  # Нельзя повторить
+
+    def _setup_drag_drop(self):
+        """Настройка поддержки drag & drop"""
+        if TKINTERDND2_AVAILABLE:
+            try:
+                self.root.drop_target_register("DND_Files")
+                self.root.dnd_bind('<<Drop>>', self._on_file_drop)
+                logger.info("Drag & drop enabled")
+            except Exception as e:
+                logger.warning(f"Failed to enable drag & drop: {e}")
+        else:
+            logger.info("tkinterdnd2 not available, drag & drop disabled")
+
+    def _on_file_drop(self, event):
+        """Обработка перетаскивания файла"""
+        # Получаем путь к файлу из события
+        files = self.root.tk.splitlist(event.data)
+        if files:
+            file_path = files[0]
+            # Проверяем расширение
+            ext = os.path.splitext(file_path)[1].lower()
+            if ext in ['.gb', '.gbc', '.gba']:
+                self.rom_path.set(file_path)
+                self.update_game_info()
+                self.set_status(self.i18n.t("status.rom.loaded"))
+            else:
+                messagebox.showwarning(
+                    self.i18n.t("warning.title"),
+                    self.i18n.t("invalid.rom.file")
+                )
+
+    def show_search_dialog(self):
+        """Показывает диалог поиска"""
+        if self.search_dialog and self.search_dialog.winfo_exists():
+            self.search_dialog.lift()
+            return
+
+        self.search_dialog = tk.Toplevel(self.root)
+        self.search_dialog.title(self.i18n.t("search.title"))
+        self.search_dialog.geometry("350x120")
+        self.search_dialog.transient(self.root)
+        self.search_dialog.resizable(False, False)
+
+        # Поле поиска
+        search_frame = ttk.Frame(self.search_dialog, padding="10")
+        search_frame.pack(fill="both", expand=True)
+
+        ttk.Label(search_frame, text=self.i18n.t("search.find")).grid(row=0, column=0, sticky="w", pady=5)
+        self.search_entry = ttk.Entry(search_frame, width=30)
+        self.search_entry.grid(row=0, column=1, pady=5, padx=5)
+
+        # Кнопки
+        btn_frame = ttk.Frame(search_frame)
+        btn_frame.grid(row=1, column=0, columnspan=2, pady=10)
+
+        ttk.Button(btn_frame, text=self.i18n.t("search.next"), command=self.find_next).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text=self.i18n.t("search.previous"), command=self.find_prev).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text=self.i18n.t("search.close"), command=self.search_dialog.destroy).pack(side="left", padx=2)
+
+        self.search_entry.focus()
+
+    def show_replace_dialog(self):
+        """Показывает диалог замены"""
+        if self.replace_dialog and self.replace_dialog.winfo_exists():
+            self.replace_dialog.lift()
+            return
+
+        self.replace_dialog = tk.Toplevel(self.root)
+        self.replace_dialog.title(self.i18n.t("search.replace"))
+        self.replace_dialog.geometry("400x150")
+        self.replace_dialog.transient(self.root)
+        self.replace_dialog.resizable(False, False)
+
+        # Поля ввода
+        input_frame = ttk.Frame(self.replace_dialog, padding="10")
+        input_frame.pack(fill="both", expand=True)
+
+        ttk.Label(input_frame, text=self.i18n.t("search.find")).grid(row=0, column=0, sticky="w", pady=5)
+        self.replace_search_entry = ttk.Entry(input_frame, width=30)
+        self.replace_search_entry.grid(row=0, column=1, pady=5, padx=5)
+
+        ttk.Label(input_frame, text=self.i18n.t("search.replace_with")).grid(row=1, column=0, sticky="w", pady=5)
+        self.replace_entry = ttk.Entry(input_frame, width=30)
+        self.replace_entry.grid(row=1, column=1, pady=5, padx=5)
+
+        # Кнопки
+        btn_frame = ttk.Frame(input_frame)
+        btn_frame.grid(row=2, column=0, columnspan=2, pady=10)
+
+        ttk.Button(btn_frame, text=self.i18n.t("search.next"), command=self.find_next).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text=self.i18n.t("search.replace"), command=self.replace_current).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text=self.i18n.t("search.replace_all"), command=self.replace_all).pack(side="left", padx=2)
+        ttk.Button(btn_frame, text=self.i18n.t("search.close"), command=self.replace_dialog.destroy).pack(side="left", padx=2)
+
+        self.replace_search_entry.focus()
+
+    def find_next(self, event=None):
+        """Поиск следующего вхождения"""
+        if not hasattr(self, 'text_output') or not self.text_output.get("1.0", "end"):
+            messagebox.showinfo(self.i18n.t("search.title"), self.i18n.t("search.no_results"))
+            return
+
+        # Получаем текст из активного виджета
+        text_widget = self._get_active_text_widget()
+        if not text_widget:
+            return
+
+        search_term = self._get_search_term()
+        if not search_term:
+            self.show_search_dialog()
+            return
+
+        # Начинаем поиск от текущей позиции + 1 символ
+        start_pos = text_widget.index("insert")
+        content = text_widget.get("1.0", "end-1c")
+
+        # Ищем от текущей позиции
+        pos = content.find(search_term, text_widget.search("insert", "end"))
+        if pos == -1:
+            # Ищем с начала
+            pos = content.find(search_term)
+            if pos == -1:
+                messagebox.showinfo(self.i18n.t("search.title"), self.i18n.t("search.no_results"))
+                return
+
+        # Переходим к найденному
+        line = content[:pos].count('\n') + 1
+        col = pos - content[:pos].rfind('\n') - 1
+        text_widget.mark_set("insert", f"{line}.{col}")
+        text_widget.see(f"{line}.{col}")
+        text_widget.tag_remove("sel", "1.0", "end")
+        text_widget.tag_add("sel", f"{line}.{col}", f"{line}.{col + len(search_term)}")
+
+    def find_prev(self, event=None):
+        """Поиск предыдущего вхождения"""
+        text_widget = self._get_active_text_widget()
+        if not text_widget:
+            return
+
+        search_term = self._get_search_term()
+        if not search_term:
+            self.show_search_dialog()
+            return
+
+        start_pos = text_widget.index("insert")
+        content = text_widget.get("1.0", "end-1c")
+
+        # Ищем назад от текущей позиции
+        before_cursor = content[:text_widget.search("insert", "end")]
+        pos = before_cursor.rfind(search_term)
+
+        if pos == -1:
+            # Ищем с конца
+            pos = content.rfind(search_term)
+            if pos == -1:
+                messagebox.showinfo(self.i18n.t("search.title"), self.i18n.t("search.no_results"))
+                return
+
+        # Переходим к найденному
+        line = content[:pos].count('\n') + 1
+        col = pos - content[:pos].rfind('\n') - 1
+        text_widget.mark_set("insert", f"{line}.{col}")
+        text_widget.see(f"{line}.{col}")
+        text_widget.tag_remove("sel", "1.0", "end")
+        text_widget.tag_add("sel", f"{line}.{col}", f"{line}.{col + len(search_term)}")
+
+    def _get_active_text_widget(self):
+        """Получает активный текстовый виджет для поиска"""
+        # Проверяем, какой виджет в фокусе
+        focus_widget = self.root.focus_get()
+        if focus_widget == self.translated_text:
+            return self.translated_text
+        elif focus_widget == self.original_text:
+            return self.original_text
+        elif hasattr(self, 'text_output'):
+            return self.text_output
+        return None
+
+    def _get_search_term(self):
+        """Получает строку поиска из активного диалога"""
+        if self.replace_dialog and self.replace_dialog.winfo_exists():
+            return self.replace_search_entry.get()
+        if self.search_dialog and self.search_dialog.winfo_exists():
+            return self.search_entry.get()
+        return ""
+
+    def replace_current(self):
+        """Заменяет текущее выделение"""
+        if not hasattr(self, 'translated_text'):
+            return
+
+        search_term = self.replace_search_entry.get() if hasattr(self, 'replace_search_entry') else ""
+        replace_term = self.replace_entry.get() if hasattr(self, 'replace_entry') else ""
+
+        if not search_term:
+            return
+
+        # Проверяем, есть ли выделение
+        try:
+            selected = self.translated_text.get("sel.first", "sel.last")
+            if selected == search_term:
+                self.translated_text.delete("sel.first", "sel.last")
+                self.translated_text.insert("insert", replace_term)
+        except tk.TclError:
+            pass
+
+        # Переходим к следующему
+        self.find_next()
+
+    def replace_all(self):
+        """Заменяет все вхождения"""
+        if not hasattr(self, 'translated_text'):
+            return
+
+        search_term = self.replace_search_entry.get() if hasattr(self, 'replace_search_entry') else ""
+        replace_term = self.replace_entry.get() if hasattr(self, 'replace_entry') else ""
+
+        if not search_term:
+            return
+
+        content = self.translated_text.get("1.0", "end-1c")
+        new_content = content.replace(search_term, replace_term)
+
+        self.translated_text.delete("1.0", "end")
+        self.translated_text.insert("1.0", new_content)
+
+        count = content.count(search_term)
+        messagebox.showinfo(
+            self.i18n.t("search.replace"),
+            self.i18n.t("search.replaced").format(count=count)
+        )
+
     def save_translation(self):
         """Сохранение перевода текущей записи"""
         if not self.current_entries:
@@ -1257,16 +2149,108 @@ class GBTextExtractorGUI:
             )
             return
 
-        self.set_status(self.i18n.t("text.saving"), 50)
+        # Показываем предпросмотр перед сохранением
+        if self._show_preview_dialog(translation):
+            self.set_status(self.i18n.t("text.saving"), 50)
 
-        # Здесь сохраняем перевод
+            # Здесь сохраняем перевод
+            entry = self.current_entries[self.current_entry_index]
+            # Сохраняем перевод в текущую запись (используется при инжекте)
+            entry['translation'] = translation
+            logger.info(f"Сохранен перевод для записи {self.current_entry_index}: {translation[:50]}...")
+
+            self.set_status(self.i18n.t("text.saved"))
+            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("translation.saved"))
+
+    def machine_translate_current(self):
+        """Выполняет машинный перевод текущего текста"""
+        if not self.current_entries:
+            messagebox.showwarning("Warning", "No text loaded")
+            return
+
         entry = self.current_entries[self.current_entry_index]
-        # Сохраняем перевод в текущую запись (используется при инжекте)
-        entry['translation'] = translation
-        print(f"Сохранен перевод для записи {self.current_entry_index}: {translation[:50]}...")
+        original_text = entry.get('text', '').strip()
 
-        self.set_status(self.i18n.t("text.saved"))
-        messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("translation.saved"))
+        if not original_text:
+            messagebox.showwarning("Warning", "No original text to translate")
+            return
+
+        # Определяем языки
+        source_lang = self.encoding_type.get()
+        if source_lang == 'auto':
+            # Простая логика определения языка
+            if any(ord(c) > 127 for c in original_text):
+                source_lang = 'ja'  # Предполагаем японский для не-ASCII
+            else:
+                source_lang = 'en'
+
+        target_lang = self.target_lang.get()
+
+        try:
+            self.set_status("Translating...", 0)
+            translated = self.machine_translation.translate(original_text, source_lang, target_lang)
+            self.translated_text.delete(1.0, tk.END)
+            self.translated_text.insert(1.0, translated)
+            self.set_status("Translation completed")
+        except Exception as e:
+            self.set_status("Translation failed")
+            messagebox.showerror("Error", f"Machine translation failed: {str(e)}")
+
+    def _show_preview_dialog(self, translation):
+        """Показывает диалог предпросмотра изменений"""
+        if not self.current_entries:
+            return True
+
+        entry = self.current_entries[self.current_entry_index]
+        original = entry.get('text', '')
+
+        preview_dialog = tk.Toplevel(self.root)
+        preview_dialog.title(self.i18n.t("preview.title"))
+        preview_dialog.geometry("600x400")
+        preview_dialog.transient(self.root)
+
+        # Сравнение текстов
+        content_frame = ttk.Frame(preview_dialog, padding="10")
+        content_frame.pack(fill="both", expand=True)
+
+        # Оригинал
+        orig_frame = ttk.LabelFrame(content_frame, text=self.i18n.t("original.text"), padding="5")
+        orig_frame.pack(fill="both", expand=True, pady=5)
+        orig_text = scrolledtext.ScrolledText(orig_frame, height=6, state="disabled")
+        orig_text.pack(fill="both", expand=True)
+        orig_text.config(state="normal")
+        orig_text.insert("1.0", original)
+        orig_text.config(state="disabled")
+
+        # Перевод
+        trans_frame = ttk.LabelFrame(content_frame, text=self.i18n.t("translated.text"), padding="5")
+        trans_frame.pack(fill="both", expand=True, pady=5)
+        trans_text = scrolledtext.ScrolledText(trans_frame, height=6, state="disabled")
+        trans_text.pack(fill="both", expand=True)
+        trans_text.config(state="normal")
+        trans_text.insert("1.0", translation)
+        trans_text.config(state="disabled")
+
+        # Кнопки
+        btn_frame = ttk.Frame(content_frame)
+        btn_frame.pack(fill="x", pady=10)
+
+        result = {"confirmed": False}
+
+        def confirm():
+            result["confirmed"] = True
+            preview_dialog.destroy()
+
+        def cancel():
+            preview_dialog.destroy()
+
+        ttk.Button(btn_frame, text=self.i18n.t("preview.confirm"), command=confirm).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("preview.cancel"), command=cancel).pack(side="left", padx=5)
+
+        preview_dialog.grab_set()
+        preview_dialog.wait_window()
+
+        return result["confirmed"]
 
     def _setup_about_tab(self):
         """Настройка вкладки 'О программе'"""
@@ -1400,7 +2384,19 @@ class GBTextExtractorGUI:
 
     def change_ui_language(self, event=None):
         """Изменяет язык интерфейса приложения"""
-        new_lang = self.ui_lang.get()
+        # Получаем название языска из Combobox
+        lang_name = self.ui_lang.get()
+        # Обратное преобразование: название -> код
+        lang_map = self.i18n.get_available_languages()
+        new_lang = None
+        for code, name in lang_map.items():
+            if name == lang_name:
+                new_lang = code
+                break
+        
+        if not new_lang:
+            new_lang = lang_name  # Если не найден, используем как есть
+        
         self.i18n.change_language(new_lang)
 
         # Обновляем все тексты в интерфейсе
@@ -1694,7 +2690,11 @@ class GBTextExtractorGUI:
             "ui_language": self.ui_lang.get(),
             "target_language": self.target_lang.get(),
             "encoding_type": self.encoding_type.get(),
-            "theme": self.theme.get()
+            "theme": self.theme.get(),
+            "mt_service": self.mt_service.get(),
+            "deepl_key": self.deepl_key.get(),
+            "bing_key": self.bing_key.get(),
+            "bing_region": self.bing_region.get()
         }
 
         # Сохраняем в файл
@@ -1709,7 +2709,39 @@ class GBTextExtractorGUI:
         # Обновляем интерфейс
         self._refresh_ui()
 
+        # Применяем настройки машинного перевода
+        self._apply_mt_settings()
+
         messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("settings.saved"))
+
+    def _apply_mt_settings(self):
+        """Применяет настройки машинного перевода"""
+        self.machine_translation = MachineTranslation()
+
+        # Добавляем Google (всегда доступен)
+        self.machine_translation.add_google_translator()
+
+        # Добавляем DeepL если есть ключ
+        deepl_key = self.deepl_key.get()
+        if deepl_key:
+            self.machine_translation.add_deepl_translator(deepl_key)
+
+        # Добавляем Bing если есть ключ
+        bing_key = self.bing_key.get()
+        if bing_key:
+            region = self.bing_region.get() or 'global'
+            self.machine_translation.add_bing_translator(bing_key, region)
+
+        # Устанавливаем текущий сервис
+        service = self.mt_service.get()
+        try:
+            self.machine_translation.set_service(service)
+        except ValueError:
+            # Если сервис недоступен, используем первый доступный
+            available = self.machine_translation.get_available_services()
+            if available:
+                self.machine_translation.set_service(available[0])
+                self.mt_service.set(available[0])
 
     def apply_theme(self):
         """Применяет выбранную тему оформления"""
@@ -1806,7 +2838,7 @@ class GBTextExtractorGUI:
         # Панель оценки
         rating_frame = ttk.Frame(control_frame)
         rating_frame.pack(side="left", padx=(20, 0))
-        ttk.Label(rating_frame, text="Оценить:").pack(side="left")
+        ttk.Label(rating_frame, text=self.i18n.t("guide.rate")).pack(side="left")
 
         for i in range(1, 6):
             ttk.Button(rating_frame, text="★", width=2,
@@ -1929,6 +2961,6 @@ def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     logger = logging.getLogger('gb2text')
     logger.info("Запуск GUI версии")
 
-    root = tk.Tk()
+    root = tkinterdnd2.TkinterDnD.Tk() if TKINTERDND2_AVAILABLE else tk.Tk()
     app = GBTextExtractorGUI(root, rom_path, plugin_dir, lang)
     root.mainloop()

@@ -61,13 +61,22 @@ class I18N:
                 self._create_default_translations()
                 return
 
-            logger.debug(f"Файлы в папке locales: {list(locales_dir.glob('*.json'))}")
+            logger.debug(f"Папки в locales: {list(locales_dir.iterdir())}")
 
-            # Загружаем все доступные языки
-            for lang_file in locales_dir.glob("*.json"):
-                lang_code = lang_file.stem
+            # Загружаем все доступные языки из подпапок
+            for lang_dir in locales_dir.iterdir():
+                if not lang_dir.is_dir():
+                    continue
+                
+                lang_code = lang_dir.name
+                messages_file = lang_dir / "messages.json"
+                
+                if not messages_file.exists():
+                    logger.debug(f"Файл messages.json не найден для языка: {lang_code}")
+                    continue
+                    
                 try:
-                    with open(lang_file, 'r', encoding='utf-8') as f:
+                    with open(messages_file, 'r', encoding='utf-8') as f:
                         self.translations[lang_code] = json.load(f)
                     logger.info(f"Загружен перевод: {lang_code}")
                 except json.JSONDecodeError as e:
@@ -100,17 +109,23 @@ class I18N:
                 "tab.settings": "Settings",
                 "rom.file": "ROM file:",
                 "browse": "Browse",
+                "load": "Load",
                 "extract.text": "Extract Text",
                 "game.info": "Game Information",
                 "game.title": "Title",
                 "system": "System",
                 "cartridge.type": "Cartridge Type",
+                "mbc.type": "MBC Type",
                 "rom.size": "ROM Size",
                 "supported.plugin": "Supported Plugin",
                 "text.segments": "Text Segments:",
                 "segment.content": "Segment Content:",
                 "export.json": "Export to JSON",
                 "export.txt": "Export to TXT",
+                "export.csv": "Export to CSV",
+                "export.xml": "Export to XML",
+                "export.sqlite": "Export to SQLite",
+                "import.csv": "Import from CSV",
                 "status.loading": "Loading...",
                 "original.text": "Original Text",
                 "translated.text": "Translation",
@@ -121,13 +136,16 @@ class I18N:
                 "entry": "Entry: {current} of {total}",
                 "display.error": "Failed to display entry: {error}",
                 "settings.localization": "Localization Settings",
+                "settings.theme": "Theme",
                 "target.language": "Target Language:",
                 "encoding.type": "Encoding Type:",
                 "auto.detect": "Auto-detection",
                 "english": "English",
                 "japanese": "Japanese",
                 "russian": "Russian",
+                "chinese": "Chinese",
                 "save.settings": "Save Settings",
+                "settings.saved": "Settings saved",
                 "legal.warning": "This tool must be used ONLY with ROM files that legally belong to you. Do not use it with illegal copies of games.",
                 "create.config": "Create Configuration",
                 "apply.encoding": "Apply Encoding",
@@ -136,7 +154,9 @@ class I18N:
                 "save.guide": "Save Guide",
                 "apply.guide": "Apply to Extraction",
                 "status.ready": "Ready",
+                "status.drag_drop_ready": "Ready - Drag & drop ROM files here",
                 "warning.title": "Warning",
+                "warning.extract.first": "First extract text",
                 "ui.language": "UI Language",
                 "tab.about": "About",
                 "about.version": "Version: {version}",
@@ -199,7 +219,32 @@ class I18N:
                 "diagnostics.running": "Running...",
                 "diagnostics.completed": "Completed",
                 "diagnostics.start": "Run Diagnostics",
-                "save.log": "Save Log"
+                "save.log": "Save Log",
+                # Поиск
+                "search": "Search",
+                "search.find": "Find",
+                "search.replace": "Replace",
+                "search.not.found": "Text not found",
+                "search.results": "Found {count} matches",
+                "search.next": "Find Next",
+                "search.previous": "Find Previous",
+                "search.title": "Find Text",
+                "search.find_label": "Find:",
+                "search.replace_label": "Replace with:",
+                "search.close": "Close",
+                # Пакетная обработка
+                "batch": "Batch Processing",
+                "batch.select.files": "Select ROM files",
+                "batch.processing": "Processing...",
+                "batch.complete": "Batch processing complete",
+                "batch.progress": "Processing file {current} of {total}",
+                "batch.add.files": "Add Files",
+                "batch.clear.list": "Clear List",
+                "batch.start": "Start Processing",
+                "batch.stop": "Stop",
+                "batch.export.all": "Export All",
+                "batch.rom.count": "{count} ROM files selected",
+                "export.directory": "Select Export Directory"
             },
             "ru": {
                 "app.title": "GB Text Extractor & Translator",
@@ -219,6 +264,10 @@ class I18N:
                 "segment.content": "Содержимое сегмента:",
                 "export.json": "Экспорт в JSON",
                 "export.txt": "Экспорт в TXT",
+                "export.csv": "Экспорт в CSV",
+                "export.xml": "Экспорт в XML",
+                "export.sqlite": "Экспорт в SQLite",
+                "import.csv": "Импорт из CSV",
                 "status.loading": "Загрузка...",
                 "original.text": "Оригинальный текст",
                 "translated.text": "Перевод",
@@ -314,7 +363,32 @@ class I18N:
                 "diagnostics.running": "Выполняется...",
                 "diagnostics.completed": "Завершено",
                 "diagnostics.start": "Запустить диагностику",
-                "save.log": "Сохранить лог"
+                "save.log": "Сохранить лог",
+                # Поиск
+                "search": "Поиск",
+                "search.find": "Найти",
+                "search.replace": "Заменить",
+                "search.not.found": "Текст не найден",
+                "search.results": "Найдено совпадений: {count}",
+                "search.next": "Найти далее",
+                "search.previous": "Найти ранее",
+                "search.title": "Поиск текста",
+                "search.find_label": "Найти:",
+                "search.replace_label": "Заменить на:",
+                "search.close": "Закрыть",
+                # Пакетная обработка
+                "batch": "Пакетная обработка",
+                "batch.select.files": "Выбрать файлы ROM",
+                "batch.processing": "Обработка...",
+                "batch.complete": "Пакетная обработка завершена",
+                "batch.progress": "Обработка файла {current} из {total}",
+                "batch.add.files": "Добавить файлы",
+                "batch.clear.list": "Очистить список",
+                "batch.start": "Начать обработку",
+                "batch.stop": "Остановить",
+                "batch.export.all": "Экспортировать всё",
+                "batch.rom.count": "Выбрано файлов ROM: {count}",
+                "export.directory": "Выбрать папку для экспорта"
             },
             "ja": {
                 "app.title": "GB テキスト抽出・翻訳ツール",
@@ -334,6 +408,10 @@ class I18N:
                 "segment.content": "セグメント内容:",
                 "export.json": "JSONとしてエクスポート",
                 "export.txt": "TXTとしてエクスポート",
+                "export.csv": "CSVとしてエクスポート",
+                "export.xml": "XMLとしてエクスポート",
+                "export.sqlite": "SQLiteとしてエクスポート",
+                "import.csv": "CSVからインポート",
                 "original.text": "原文",
                 "translated.text": "翻訳文",
                 "prev.entry": "← 前へ",
@@ -421,7 +499,126 @@ class I18N:
                 "diagnostics.running": "実行中...",
                 "diagnostics.completed": "完了",
                 "diagnostics.start": "診断を実行",
-                "save.log": "ログを保存"
+                "save.log": "ログを保存",
+                # 検索
+                "search": "検索",
+                "search.find": "検索",
+                "search.replace": "置換",
+                "search.not.found": "テキストが見つかりません",
+                "search.results": "一致件数: {count}",
+                "search.next": "次を検索",
+                "search.previous": "前を検索",
+                "search.title": "テキスト検索",
+                "search.find_label": "検索:",
+                "search.replace_label": "置換先:",
+                "search.close": "閉じる",
+                # バッチ処理
+                "batch": "バッチ処理",
+                "batch.select.files": "ROMファイルを選択",
+                "batch.processing": "処理中...",
+                "batch.complete": "バッチ処理が完了しました",
+                "batch.progress": "ファイル {current}/{total} を処理中",
+                "batch.add.files": "ファイルを追加",
+                "batch.clear.list": "リストをクリア",
+                "batch.start": "処理を開始",
+                "batch.stop": "停止",
+                "batch.export.all": "すべてエクスポート",
+                "batch.rom.count": "{count}個のROMファイルを選択",
+                "export.directory": "エクスポート先フォルダを選択"
+            },
+            "zh": {
+                "app.title": "GB文本提取器",
+                "tab.extract": "提取文本",
+                "tab.edit": "编辑文本",
+                "tab.settings": "设置",
+                "rom.file": "ROM文件:",
+                "browse": "浏览",
+                "extract.text": "提取文本",
+                "game.info": "游戏信息",
+                "system": "系统:",
+                "game.id": "游戏ID:",
+                "game.title": "游戏标题:",
+                "cartridge.type": "卡带类型:",
+                "rom.size": "ROM大小:",
+                "ram.size": "RAM大小:",
+                "country": "国家:",
+                "version": "版本:",
+                "extract.options": "提取选项",
+                "encoding": "编码:",
+                "auto.detect": "自动检测",
+                "pointer.size": "指针大小:",
+                "max.segments": "最大段数:",
+                "extract.button": "提取文本",
+                "translated.text": "翻译文本",
+                "original.text": "原文",
+                "translation": "翻译",
+                "segment": "段:",
+                "save.translated": "保存翻译",
+                "inject.button": "注入文本",
+                "settings.title": "设置",
+                "language": "语言:",
+                "theme": "主题:",
+                "light.theme": "浅色",
+                "dark.theme": "深色",
+                "plugin.dir": "插件目录:",
+                "auto.save": "自动保存",
+                "apply.settings": "应用设置",
+                "status.ready": "就绪",
+                "status.extracting": "正在提取...",
+                "status.saving": "正在保存...",
+                "status.done": "完成",
+                "status.error": "错误",
+                "segments.found": "找到 {count} 个文本段",
+                "messages.found": "找到 {count} 条消息",
+                "save.success": "保存成功",
+                "save.error": "保存失败",
+                "load.error": "加载失败",
+                "confirm.exit": "确定要退出吗?",
+                "confirm.overwrite": "文件已存在。覆盖?",
+                "warning.title": "警告",
+                "error.title": "错误",
+                "info.title": "信息",
+                "confirm.title": "确认",
+                "success": "成功",
+                "copy.original": "复制原文",
+                "paste.translation": "粘贴翻译",
+                "clipboard.empty": "剪贴板为空",
+                "legal.warning": "本软件仅用于分析您合法拥有的ROM文件。",
+                "diagnostics.start": "运行诊断",
+                "save.log": "保存日志",
+                "segment.content": "段内容:",
+                "export.json": "导出为JSON",
+                "export.txt": "导出为TXT",
+                "export.csv": "导出为CSV",
+                "export.xml": "导出为XML",
+                "export.sqlite": "导出为SQLite",
+                "import.csv": "从CSV导入",
+                "status.loading": "加载中...",
+                # 搜索
+                "search": "搜索",
+                "search.find": "查找",
+                "search.replace": "替换",
+                "search.not.found": "未找到文本",
+                "search.results": "找到 {count} 个匹配项",
+                "search.next": "查找下一个",
+                "search.previous": "查找上一个",
+                "search.title": "文本搜索",
+                "search.find_label": "查找:",
+                "search.replace_label": "替换为:",
+                "search.close": "关闭",
+                # 批处理
+                "batch": "批处理",
+                "batch.select.files": "选择ROM文件",
+                "batch.processing": "处理中...",
+                "batch.complete": "批处理完成",
+                "batch.progress": "正在处理文件 {current}/{total}",
+                "batch.add.files": "添加文件",
+                "batch.clear.list": "清除列表",
+                "batch.start": "开始处理",
+                "batch.stop": "停止",
+                "batch.export.all": "导出全部",
+                "batch.rom.count": "已选择 {count} 个ROM文件",
+                "export.directory": "选择导出目录"
             }
         }
 
@@ -452,7 +649,8 @@ class I18N:
         return {
             "en": "English",
             "ru": "Русский",
-            "ja": "日本語"
+            "ja": "日本語",
+            "zh": "中文"
         }
 
     def change_language(self, lang: str):
