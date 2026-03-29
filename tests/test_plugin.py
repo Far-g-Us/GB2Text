@@ -78,3 +78,52 @@ class TestGenericPlugins:
             assert isinstance(segments, list)
         finally:
             os.unlink(temp_path)
+
+    def test_generic_gbc_plugin_get_text_segments(self):
+        """Тест получения сегментов текста GBC плагином"""
+        rom_data = self.create_test_rom_file(system='gbc')
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.gbc') as f:
+            f.write(rom_data)
+            temp_path = f.name
+        
+        try:
+            plugin = GenericGBCPlugin()
+            rom = GameBoyROM(temp_path)
+            segments = plugin.get_text_segments(rom)
+            assert isinstance(segments, list)
+        finally:
+            os.unlink(temp_path)
+
+    def test_plugin_game_id_pattern_gbc(self):
+        """Тест паттерна ID игры для GBC плагина"""
+        plugin = GenericGBCPlugin()
+        pattern = plugin.game_id_pattern
+        assert isinstance(pattern, str)
+
+    def test_generic_game_plugin(self):
+        """Тест GenericGamePlugin"""
+        from core.plugin import GenericGamePlugin
+        plugin = GenericGamePlugin()
+        pattern = plugin.game_id_pattern
+        assert isinstance(pattern, str)
+
+    def test_generic_game_plugin_get_text_segments(self):
+        """Тест получения сегментов GenericGamePlugin"""
+        from core.plugin import GenericGamePlugin
+        import tempfile
+        
+        plugin = GenericGamePlugin()
+        rom_data = b'\x00' * 0x8000
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.gb') as f:
+            f.write(rom_data)
+            temp_path = f.name
+        
+        try:
+            rom = GameBoyROM(temp_path)
+            segments = plugin.get_text_segments(rom)
+            assert isinstance(segments, list)
+            assert len(segments) > 0
+        finally:
+            os.unlink(temp_path)

@@ -82,16 +82,17 @@ def create_simple_exe():
         print(f"⚠️ Файл VERSION не найден в {version_file}")
     
     # Добавляем папки проекта
-    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
     for folder in required_folders:
         folder_path = gb2text_dir / folder
         if folder_path.exists():
             if folder == 'locales':
-                # Для locales копируем содержимое папки, а не саму папку
-                # Добавляем каждый JSON файл отдельно
-                locales_files = list(folder_path.glob('*.json'))
+                # Для locales используем rglob для рекурсивного поиска
+                locales_files = list(folder_path.rglob('*.json'))
                 for locale_file in locales_files:
-                    cmd.extend([f"--add-data={locale_file};locales/"])
+                    # Сохраняем относительную структуру папок
+                    rel_path = locale_file.relative_to(folder_path)
+                    cmd.extend([f"--add-data={locale_file};locales/{rel_path.parent}"])
                 print(f"✅ Добавлена папка: {folder} ({len(locales_files)} файлов)")
             else:
                 cmd.extend([f"--add-data={folder_path};{folder}"])

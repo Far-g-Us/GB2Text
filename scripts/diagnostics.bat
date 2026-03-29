@@ -1,9 +1,24 @@
 @echo off
 echo ### Диагностика GB Text Extraction Framework
-echo Версия: python main.py --version
+echo.
 echo OS: %OS%
 echo Date: %DATE% %TIME%
-echo Python version: python --version
+python --version
+
+REM Проверяем наличие main.py
+if not exist main.py (
+    echo Error: main.py not found
+    exit /b 1
+)
+
+REM Пробуем получить версию из файла VERSION
+if exist VERSION (
+    set /p VERSION=<VERSION
+) else (
+    set VERSION=unknown
+)
+echo Version: %VERSION%
+echo.
 
 if "%~1"=="" (
     echo Error: ROM file not specified

@@ -29,11 +29,15 @@ from core.guide import GuideManager
 class TextExtractor:
     """Основной класс извлечения текста"""
 
-    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None):
+    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None, rom: GameBoyROM = None):
         if not isinstance(rom_path, str):
             raise TypeError("rom_path должен быть строкой, а не типом")
 
-        self.rom = GameBoyROM(rom_path)
+        # Используем переданный ROM или загружаем напрямую
+        if rom is not None:
+            self.rom = rom
+        else:
+            self.rom = GameBoyROM(rom_path)
         self.plugin_manager = plugin_manager or PluginManager()
         self.cancellation_token = cancellation_token
         self.plugin = None
