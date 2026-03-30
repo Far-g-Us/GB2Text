@@ -61,3 +61,40 @@ def get_pointer_size(system: str) -> int:
         logger.warning(f"Неизвестный размер указателя для системы {system}, используем 2 по умолчанию")
         return 2
     return size
+
+
+class TranslationDatabase:
+    """Класс для хранения и извлечения переводов"""
+    
+    def __init__(self, db_path: str = None):
+        """Инициализация базы данных переводов"""
+        self.db_path = db_path or ":memory:"
+        self._cache = {}
+        self._cache_enabled = False
+    
+    def store_translation(self, source_lang: str, target_lang: str, source: str, target: str) -> bool:
+        """Сохраняет перевод в базу данных"""
+        key = (source_lang, target_lang, source)
+        self._cache[key] = target
+        return True
+    
+    def get_translation(self, source_lang: str, target_lang: str, source: str) -> str:
+        """Получает перевод из базы данных"""
+        key = (source_lang, target_lang, source)
+        return self._cache.get(key)
+    
+    def get_translations_for_source(self, source_lang: str, target_lang: str, source: str) -> list:
+        """Получает все переводы для исходного текста"""
+        translations = []
+        for (sl, tl, s), t in self._cache.items():
+            if sl == source_lang and tl == target_lang and s == source:
+                translations.append(t)
+        return translations
+    
+    def enable_cache(self):
+        """Включает кэширование"""
+        self._cache_enabled = True
+    
+    def disable_cache(self):
+        """Выключает кэширование"""
+        self._cache_enabled = False
