@@ -1,6 +1,8 @@
 """Тесты для модуля guide"""
 import os
 import sys
+import tempfile
+import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -175,7 +177,14 @@ class TestGuideManager:
 
     def test_guide_manager_init_nonexistent_dir(self):
         """Тест инициализации с несуществующей директорией"""
-        manager = GuideManager(guides_dir="/nonexistent/path/xyz")
+        # Используем путь который гарантированно не существует но не требует прав root
+        nonexistent_path = os.path.join(tempfile.gettempdir(), 'gb2text_test_nonexistent_guides_xyz123')
+        # Убедимся что путь не существует
+        if os.path.exists(nonexistent_path):
+            import shutil
+            shutil.rmtree(nonexistent_path, ignore_errors=True)
+        
+        manager = GuideManager(guides_dir=nonexistent_path)
         assert manager is not None
 
     def test_guide_get_guide_returns_dict_or_none(self):
