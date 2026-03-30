@@ -1,0 +1,67 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  security-checks:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check for vulnerable dependencies with Safety
+        run: |
+          pip install safety
+          safety check --file=requirements.txt --json --output=security-report.json || true
+        continue-on-error: true
+
+      - name: Check for known vulnerabilities with Pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit --format=json --output=pip-audit-report.json || true
+        continue-on-error: true
+
+      - name: Scan for secrets with Gitleaks
+        run: |
+          wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
+          tar -xzf gitleaks_8.18.2_linux_x64.tar.gz
+          ./gitleaks detect --source=. --report=secrets-report.json --redact || true
+        continue-on-error: true
+
+      - name: Upload security reports
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: security-reports
+          path: |
+            security-report.json
+            pip-audit-report.json
+            secrets-report.json
+          retention-days: 30
+
+      - name: Display summary
+        run: |
+          echo "## Security Scan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Completed Checks:" >> $GITHUB_STEP_SUMMARY
+          echo "- Safety - Python dependency vulnerability scanner" >> $GITHUB_STEP_SUMMARY
+          echo "- pip-audit - Python package vulnerability checker" >> $GITHUB_STEP_SUMMARY
+          echo "- Gitleaks - Secret detection in code" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Reports are available as artifacts." >> $GITHUB_STEP_SUMMARY

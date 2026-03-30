@@ -1,0 +1,88 @@
+{
+  "game": {
+    "name": "Шаблон игры Game Boy Color",
+    "version": "1.0.0",
+    "description": "Базовый шаблон для игр Game Boy Color с поддержкой цветов"
+  },
+  "supported_platforms": ["GBC", "GB"],
+  "header_pattern": {
+    "entry_point_offset": 256,
+    "logo_offset": 260,
+    "title_offset": 272,
+    "cgb_flag_offset": 323,
+    "new_logo_checksum": 308
+  },
+  "features": {
+    "color_support": true,
+    "ram_banks": [0, 1, 2, 4, 8],
+    "features_byte_offset": 325
+  },
+  "charmaps": {
+    "default": {
+      "name": "Basic ASCII",
+      "codes": {
+        "32": " ",
+        "33": "!",
+        "34": "\"",
+        "39": "'",
+        "44": ",",
+        "45": "-",
+        "46": ".",
+        "48-57": "0-9",
+        "65-90": "A-Z",
+        "97-122": "a-z",
+        "255": "[END]"
+      }
+    },
+    "extended": {
+      "name": "Extended Latin",
+      "codes": {
+        "128-154": "Latin Extended-A",
+        "155-159": "Special chars"
+      }
+    }
+  },
+  "segments": {
+    "dialogue": {
+      "name": "Тексты диалогов",
+      "start": 16384,
+      "end": 32767,
+      "pointer_size": 2,
+      "encoding": "default",
+      "bank_switching": true
+    },
+    "menu": {
+      "name": "Меню и интерфейс",
+      "start": 32768,
+      "end": 49151,
+      "pointer_size": 2,
+      "encoding": "default"
+    },
+    "system": {
+      "name": "Системные сообщения",
+      "start": 49152,
+      "end": 53247,
+      "pointer_size": 2,
+      "encoding": "default"
+    },
+    "color_data": {
+      "name": "Цветовые палитры",
+      "start": 53248,
+      "end": 56319,
+      "pointer_size": 2,
+      "encoding": "extended"
+    }
+  },
+  "validation": {
+    "max_length": 255,
+    "allowed_glyphs": "ascii_extended",
+    "check_newlines": true,
+    "warn_multiple_spaces": true,
+    "validate_encoding": true
+  },
+  "injection": {
+    "backup_original": true,
+    "verify_checksum": true,
+    "update_header": true
+  }
+}
