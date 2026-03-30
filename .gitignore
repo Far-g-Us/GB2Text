@@ -8,10 +8,12 @@ env/
 nonexistent_dir/
 nonexistent_plugins_dir/
 1.txt
-*/**/__pycache__/*
+/**/__pycache__/*
 build/
 dist/
 settings/
+coverage.json
+htmlcov/*
 
 # Диагностические каталоги
 diagnostics_*
@@ -21,5 +23,5 @@ diagnostics_*
 *.tmp
 gb2text.log
 
-# https://jrsoftware.org/isinfo.php
-# installer.iss
+# Robot Framework результаты тестов
+test_logs/

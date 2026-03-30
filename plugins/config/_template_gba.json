@@ -1,0 +1,110 @@
+{
+  "game": {
+    "name": "Шаблон игры Game Boy Advance",
+    "version": "1.0.0",
+    "description": "Базовый шаблон для игр Game Boy Advance с 32-битной архитектурой"
+  },
+  "supported_platforms": ["GBA"],
+  "header_pattern": {
+    "entry_point_offset": 0,
+    "logo_offset": 4,
+    "title_offset": 160,
+    "game_code_offset": 192,
+    "maker_code_offset": 196,
+    "main_unit_code_offset": 208,
+    "checksum_offset": 252
+  },
+  "features": {
+    "arm7tdmi": true,
+    "game_boy_advance_features": true,
+    "supports_32mb_rom": true,
+    "sram_size_offset": 240
+  },
+  "charmaps": {
+    "default": {
+      "name": "Basic ASCII",
+      "codes": {
+        "32": " ",
+        "33": "!",
+        "34": "\"",
+        "39": "'",
+        "44": ",",
+        "45": "-",
+        "46": ".",
+        "48-57": "0-9",
+        "65-90": "A-Z",
+        "97-122": "a-z",
+        "255": "[END]"
+      }
+    },
+    "fullwidth": {
+      "name": "Fullwidth Japanese",
+      "codes": {
+        "0x81-0x9F": "First byte of 2-byte chars",
+        "0xE0-0xEF": "First byte of 2-byte chars"
+      }
+    }
+  },
+  "segments": {
+    "main_code": {
+      "name": "Основной код",
+      "start": 134217728,
+      "end": 268435455,
+      "pointer_size": 4,
+      "pointer_base": 134217728,
+      "encoding": "default"
+    },
+    "dialogue": {
+      "name": "Тексты диалогов",
+      "start": 134217728,
+      "end": 150994943,
+      "pointer_size": 4,
+      "pointer_base": 134217728,
+      "encoding": "default"
+    },
+    "menu": {
+      "name": "Меню и интерфейс",
+      "start": 134217728,
+      "end": 150994943,
+      "pointer_size": 4,
+      "pointer_base": 134217728,
+      "encoding": "default"
+    },
+    "system": {
+      "name": "Системные сообщения",
+      "start": 134217728,
+      "end": 150994943,
+      "pointer_size": 4,
+      "pointer_base": 134217728,
+      "encoding": "default"
+    },
+    "font_data": {
+      "name": "Данные шрифтов",
+      "start": 134217728,
+      "end": 150994943,
+      "pointer_size": 4,
+      "pointer_base": 134217728,
+      "encoding": "fullwidth"
+    }
+  },
+  "gba_specific": {
+    "compression": ["LZ77", "Huffman", "битный Run-Length"],
+    "pointer_math": "absolute_address - base_address",
+    "arm_thumb_mode": true,
+    "overlay_support": true
+  },
+  "validation": {
+    "max_length": 255,
+    "allowed_glyphs": "ascii_extended",
+    "check_newlines": true,
+    "warn_multiple_spaces": true,
+    "validate_encoding": true,
+    "check_compression": true
+  },
+  "injection": {
+    "backup_original": true,
+    "verify_checksum": true,
+    "rebuild_rom": true,
+    "arm_patch_support": true
+  }
+}

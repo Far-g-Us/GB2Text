@@ -1,0 +1,14 @@
+# Development tools
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-xdist>=3.5.0
+pytest-timeout>=2.2.0
+pytest-benchmark>=4.0.0
+coveralls>=3.5.0
+
+# Profiling
+memory-profiler>=0.61.0
+line-profiler>=0.1
+
+# Documentation
+pdoc>=13.0.0
