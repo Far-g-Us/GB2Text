@@ -28,6 +28,8 @@ from core.decoder import CompressionHandler
 from plugins.generic import GenericGBPlugin, GenericGBCPlugin, GenericGBAPlugin
 from plugins.auto_detect import AutoDetectPlugin
 
+logger = logging.getLogger('gb2text.plugin_manager')
+
 
 class CancellationToken:
     """Класс для управления отменой операций"""
@@ -102,15 +104,14 @@ class PluginManager:
                                     attribute != GamePlugin
                             ):
                                 self.plugins.append(attribute())
-                                print(f"Загружен плагин: {attribute.__name__}")
+                                logger.info(f"Загружен плагин: {attribute.__name__}")
                     except Exception as e:
-                        print(f"Ошибка загрузки модуля {module_name}: {str(e)}")
+                        logger.error(f"Ошибка загрузки модуля {module_name}: {str(e)}")
             except Exception as e:
-                print(f"Ошибка доступа к директории плагинов: {str(e)}")
+                logger.error(f"Ошибка доступа к директории плагинов: {str(e)}")
 
     def _load_config_plugins(self) -> None:
         """Загружает конфигурационные плагины из JSON-файлов"""
-        logger = logging.getLogger('gb2text.plugin_manager')
         config_dir = Path(self.plugins_dir) / "config"
 
         if not config_dir.exists():
@@ -122,6 +123,9 @@ class PluginManager:
         max_configs = 20  # Ограничение на количество конфигураций
 
         for json_file in config_dir.glob("*.json"):
+            # Пропускаем шаблоны и скрытые файлы
+            if json_file.name.startswith('_') or json_file.name.startswith('.'):
+                continue
             if loaded_configs >= max_configs:
                 logger.warning(f"Достигнуто максимальное количество конфигураций ({max_configs}). Остальные пропущены.")
                 break
@@ -179,7 +183,6 @@ class PluginManager:
 
     def _is_config_safe(self, config: dict) -> bool:
         """Проверяет, что конфигурация безопасна с юридической точки зрения"""
-        logger = logging.getLogger('gb2text.plugin_manager')
         
         # Разрешаем конфигурации, созданные через GUI
         if config.get('user_created', False):
@@ -230,12 +233,7 @@ class PluginManager:
     def get_plugin(self, game_id: str, system: str = None,
                    cancellation_token: Optional[CancellationToken] = None) -> Optional[GamePlugin]:
         """Находит подходящий плагин для игры с поддержкой отмены"""
-        logger = logging.getLogger('gb2text.plugin_manager')
         logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
-
-        # Обновляем статус в GUI, если доступен
-        if hasattr(self, 'update_status'):
-            self.update_status(f"{self.i18n.t('plugin.searching')} {game_id}...", 10)
 
         # Сначала пытаемся найти специфичный плагин
         total_plugins = len(self.plugins)
@@ -245,20 +243,9 @@ class PluginManager:
                 logger.info("Операция отменена пользователем")
                 return None
 
-            # Обновляем прогресс
-            progress = 10 + int(80 * i / total_plugins) if total_plugins > 0 else 10
-            if hasattr(self, 'update_status'):
-                self.update_status(f"{self.i18n.t('checking.plugin')} {plugin.__class__.__name__}...", progress)
-
-            # Добавляем небольшую задержку для обновления интерфейса
-            if hasattr(self, 'root') and i % 5 == 0:
-                self.root.update_idletasks()
-
             try:
                 if re.match(plugin.game_id_pattern, game_id):
                     logger.info(f"Найден подходящий плагин: {plugin.__class__.__name__}")
-                    if hasattr(self, 'update_status'):
-                        self.update_status(f"{self.i18n.t('plugin.found')} {plugin.__class__.__name__}", 95)
                     return plugin
             except re.error as e:
                 logger.warning(f"Ошибка регулярного выражения в плагине {plugin.__class__.__name__}: {str(e)}")
@@ -266,18 +253,12 @@ class PluginManager:
         # Если не найден, возвращаем базовый плагин для системы
         if system == 'gba':
             logger.info("Используем GenericGBAPlugin по умолчанию")
-            if hasattr(self, 'update_status'):
-                self.update_status(self.i18n.t("using.default.gba"), 90)
             return GenericGBAPlugin()
         elif system == 'gbc':
             logger.info("Используем GenericGBCPlugin по умолчанию")
-            if hasattr(self, 'update_status'):
-                self.update_status(self.i18n.t("using.default.gbc"), 90)
             return GenericGBCPlugin()
         else:
             logger.info("Используем GenericGBPlugin по умолчанию")
-            if hasattr(self, 'update_status'):
-                self.update_status(self.i18n.t("using.default.gb"), 90)
             return GenericGBPlugin()
 
 
@@ -292,7 +273,6 @@ class ConfigurablePlugin(GamePlugin):
         return self.config['game_id_pattern']
 
     def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
-        logger = logging.getLogger('gb2text.plugin_manager')
         logger.info("Определение текстовых сегментов...")
 
         segments = []
@@ -386,7 +366,6 @@ def get_safe_plugin_manager(plugins_dir: str = "plugins") -> PluginManager:
     try:
         return PluginManager(plugins_dir)
     except Exception as e:
-        logger = logging.getLogger('gb2text.plugin_manager')
         logger.error(f"Ошибка создания менеджера плагинов: {e}")
         # Возвращаем базовый менеджер плагинов без дополнительных плагинов
         manager = PluginManager.__new__(PluginManager)

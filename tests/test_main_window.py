@@ -18,7 +18,7 @@ class TestGUIImports(unittest.TestCase):
             if 'gui' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                 
     def test_editor_import(self):

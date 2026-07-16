@@ -283,7 +283,7 @@ def _detect_sjis_sequences(data: bytes) -> Dict[int, str]:
                     char = sjis.decode('shift-jis', errors='ignore')
                     if char:
                         pairs[first * 256 + second] = char
-                except:
+                except (UnicodeDecodeError, ValueError, OverflowError):
                     pass
                     
     return pairs
@@ -313,20 +313,60 @@ class EncodingDetector:
         
     def detect_encoding(self, data: bytes) -> Tuple[str, float]:
         """
-        Определяет кодировку данных
+        Определяет кодировку данных, используя как обученные паттерны,
+        так и эвристический анализ.
         
         Returns:
             Кортеж (encoding_name, confidence)
         """
         best_match = ('unknown', 0.0)
         
+        # 1. Проверяем обученные паттерны
         for encoding_name, tables in self.known_encodings.items():
             for table in tables:
-                coverage = sum(1 for b in data if b in table.char_map) / len(data)
+                coverage = sum(1 for b in data if b in table.char_map) / len(data) if data else 0
                 if coverage > best_match[1]:
                     best_match = (encoding_name, coverage)
-                    
+        
+        # 2. Если нет обученных паттернов — эвристика
+        if best_match[1] < 0.3 and data:
+            ascii_count = sum(1 for b in data if 0x20 <= b <= 0x7E)
+            high_count = sum(1 for b in data if b >= 0x80)
+            total = len(data)
+            
+            ascii_ratio = ascii_count / total
+            high_ratio = high_count / total
+            
+            if ascii_ratio > 0.8:
+                candidate = ('ascii', ascii_ratio)
+                if candidate[1] > best_match[1]:
+                    best_match = candidate
+            elif high_ratio > 0.2:
+                # Проверяем Shift-JIS паттерны
+                sjis_score = self._score_shiftjis(data)
+                if sjis_score > 0.3:
+                    candidate = ('shift-jis', sjis_score)
+                    if candidate[1] > best_match[1]:
+                        best_match = candidate
+        
         return best_match
+    
+    def _score_shiftjis(self, data: bytes) -> float:
+        """Оценивает вероятность что данные в Shift-JIS"""
+        if len(data) < 2:
+            return 0.0
+        sjis_pairs = 0
+        total_pairs = 0
+        for i in range(len(data) - 1):
+            first = data[i]
+            second = data[i + 1]
+            if 0x81 <= first <= 0x9F or 0xE0 <= first <= 0xEF:
+                total_pairs += 1
+                if 0x40 <= second <= 0x7E or 0x80 <= second <= 0xFC:
+                    sjis_pairs += 1
+        if total_pairs == 0:
+            return 0.0
+        return sjis_pairs / total_pairs
         
     def suggest_charmap(self, data: bytes) -> Optional[Dict[int, str]]:
         """

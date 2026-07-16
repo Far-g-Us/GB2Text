@@ -73,9 +73,14 @@ class TestPluginManagerEdgeCases:
     def test_plugin_manager_with_nonexistent_dir(self):
         """Тест с несуществующей директорией"""
         from core.plugin_manager import PluginManager
+        import tempfile
+        import os
+        
+        # Используем безопасный путь в temp директории
+        nonexistent_path = os.path.join(tempfile.gettempdir(), 'nonexistent_xyz_nonexistent')
         
         # Не должно вызвать ошибку
-        pm = PluginManager(plugins_dir="/nonexistent/plugins")
+        pm = PluginManager(plugins_dir=nonexistent_path)
         
         assert pm.plugins_dir is not None
 
@@ -134,8 +139,13 @@ class TestGuideManagerEdgeCases:
     def test_guide_manager_nonexistent_dir(self):
         """Тест с несуществующей директорией"""
         from core.guide import GuideManager
+        import tempfile
+        import os
         
-        gm = GuideManager(guides_dir="/nonexistent/guides")
+        # Используем безопасный путь в temp директории
+        nonexistent_path = os.path.join(tempfile.gettempdir(), 'nonexistent_guides_xyz')
+        
+        gm = GuideManager(guides_dir=nonexistent_path)
         
         result = gm.get_guide("test_game")
         assert result is None

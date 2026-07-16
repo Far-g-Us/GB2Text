@@ -68,7 +68,7 @@ def get_resource_path(relative_path):
     try:
         # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
         base_path = sys._MEIPASS
-    except Exception:
+    except AttributeError:
         base_path = os.path.abspath(".")
 
     return os.path.join(base_path, relative_path)
@@ -80,7 +80,7 @@ def get_version():
         version_path = get_resource_path('VERSION')
         with open(version_path, 'r') as f:
             return f.read().strip()
-    except:
+    except (OSError, IOError):
         return "1.0.0"
 
 
@@ -89,7 +89,7 @@ def main():
         level=logging.DEBUG,  # Изменено с INFO на DEBUG для более детального лога
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         filename='gb2text.log',
-        filemode='w'  # 'w' перезаписывает файл при каждом запуске, 'a' дописывает
+        filemode='a'  # 'w' перезаписывает файл при каждом запуске, 'a' дописывает
     )
     # Добавим вывод в консоль для отладки
     console = logging.StreamHandler()

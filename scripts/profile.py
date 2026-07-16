@@ -43,7 +43,6 @@ def memory_tracker():
     current, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     print(f"[MEMORY] Current: {current / 1024:.1f}KB, Peak: {peak / 1024:.1f}KB")
-    return peak
 
 
 def profile_function(func, *args, **kwargs):
@@ -91,19 +90,20 @@ def profile_module_scanning(rom_path):
     print(f"{'='*60}\n")
     
     from core.rom import GameBoyROM
-    from core.scanner import TextScanner
+    from core.scanner import find_text_pointers
+    from core.decoder import CharMapDecoder
     
     rom = GameBoyROM(rom_path)
     
     with timer("ROM Loading"):
         pass  # Already loaded
     
-    scanner = TextScanner(rom)
+    pointers = find_text_pointers(rom.data)
     
-    result, stats = profile_function(scanner.scan_text_blocks)
+    result, stats = profile_function(lambda: find_text_pointers(rom.data))
     print(stats)
     
-    print(f"\n[RESULT] Found {len(result)} text blocks")
+    print(f"\n[RESULT] Found {len(pointers)} text pointers")
     
     with memory_tracker():
         pass
@@ -119,19 +119,19 @@ def profile_module_decoding(rom_path, limit=100):
     print(f"{'='*60}\n")
     
     from core.rom import GameBoyROM
-    from core.scanner import TextScanner
-    from core.decoder import TextDecoder
+    from core.scanner import find_text_pointers, auto_detect_charmap
+    from core.decoder import CharMapDecoder
     
     rom = GameBoyROM(rom_path)
-    scanner = TextScanner(rom)
-    decoder = TextDecoder()
-    
-    blocks = scanner.scan_text_blocks()[:limit]
+    pointers = find_text_pointers(rom.data)[:limit]
     
     def decode_blocks():
         decoded = []
-        for block in blocks:
-            text = decoder.decode_text(block.get('data', b''))
+        for ptr_addr, text_addr in pointers:
+            charmap = auto_detect_charmap(rom.data, text_addr)
+            decoder = CharMapDecoder(charmap)
+            data = rom.data[text_addr:text_addr + 256]
+            text = decoder.decode(data, 0, len(data))
             decoded.append(text)
         return decoded
     
@@ -152,26 +152,28 @@ def profile_module_encoding(text_samples):
     print(f"Profiling: Text Encoding")
     print(f"Samples: {len(text_samples)}")
     print(f"{'='*60}\n")
-    
-    from core.encoding import GB2TextEncoder
-    
-    encoder = GB2TextEncoder()
-    
+
+    from core.decoder import CharMapDecoder
+    from core.encoding import get_generic_english_charmap
+
+    charmap = get_generic_english_charmap()
+    decoder = CharMapDecoder(charmap)
+
     def encode_texts():
         encoded = []
         for text in text_samples:
-            data = encoder.encode_text(text)
+            data = decoder.encode(text)
             encoded.append(data)
         return encoded
-    
+
     result, stats = profile_function(encode_texts)
     print(stats)
-    
+
     print(f"\n[RESULT] Encoded {len(result)} texts")
-    
+
     with memory_tracker():
         pass
-    
+
     return result
 
 
@@ -184,20 +186,20 @@ def profile_full_workflow(rom_path, iterations=1):
     print(f"{'='*60}\n")
     
     from core.rom import GameBoyROM
-    from core.scanner import TextScanner
-    from core.decoder import TextDecoder
-    from core.tmx import TMXExporter
+    from core.scanner import find_text_pointers, auto_detect_charmap
+    from core.decoder import CharMapDecoder
     import tempfile
     
     def full_workflow():
         rom = GameBoyROM(rom_path)
-        scanner = TextScanner(rom)
-        blocks = scanner.scan_text_blocks()
+        pointers = find_text_pointers(rom.data)
         
-        decoder = TextDecoder()
         decoded = []
-        for block in blocks:
-            text = decoder.decode_text(block.get('data', b''))
+        for ptr_addr, text_addr in pointers:
+            charmap = auto_detect_charmap(rom.data, text_addr)
+            decoder = CharMapDecoder(charmap)
+            data = rom.data[text_addr:text_addr + 256]
+            text = decoder.decode(data, 0, len(data))
             if text:
                 decoded.append({
                     'id': len(decoded) + 1,
@@ -231,7 +233,7 @@ def generate_benchmark_report(rom_path, output_file=None):
     print(f"{'='*60}\n")
     
     from core.rom import GameBoyROM
-    from core.scanner import TextScanner
+    from core.scanner import find_text_pointers
     
     results = {}
     
@@ -242,9 +244,8 @@ def generate_benchmark_report(rom_path, output_file=None):
     
     # Scanning
     with timer("Text Scanning"):
-        scanner = TextScanner(rom)
-        blocks = scanner.scan_text_blocks()
-    results['scanning'] = {'status': 'success', 'blocks_found': len(blocks)}
+        pointers = find_text_pointers(rom.data)
+    results['scanning'] = {'status': 'success', 'pointers_found': len(pointers)}
     
     # Memory
     import tracemalloc

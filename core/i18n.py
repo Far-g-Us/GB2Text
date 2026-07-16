@@ -146,7 +146,6 @@ class I18N:
                 "chinese": "Chinese",
                 "save.settings": "Save Settings",
                 "settings.saved": "Settings saved",
-                "legal.warning": "This tool must be used ONLY with ROM files that legally belong to you. Do not use it with illegal copies of games.",
                 "create.config": "Create Configuration",
                 "apply.encoding": "Apply Encoding",
                 "guide.tab": "Guide",
@@ -186,10 +185,7 @@ class I18N:
                 "segments.found": "Found text segments:",
                 "segments.limited": "Limited processing to",
                 "processing.segment": "Processing segment",
-                "plugin.searching": "Searching for appropriate plugin...",
-                "cancel": "Cancel",
                 "extraction.canceled": "Extraction canceled",
-                "plugin.searching": "Searching for appropriate plugin...",
                 "checking.plugin": "Checking plugin",
                 "plugin.found": "Found plugin",
                 "using.default.gb": "Using GenericGBPlugin by default",
@@ -286,7 +282,6 @@ class I18N:
                 "russian": "Русский",
                 "save.settings": "Сохранить настройки",
                 "settings.saved": "Настройки сохранены",
-                "legal.warning": "Этот инструмент должен использоваться ТОЛЬКО с ROM-файлами, законно принадлежащими вам. Не используйте его для нелегальных копий игр.",
                 "create.config": "Создать конфигурацию",
                 "apply.encoding": "Применить кодировку",
                 "guide.tab": "Руководство",
@@ -330,10 +325,7 @@ class I18N:
                 "segments.found": "Найдено текстовых сегментов:",
                 "segments.limited": "Ограничено обработкой до",
                 "processing.segment": "Обработка сегмента",
-                "plugin.searching": "Поиск подходящего плагина...",
-                "cancel": "Отмена",
                 "extraction.canceled": "Извлечение отменено",
-                "plugin.searching": "Поиск подходящего плагина...",
                 "checking.plugin": "Проверка плагина",
                 "plugin.found": "Плагин найден",
                 "using.default.gb": "Используется GenericGBPlugin по умолчанию",
@@ -428,7 +420,6 @@ class I18N:
                 "japanese": "日本語",
                 "russian": "ロシア語",
                 "save.settings": "設定を保存",
-                "legal.warning": "このツールは、法的に所有しているROMファイルでのみ使用してください。違法なゲームコピーには使用しないでください。",
                 "create.config": "設定ファイルを作成",
                 "apply.encoding": "エンコーディングを適用",
                 "guide.tab": "ガイド",
@@ -466,10 +457,7 @@ class I18N:
                 "segments.found": "見つかったテキストセグメント:",
                 "segments.limited": "処理を制限:",
                 "processing.segment": "セグメントを処理中",
-                "plugin.searching": "適切なプラグインを検索中...",
-                "cancel": "キャンセル",
                 "extraction.canceled": "抽出がキャンセルされました",
-                "plugin.searching": "適切なプラグインを検索中...",
                 "checking.plugin": "プラグインを確認中",
                 "plugin.found": "プラグインが見つかりました",
                 "using.default.gb": "デフォルトで GenericGBPlugin を使用",
@@ -641,7 +629,7 @@ class I18N:
             return key
 
         except Exception as e:
-            print(f"Ошибка перевода для ключа '{key}': {e}")
+            logger.error(f"Ошибка перевода для ключа '{key}': {e}")
             return key
 
     def get_available_languages(self) -> Dict[str, str]:
@@ -657,6 +645,6 @@ class I18N:
         """Меняет текущий язык"""
         if lang in self.translations:
             self.current_lang = lang
-            print(f"Язык изменен на: {lang}")
+            logger.info(f"Язык изменен на: {lang}")
         else:
-            print(f"Язык '{lang}' не найден")
+            logger.warning(f"Язык '{lang}' не найден")

@@ -68,7 +68,7 @@ def check_gb2text_modules():
         'core.rom',
         'core.scanner',
         'core.decoder',
-        'core.encoder',
+        'core.encoding',
         'core.extractor',
         'core.injector',
         'core.tmx',
@@ -93,12 +93,11 @@ def check_plugins():
     from core.plugin_manager import PluginManager
     
     manager = PluginManager()
-    manager.discover_plugins()
-    plugins = manager.get_all_plugins()
+    plugins = manager.plugins
     
     print(f"  Found {len(plugins)} plugins:")
     for plugin in plugins:
-        print(f"    - {plugin}")
+        print(f"    - {plugin.__class__.__name__}")
 
 
 def check_configuration():

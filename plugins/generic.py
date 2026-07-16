@@ -22,7 +22,7 @@ GB Text Extraction Framework
 from core.plugin import GamePlugin
 from core.database import get_pointer_size
 from core.scanner import find_text_pointers
-from core.constants import GBA_ROM_BASE_ADDRESS
+from core.constants import GBA_ROM_BASE_ADDRESS, SYSTEM_GB, SYSTEM_GBC, SYSTEM_GBA
 
 class GenericGBPlugin(GamePlugin):
     """Базовый плагин для игр Game Boy"""
@@ -32,33 +32,49 @@ class GenericGBPlugin(GamePlugin):
         return r'^GAME_[0-9A-F]{2}$'
 
     def get_text_segments(self, rom) -> list:
-        # Для GB используем 16-битные указатели
+        # Для GB/GBC используем 16-битные указатели
+        system = getattr(rom, 'system', SYSTEM_GB)
+        pointer_size = get_pointer_size(system)
 
-        # Адреса в ROM часто имеют вид 0x08xxxxxx, маппим в смещение файла (минус 0x08000000)
         pointers = find_text_pointers(
             rom.data,
-            pointer_size=get_pointer_size('gba'),
-            address_base=GBA_ROM_BASE_ADDRESS
+            pointer_size=pointer_size,
         )
 
         segments = []
         for i, (ptr_addr, text_addr) in enumerate(pointers):
-            # Определяем длину сегмента
             segment_length = self._estimate_segment_length(rom.data, text_addr)
             segments.append({
-                'name': f'gb_segment_{i}',
+                'name': f'{system}_segment_{i}',
                 'start': text_addr,
                 'end': text_addr + segment_length,
                 'decoder': None,
                 'compression': None
             })
 
-        # Если нет указателей, используем стандартные адреса
+        # Fallback: ищем текстовые блоки по паттернам из БД
         if not segments:
+            from core.database import get_segment_patterns
+            patterns = get_segment_patterns(system)
+            for pat in patterns:
+                start_min = pat['start_min']
+                end_max = min(pat['end_max'], len(rom.data))
+                if end_max - start_min >= 0x100:
+                    segments.append({
+                        'name': f'{system}_fallback_{len(segments)}',
+                        'start': start_min,
+                        'end': end_max,
+                        'decoder': None,
+                        'compression': None
+                    })
+
+        # Последний fallback: весь банк 1
+        if not segments:
+            max_addr = min(0x8000, len(rom.data))
             segments.append({
                 'name': 'main_text',
                 'start': 0x4000,
-                'end': 0x7FFF,
+                'end': max_addr,
                 'decoder': None,
                 'compression': None
             })
@@ -102,14 +118,6 @@ class GenericGBAPlugin(GenericGBPlugin):
 
         # Если нет указателей, используем стандартные адреса для GBA
         if not segments:
-            segments.append({
-                'name': 'main_text',
-                'start': 0x083D0000,
-                'end': 0x08400000,
-                'decoder': None,
-                'compression': 'gba_lz77'
-            })
-            # Пробуем разумный фолбэк: конвертируем адресное пространство 0x08xxxxxx в смещения файла
             start_va = 0x083D0000
             end_va = 0x08400000
             start = max(0, start_va - 0x08000000)
@@ -121,6 +129,14 @@ class GenericGBAPlugin(GenericGBPlugin):
                     'name': 'main_text',
                     'start': start,
                     'end': end,
+                    'decoder': None,
+                    'compression': None
+                })
+            else:
+                segments.append({
+                    'name': 'main_text',
+                    'start': 0x4000,
+                    'end': min(0x7FFF, len(rom.data)),
                     'decoder': None,
                     'compression': None
                 })

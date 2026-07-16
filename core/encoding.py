@@ -18,6 +18,58 @@ GB Text Extraction Framework
 from typing import Dict
 
 
+def decode_shiftjis_bytes(data: bytes) -> str:
+    """
+    Декодирует данные в кодировке Shift-JIS.
+    Обрабатывает двухбайтовые последовательности корректно.
+    Возвращает decoded строку.
+    """
+    result = []
+    i = 0
+    while i < len(data):
+        b = data[i]
+        if 0x81 <= b <= 0x9F or 0xE0 <= b <= 0xEF:
+            # Двухбайтовый символ
+            if i + 1 < len(data):
+                second = data[i + 1]
+                if 0x40 <= second <= 0x7E or 0x80 <= second <= 0xFC:
+                    try:
+                        char = bytes([b, second]).decode('shift-jis')
+                        result.append(char)
+                        i += 2
+                        continue
+                    except (UnicodeDecodeError, ValueError):
+                        pass
+            # Неполная/невалидная пара — пропускаем первый байт
+            result.append(f'[{b:02X}]')
+            i += 1
+        elif 0x20 <= b <= 0x7E:
+            result.append(chr(b))
+            i += 1
+        elif b == 0x00 or b == 0xFF:
+            result.append('\n')
+            i += 1
+        else:
+            result.append(f'[{b:02X}]')
+            i += 1
+    return ''.join(result)
+
+
+def encode_shiftjis_text(text: str) -> bytes:
+    """Кодирует строку в Shift-JIS байты."""
+    try:
+        return text.encode('shift-jis')
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        # Fallback: encode each char individually
+        result = bytearray()
+        for char in text:
+            try:
+                result.extend(char.encode('shift-jis'))
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                result.extend(b'?')
+        return bytes(result)
+
+
 def get_generic_english_charmap() -> Dict[int, str]:
     """Базовая английская таблица символов без привязки к конкретным играм"""
     return {
@@ -207,13 +259,14 @@ def get_generic_shiftjis_charmap() -> Dict[int, str]:
         0x8B: '（', 0x8C: '）', 0x8D: '［', 0x8E: '］', 0x8F: '｛',
         0x90: '｝', 
         
-        # Numbers
-        0x82: '0',  # будет перезаписано ниже
+        # Numbers (Shift-JIS: 0x8250-0x8259, single-byte fallback only)
     }
     
-    # Переопределим цифры правильно
+    # Переопределим цифры правильно (Shift-JIS: 0x82 + 0x30-0x39)
+    # Dict[int, str] не может представить двухбайтовые последовательности,
+    # поэтому добавляем только однобайтовые эквиваленты для fallback
     for i, digit in enumerate('0123456789'):
-        charmap[0x82, 0x30 + i] = digit
+        charmap[0x30 + i] = digit
     
     # Обновляем базовую таблицу
     charmap.update(shiftjis_base)
@@ -252,3 +305,25 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
                 charmap[byte] = f'[TERM_{byte:02X}]'
 
     return charmap
+
+
+def validate_charmap(charmap: Dict[int, str]) -> list:
+    """
+    Валидирует таблицу символов и возвращает список проблем.
+    Проверяет: некорректные типы ключей/значений, пустые строки.
+    """
+    import logging
+    logger = logging.getLogger('gb2text.encoding')
+    issues = []
+
+    for byte, char in charmap.items():
+        if not isinstance(byte, int):
+            issues.append(f"Ключ не int: {byte!r} -> {char!r}")
+        if not isinstance(char, str):
+            issues.append(f"Значение не str: 0x{byte:02X} -> {char!r}")
+        elif len(char) == 0:
+            issues.append(f"Пустая строка для 0x{byte:02X}")
+
+    if issues:
+        logger.warning(f"Найдено {len(issues)} проблем в charmap")
+    return issues

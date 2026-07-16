@@ -17,7 +17,7 @@ class TestGUIPublicMethods(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     # ==================== Editor методы ====================
@@ -255,7 +255,7 @@ class TestGUISearchDialogs(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_search_dialog_initial_state(self):
@@ -294,7 +294,7 @@ class TestGUIExportImport(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_export_data_structure(self):
@@ -346,7 +346,7 @@ class TestGUIFileOperations(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_rom_path_storage(self):
@@ -388,7 +388,7 @@ class TestGUIGuideOperations(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_current_guide_storage(self):
@@ -413,7 +413,7 @@ class TestGUIComponentInitialization(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_plugin_manager_integration(self):

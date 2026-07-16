@@ -29,11 +29,10 @@ from core.guide import GuideManager
 class TextExtractor:
     """Основной класс извлечения текста"""
 
-    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None, rom: GameBoyROM = None):
+    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None, rom: GameBoyROM = None, progress_callback=None):
         if not isinstance(rom_path, str):
             raise TypeError("rom_path должен быть строкой, а не типом")
 
-        # Используем переданный ROM или загружаем напрямую
         if rom is not None:
             self.rom = rom
         else:
@@ -46,6 +45,23 @@ class TextExtractor:
         self.guide = self.guide_manager.get_guide(self.rom.get_game_id())
         self.i18n = None
         self.max_segments = max_segments
+        self.progress_callback = progress_callback
+
+    def _t(self, key: str, default: str = '') -> str:
+        """Безопасный вызов перевода"""
+        if self.i18n is not None:
+            try:
+                return self.i18n.t(key)
+            except Exception:
+                return default
+        return default
+
+    def _report_progress(self, message: str, percent: int):
+        """Единая точка отчёта о прогрессе"""
+        if self.progress_callback:
+            self.progress_callback(message, percent)
+        elif hasattr(self.plugin_manager, 'update_status'):
+            self.plugin_manager.update_status(message, percent)
 
     def extract(self) -> Dict[str, List[Dict]]:
         """Извлекает текст из ROM"""
@@ -70,17 +86,15 @@ class TextExtractor:
         logger.info(f"Идентификатор игры: {game_id}")
 
         # Обновляем статус в GUI, если доступен
-        if hasattr(self.plugin_manager, 'update_status'):
-            self.plugin_manager.update_status(self.i18n.t("plugin.searching"), 5)
+        self._report_progress(self._t("plugin.searching"), 5)
 
         # Передаем cancellation_token в plugin_manager
         self.plugin = self.plugin_manager.get_plugin(game_id, system, self.cancellation_token)
 
         if not self.plugin:
             logger.error(f"Не поддерживаемая игра: {game_id}")
-            if hasattr(self.plugin_manager, 'update_status'):
-                self.plugin_manager.update_status(
-                    self.i18n.t("plugin.not.found"),
+            self._report_progress(
+                    self._t("plugin.not.found"),
                     100
                 )
             raise ValueError(f"Не поддерживаемая игра: {game_id}")
@@ -96,11 +110,10 @@ class TextExtractor:
         logger.info(f"Найдено {len(segments)} текстовых сегментов для обработки")
 
         # Обновляем статус
-        if hasattr(self.plugin_manager, 'update_status'):
-            self.plugin_manager.update_status(
-                f"{self.i18n.t('segments.found')} {len(segments)}",
-                15
-            )
+        self._report_progress(
+            f"{self._t('segments.found')} {len(segments)}",
+            15
+        )
 
         # Применяем ограничение только если задано
         if self.max_segments and len(segments) > self.max_segments:
@@ -143,8 +156,11 @@ class TextExtractor:
                         logger.warning(f"Неизвестный тип сжатия: {compression_type}")
                 elif hasattr(compression_type, 'decompress'):
                     logger.info("Распаковка (объект)")
-                    decompressed, _ = compression_type.decompress(data, 0)
-                    data = decompressed
+                    try:
+                        decompressed, _ = compression_type.decompress(data, 0)
+                        data = decompressed
+                    except Exception as e:
+                        logger.warning(f"Ошибка распаковки: {e}")
 
             # Декодирование текста
             if not segment['decoder']:
@@ -176,22 +192,23 @@ class TextExtractor:
             logger.info(f"Извлечено {len(messages)} сообщений из сегмента '{name}'")
 
             # Обновляем прогресс
-            progress = 20 + int(75 * (i + 1) / len(segments_to_process))
-            if hasattr(self.plugin_manager, 'update_status'):
-                self.plugin_manager.update_status(
-                    f"{self.i18n.t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
-                    progress
-                )
+            if len(segments_to_process) > 0:
+                progress = 20 + int(75 * (i + 1) / len(segments_to_process))
+            else:
+                progress = 95
+            self._report_progress(
+                f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
+                progress
+            )
 
         self.current_results = results
         logger.info(f"Извлечение текста завершено. Найдено {len(results)} сегментов.")
 
         # Финальное обновление статуса
-        if hasattr(self.plugin_manager, 'update_status'):
-            self.plugin_manager.update_status(
-                self.i18n.t("text.extracted"),
-                100
-            )
+        self._report_progress(
+            self._t("text.extracted"),
+            100
+        )
 
         return results
 

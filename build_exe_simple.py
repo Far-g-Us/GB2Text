@@ -57,8 +57,6 @@ def create_simple_exe():
         "--clean",
         "--name=GB2Text-Debug",
         "--hidden-import=gui.main_window",
-        "--hidden-import=gui.text_extraction_tab", 
-        "--hidden-import=gui.text_editing_tab",
         "--hidden-import=core.extractor",
         "--hidden-import=core.scanner",
         "--hidden-import=core.analyzer",

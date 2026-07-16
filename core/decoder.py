@@ -58,7 +58,6 @@ class CharMapDecoder:
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         """Декодирует данные в строку"""
-        logger = logging.getLogger('gb2text.decoder')
         self.logger.debug(f"Декодирование данных с 0x{start:X}, длина: {length}")
 
         result = []
@@ -118,7 +117,7 @@ class CharMapDecoder:
         if total_count > 0:
             unknown_percent = (unknown_count / total_count) * 100
             if unknown_percent > 30:
-                logger.warning(f"Высокий процент неизвестных байтов: {unknown_percent:.1f}%")
+                self.logger.warning(f"Высокий процент неизвестных байтов: {unknown_percent:.1f}%")
 
         decoded_text = ''.join(result)
         self.logger.info(f"Успешно декодировано {len(result)} символов")
@@ -126,14 +125,15 @@ class CharMapDecoder:
         return decoded_text
 
     def _find_similar_char(self, byte: int) -> Optional[str]:
-        """Пытается найти похожий символ в таблице"""
-        # Проверяем, есть ли похожие байты в таблице
+        """Пытается найти наиболее похожий символ в таблице по минимальной разнице"""
+        best_char = None
+        best_diff = float('inf')
         for known_byte, char in self.charmap.items():
-            # Если разница небольшая и похоже на закономерность
-            diff = byte - known_byte
-            if -5 <= diff <= 5 and diff != 0:
-                return char
-        return None
+            diff = abs(byte - known_byte)
+            if 0 < diff < best_diff and diff <= 5:
+                best_diff = diff
+                best_char = char
+        return best_char
 
     def encode(self, text: str) -> bytes:
         """Кодирует строку в байты"""
@@ -160,17 +160,59 @@ class CharMapDecoder:
 
         return encoded
 
-class LZ77Handler:
-    """Обработчик LZ77 сжатия"""
+class LZ77Handler(CompressionHandler):
+    """Обработчик LZ77 сжатия (Game Boy / GBA формат)"""
 
     def decompress(self, data: bytes, start: int) -> tuple:
-        """Декомпрессия LZ77"""
-        # Простая реализация (должна быть заменена на реальную)
-        return data[start:], len(data) - start
+        """
+        Декомпрессия LZ77.
+        Формат GBA LZ77: 4 байта заголовка, затем сжатые данные.
+        Заголовок: [flags(1)][uncompressed_size(3 LE)]
+        Каждая группа: 1 байт флагов (8 бит), затем 8 элементов.
+        Бит=1: 1 байт literals, бит=0: 2 байта back-reference (length, offset).
+        """
+        if start >= len(data):
+            return b'', 0
+
+        header = data[start]
+        if (header & 0xF0) != 0x10:
+            return data[start:], len(data) - start
+
+        decompressed_size = data[start + 1] | (data[start + 2] << 8) | (data[start + 3] << 16)
+        result = bytearray()
+        pos = start + 4
+        end = len(data)
+
+        while len(result) < decompressed_size and pos < end:
+            flags = data[pos]
+            pos += 1
+
+            for bit in range(8):
+                if len(result) >= decompressed_size:
+                    break
+                if pos >= end:
+                    break
+
+                if flags & (0x80 >> bit):
+                    result.append(data[pos])
+                    pos += 1
+                else:
+                    if pos + 1 >= end:
+                        break
+                    b1 = data[pos]
+                    b2 = data[pos + 1]
+                    pos += 2
+                    length = ((b1 >> 4) & 0x0F) + 3
+                    displacement = ((b1 & 0x0F) << 8) | b2
+                    for _ in range(length):
+                        if len(result) >= decompressed_size:
+                            break
+                        result.append(result[-displacement - 1])
+
+        return bytes(result), pos - start
 
     def compress(self, data: bytes) -> bytes:
-        """Компрессия LZ77"""
-        # Простая реализация (должна быть заменена на реальную)
+        """Компрессия LZ77 — заглушка, возвращает исходные данные"""
         return data
 
 

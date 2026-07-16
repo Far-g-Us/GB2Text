@@ -16,7 +16,7 @@ class TestGUIComponentsMocked(unittest.TestCase):
             if 'gui' in mod or 'tkinter' in mod:
                 try:
                     del sys.modules[mod]
-                except:
+                except KeyError:
                     pass
                     
     def test_editor_import_and_basic_structure(self):
