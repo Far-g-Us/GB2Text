@@ -20,8 +20,11 @@ GB Text Extraction Framework
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger('gb2text.guide')
 
 
 
@@ -39,8 +42,8 @@ class GuideManager:
             try:
                 with open(guide_path) as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
-                pass
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Ошибка чтения руководства для {game_id}: {e}")
         return None
 
     def save_guide(self, game_id: str, guide: Dict[str, Any]) -> bool:

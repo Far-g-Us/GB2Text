@@ -128,40 +128,61 @@ class SegmentMLClassifier:
         return np.array(features)
     
     def _train_initial_model(self):
-        """Train on synthetic labeled data"""
+        """Train on synthetic labeled data with better diversity"""
         if not SKLEARN_AVAILABLE:
             return
         
         logger.info("Training initial ML model with synthetic data...")
         
-        # Generate synthetic training data
-        # Positive examples (text-like)
+        import random
+        
         text_samples = []
         for _ in range(500):
-            # Generate random text-like bytes
-            text_data = bytes([0x20 + (i % 94) for i in range(16)])  # ASCII printable
-            # Add some variation
-            text_data = bytes(b ^ (i % 256) for i, b in enumerate(text_data))
-            features = self._extract_features(text_data)
+            length = random.randint(8, 64)
+            # Simulate ASCII text: mostly printable, some spaces, some control chars
+            text_data = bytes([
+                random.choices(
+                    population=list(range(0x20, 0x7F)) + [0x00, 0x0A, 0x0D],
+                    weights=[1]*94 + [3, 2, 2],  # higher weight for terminators/newlines
+                    k=length
+                )
+            ] if False else b'')
+            # Build directly
+            buf = bytearray(length)
+            for i in range(length):
+                r = random.random()
+                if r < 0.75:
+                    buf[i] = random.randint(0x20, 0x7E)
+                elif r < 0.85:
+                    buf[i] = 0x20  # space
+                elif r < 0.92:
+                    buf[i] = random.choice([0x00, 0x0A, 0x0D, 0xFF])
+                else:
+                    buf[i] = random.randint(0xA0, 0xFF)  # extended
+            features = self._extract_features(bytes(buf))
             text_samples.append(features)
         
-        # Negative examples (non-text)
         nontext_samples = []
         for _ in range(500):
-            # Random bytes (code-like)
-            import random
-            code_data = bytes([random.randint(0, 255) for _ in range(16)])
-            features = self._extract_features(code_data)
+            length = random.randint(8, 64)
+            # Simulate code: many jumps, low values, high entropy
+            buf = bytearray(length)
+            for i in range(length):
+                r = random.random()
+                if r < 0.3:
+                    buf[i] = random.randint(0x00, 0x1F)  # control codes
+                elif r < 0.6:
+                    buf[i] = random.randint(0xC0, 0xFF)  # high bytes (opcodes)
+                else:
+                    buf[i] = random.randint(0x00, 0xFF)  # random
+            features = self._extract_features(bytes(buf))
             nontext_samples.append(features)
         
-        # Combine
         X = np.array(text_samples + nontext_samples)
         y = np.array([1] * 500 + [0] * 500)
         
-        # Scale features
         X_scaled = self.scaler.fit_transform(X)
         
-        # Train
         self.model.fit(X_scaled, y)
         self.is_trained = True
         
@@ -244,6 +265,43 @@ class SegmentMLClassifier:
             i += block_size
         
         return results
+    
+    def save_model(self, path: str):
+        """Сохраняет модель и скейлер в файл"""
+        if not SKLEARN_AVAILABLE or not self.is_trained:
+            logger.warning("Модель не обучена, сохранение невозможно")
+            return False
+        try:
+            import pickle
+            model_data = {
+                'model': self.model,
+                'scaler': self.scaler,
+                'is_trained': self.is_trained,
+            }
+            with open(path, 'wb') as f:
+                pickle.dump(model_data, f)
+            logger.info(f"Модель сохранена в {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка сохранения модели: {e}")
+            return False
+    
+    def load_model(self, path: str) -> bool:
+        """Загружает модель и скейлер из файла"""
+        if not SKLEARN_AVAILABLE:
+            return False
+        try:
+            import pickle
+            with open(path, 'rb') as f:
+                model_data = pickle.load(f)
+            self.model = model_data['model']
+            self.scaler = model_data['scaler']
+            self.is_trained = model_data.get('is_trained', True)
+            logger.info(f"Модель загружена из {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка загрузки модели: {e}")
+            return False
 
 
 # Global instance

@@ -21,7 +21,8 @@ GB Text Extraction Framework
 
 import logging
 from typing import Tuple, Optional, List, Dict
-from core.decoder import CompressionHandler
+from core.decoder import CompressionHandler, LZ77Handler as BaseLZ77Handler
+from core.gba_support import GBALZ77Handler
 
 
 logger = logging.getLogger('gb2text.compression')
@@ -143,13 +144,16 @@ class AutoDetectCompressionHandler(CompressionHandler):
     # Карта сигнатур для определения типа сжатия
     SIGNATURES = {
         'gba_lz77': [0x10],      # GBA LZ77
+        'lz77': [],               # Nintendo LZ77 без заголовка
         'lzss': [],               # Без четкой сигнатуры
         'rle': [],               # Без четкой сигнатуры
     }
     
     def __init__(self):
+        from core.gba_support import GBALZ77Handler
         self.handlers: Dict[str, CompressionHandler] = {
             'gba_lz77': GBALZ77Handler(),
+            'lz77': BaseLZ77Handler(),
             'lzss': LZSSHandler(),
             'rle': RLEHandler(),
         }
@@ -230,10 +234,6 @@ class AutoDetectCompressionHandler(CompressionHandler):
         return rle_markers >= 2
 
 
-# Импорт GBA обработчика для совместимости
-from core.gba_support import GBALZ77Handler
-
-
 def get_compression_handler(compression_type: str) -> Optional[CompressionHandler]:
     """
     Возвращает обработчик сжатия по типу.
@@ -246,6 +246,7 @@ def get_compression_handler(compression_type: str) -> Optional[CompressionHandle
     """
     handlers = {
         'gba_lz77': GBALZ77Handler(),
+        'lz77': BaseLZ77Handler(),
         'lzss': LZSSHandler(),
         'rle': RLEHandler(),
         'auto': AutoDetectCompressionHandler(),
@@ -257,6 +258,7 @@ def get_compression_handler(compression_type: str) -> Optional[CompressionHandle
 COMPRESSION_TYPES = {
     'NONE': 'none',
     'GBA_LZ77': 'gba_lz77',
+    'LZ77': 'lz77',
     'LZSS': 'lzss',
     'RLE': 'rle',
     'AUTO': 'auto',

@@ -21,8 +21,8 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.rom import GameBoyROM
-from core.scanner import TextScanner
-from core.decoder import TextDecoder
+from core.scanner import find_text_pointers, auto_detect_charmap
+from core.decoder import CharMapDecoder
 
 
 def setup_debug_logging(level=logging.DEBUG):
@@ -64,25 +64,24 @@ def scan_blocks(rom_path, limit=None):
     print(f"{'='*60}\n")
     
     rom = GameBoyROM(rom_path)
-    scanner = TextScanner(rom)
     
     print("Scanning for text blocks...")
-    blocks = scanner.scan_text_blocks()
+    pointers = find_text_pointers(rom.data)
     
     if limit:
-        blocks = blocks[:limit]
+        pointers = pointers[:limit]
     
-    print(f"\nFound {len(blocks)} text blocks:\n")
+    print(f"\nFound {len(pointers)} text pointers:\n")
     
-    for i, block in enumerate(blocks):
-        print(f"[{i:04d}] Address: 0x{block.get('address', 0):06X} | "
-              f"Size: {block.get('size', 0)} | "
-              f"Type: {block.get('type', 'unknown')}")
+    for i, (ptr_addr, text_addr) in enumerate(pointers):
+        print(f"[{i:04d}] Pointer: 0x{ptr_addr:06X} -> Text: 0x{text_addr:06X}")
         
         # Try to decode
-        decoder = TextDecoder()
+        charmap = auto_detect_charmap(rom.data, text_addr)
+        decoder = CharMapDecoder(charmap)
         try:
-            text = decoder.decode_text(block.get('data', b''))
+            data = rom.data[text_addr:text_addr + 256]
+            text = decoder.decode(data, 0, len(data))
             if text:
                 print(f"       Text: {text[:50]}{'...' if len(text) > 50 else ''}")
         except Exception as e:
@@ -98,15 +97,16 @@ def decode_block(rom_path, address):
     print(f"{'='*60}\n")
     
     rom = GameBoyROM(rom_path)
-    decoder = TextDecoder()
+    charmap = auto_detect_charmap(rom.data, address)
+    decoder = CharMapDecoder(charmap)
     
     # Read bytes from address
-    data = rom.read_bytes(address, 256)
+    data = rom.data[address:address + 256]
     
     print(f"Raw bytes: {data[:64].hex()}")
     print()
     
-    text = decoder.decode_text(data)
+    text = decoder.decode(data, 0, len(data))
     print(f"Decoded text: {text}")
 
 
@@ -125,12 +125,9 @@ def trace_mode(rom_path, enable=True):
     logger.debug(f"ROM size: {rom.size}")
     logger.debug(f"ROM type: {rom.type}")
     
-    scanner = TextScanner(rom)
-    logger.debug("Scanner created")
-    
     logger.info("Starting scan...")
-    blocks = scanner.scan_text_blocks()
-    logger.info(f"Scan complete: {len(blocks)} blocks found")
+    pointers = find_text_pointers(rom.data)
+    logger.info(f"Scan complete: {len(pointers)} pointers found")
 
 
 def inspect_rom(rom_path):
@@ -143,17 +140,18 @@ def inspect_rom(rom_path):
     
     # Header details
     print("=== ROM Header ===")
+    raw_header = rom.data[:0x150]
     header_fields = [
-        ('Entry Point', rom.header[:4]),
-        ('Nintendo Logo', rom.header[0x04:0x34]),
-        ('Title', rom.header[0x34:0x4C]),
-        ('Manufacturer Code', rom.header[0x4C:0x50] if len(rom.header) > 0x4C else None),
-        ('CGB Flag', rom.header[0x43:0x44] if len(rom.header) > 0x43 else None),
-        ('MBC Type', rom.header[0x46:0x47] if len(rom.header) > 0x46 else None),
-        ('ROM Size', rom.header[0x48:0x49] if len(rom.header) > 0x48 else None),
-        ('RAM Size', rom.header[0x49:0x4A] if len(rom.header) > 0x49 else None),
-        ('Destination Code', rom.header[0x4A:0x4B] if len(rom.header) > 0x4A else None),
-        ('ROM Version', rom.header[0x4C:0x4D] if len(rom.header) > 0x4C else None),
+        ('Entry Point', raw_header[:4]),
+        ('Nintendo Logo', raw_header[0x04:0x34]),
+        ('Title', raw_header[0x34:0x4C]),
+        ('Manufacturer Code', raw_header[0x4C:0x50] if len(raw_header) > 0x4C else None),
+        ('CGB Flag', raw_header[0x43:0x44] if len(raw_header) > 0x43 else None),
+        ('MBC Type', raw_header[0x46:0x47] if len(raw_header) > 0x46 else None),
+        ('ROM Size', raw_header[0x48:0x49] if len(raw_header) > 0x48 else None),
+        ('RAM Size', raw_header[0x49:0x4A] if len(raw_header) > 0x49 else None),
+        ('Destination Code', raw_header[0x4A:0x4B] if len(raw_header) > 0x4A else None),
+        ('ROM Version', raw_header[0x4C:0x4D] if len(raw_header) > 0x4C else None),
     ]
     
     for name, value in header_fields:
@@ -169,8 +167,8 @@ def inspect_rom(rom_path):
     print("\n=== MBC Information ===")
     if rom.mbc:
         print(f"  Type: {rom.mbc}")
-        print(f"  RAM: {'Yes' if rom.has_ram else 'No'}")
-        print(f"  Battery: {'Yes' if rom.has_battery else 'No'}")
+        print(f"  RAM: {'Yes' if rom.ram_size else 'No'}")
+        print(f"  Battery: {'Yes' if rom.mbc.has_battery else 'No'}")
     else:
         print("  Type: ROM Only (no MBC)")
     

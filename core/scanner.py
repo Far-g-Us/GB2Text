@@ -357,7 +357,6 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
 
             # Проверяем, часто ли этот байт встречается перед другими символами
             if rom_data is not None:
-                data_slice = rom_data[:min(100, len(rom_data) - 1)]
                 # Эффективная проверка с использованием any()
                 is_terminator = any(
                     rom_data[i] == byte and rom_data[i + 1] != byte

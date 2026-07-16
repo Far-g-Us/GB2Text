@@ -56,6 +56,8 @@ class GBTextExtractorGUI:
         if rom_path is not None and not isinstance(rom_path, str):
             raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
 
+        self.root = root
+
         # Загружаем сохраненные настройки
         self.load_saved_settings()
 
@@ -63,7 +65,6 @@ class GBTextExtractorGUI:
         self.machine_translation = MachineTranslation()
         self.tmx_handler = TMXHandler()
         self._apply_mt_settings()
-        self.root = root
         self.root.title(self.i18n.t("app.title"))
         self.root.geometry(f"{DEFAULT_WINDOW_WIDTH}x{DEFAULT_WINDOW_HEIGHT}")
         self._set_app_icon()
@@ -98,15 +99,6 @@ class GBTextExtractorGUI:
         self._setup_context_menu()
         self._setup_search()
         self._setup_drag_drop()
-
-        self.charset_var = tk.StringVar(value="auto")
-
-        ttk.Label(self.root, text="Charset:").pack()
-        ttk.Combobox(
-            self.root,
-            textvariable=self.charset_var,
-            values=["auto", "en", "ru", "ja"]
-        ).pack()
 
         # Если указан ROM при запуске, сразу загружаем
         if rom_path:
@@ -618,12 +610,14 @@ class GBTextExtractorGUI:
 
             # Пробуем декодировать
             try:
-                from core.decoder import TextDecoder
-                decoder = TextDecoder(seg.get('encoding', 'ascii'))
-                text = decoder.decode(data)
+                from core.decoder import CharMapDecoder
+                from core.scanner import auto_detect_charmap
+                charmap = auto_detect_charmap(rom.data, start)
+                decoder = CharMapDecoder(charmap)
+                text = decoder.decode(data, 0, len(data))
                 texts[seg.get('name', f'Segment_{start}')] = text
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Не удалось декодировать сегмент {seg.get('name', 'unknown')}: {e}")
         return texts
 
     def _find_text_differences(self, texts1, texts2):
@@ -946,12 +940,14 @@ class GBTextExtractorGUI:
                     charmap = get_generic_english_charmap()
                 elif encoding_type == "ja":
                     charmap = get_generic_japanese_charmap()
+                elif encoding_type == "ru":
+                    charmap = get_generic_russian_charmap()
                 elif encoding_type == "zh":
                     charmap = get_generic_chinese_charmap()
                 elif encoding_type == "shiftjis":
                     charmap = get_generic_shiftjis_charmap()
                 else:
-                    charmap = get_generic_russian_charmap()
+                    charmap = get_generic_english_charmap()
         else:
             charmap = get_generic_english_charmap()
 
@@ -1620,7 +1616,7 @@ class GBTextExtractorGUI:
                 self.bing_key = tk.StringVar(value=settings.get("bing_key", ""))
                 self.bing_region = tk.StringVar(value=settings.get("bing_region", "global"))
             except Exception as e:
-                print(f"Ошибка загрузки настроек: {str(e)}")
+                logger.error(f"Ошибка загрузки настроек: {str(e)}")
                 self._init_default_settings()
         else:
             self._init_default_settings()
@@ -1638,7 +1634,7 @@ class GBTextExtractorGUI:
 
     def on_segment_combo_select(self, event):
         """Обработка выбора сегмента в комбобоксе"""
-        pass
+        self.load_segment()
 
     def load_segment(self):
         """Загрузка выбранного сегмента для редактирования"""
@@ -1753,7 +1749,10 @@ class GBTextExtractorGUI:
         else:
             # Переход к последней записи предыдущего сегмента
             segment_names = list(self.current_results.keys())
-            current_index = segment_names.index(self.current_segment)
+            try:
+                current_index = segment_names.index(self.current_segment)
+            except (ValueError, AttributeError):
+                return
 
             if current_index > 0:
                 prev_segment = segment_names[current_index - 1]
@@ -1771,7 +1770,10 @@ class GBTextExtractorGUI:
         else:
             # Переход к первой записи следующего сегмента
             segment_names = list(self.current_results.keys())
-            current_index = segment_names.index(self.current_segment)
+            try:
+                current_index = segment_names.index(self.current_segment)
+            except (ValueError, AttributeError):
+                return
 
             if current_index < len(segment_names) - 1:
                 next_segment = segment_names[current_index + 1]
@@ -1789,7 +1791,10 @@ class GBTextExtractorGUI:
     def prev_segment(self, event=None):
         """Переход к предыдущему сегменту"""
         segment_names = list(self.current_results.keys())
-        current_index = segment_names.index(self.current_segment)
+        try:
+            current_index = segment_names.index(self.current_segment)
+        except (ValueError, AttributeError):
+            return
 
         if current_index > 0:
             prev_segment = segment_names[current_index - 1]
@@ -1802,7 +1807,10 @@ class GBTextExtractorGUI:
     def next_segment(self, event=None):
         """Переход к следующему сегменту"""
         segment_names = list(self.current_results.keys())
-        current_index = segment_names.index(self.current_segment)
+        try:
+            current_index = segment_names.index(self.current_segment)
+        except (ValueError, AttributeError):
+            return
 
         if current_index < len(segment_names) - 1:
             next_segment = segment_names[current_index + 1]
@@ -2473,7 +2481,8 @@ class GBTextExtractorGUI:
     def load_current_log(self):
         """Загружает текущий лог-файл в текстовую область"""
         try:
-            with open('gb2text.log', 'r') as f:
+            log_path = self._get_resource_path('gb2text.log')
+            with open(log_path, 'r') as f:
                 log_content = f.read()
 
             self.log_text.config(state="normal")
@@ -2613,7 +2622,8 @@ class GBTextExtractorGUI:
 
         if save_path:
             try:
-                with open('gb2text.log', 'r') as src, open(save_path, 'w') as dst:
+                log_path = self._get_resource_path('gb2text.log')
+                with open(log_path, 'r') as src, open(save_path, 'w') as dst:
                     dst.write(src.read())
                 messagebox.showinfo(
                     self.i18n.t("success.title"),
@@ -2780,14 +2790,14 @@ class GBTextExtractorGUI:
                 widget.configure(background=input_bg, foreground=fg, selectbackground="#555555")
             elif widget_class == 'TButton':
                 widget.configure(style='Dark.TButton')
-        except:
+        except (tk.TclError, AttributeError, KeyError):
             pass
         
         # Рекурсивно обрабатываем дочерние виджеты
         try:
             for child in widget.winfo_children():
                 self._apply_dark_theme(child, bg, fg, input_bg)
-        except:
+        except (tk.TclError, RuntimeError):
             pass
 
     def _apply_light_theme(self, widget):
@@ -2803,13 +2813,13 @@ class GBTextExtractorGUI:
                 widget.configure(background='white', foreground='black', insertbackground='black')
             elif widget_class == 'Listbox':
                 widget.configure(background='white', foreground='black', selectbackground='#3399ff')
-        except:
+        except (tk.TclError, AttributeError, KeyError):
             pass
         
         try:
             for child in widget.winfo_children():
                 self._apply_light_theme(child)
-        except:
+        except (tk.TclError, RuntimeError):
             pass
 
     def rate_current_guide(self, rating: int):
@@ -2868,22 +2878,10 @@ class GBTextExtractorGUI:
         """Возвращает версию приложения"""
         try:
             version_path = self._get_resource_path('VERSION')
-            print(f"[DEBUG] Ищем VERSION файл по пути: {version_path}")
-            print(f"[DEBUG] Файл существует: {os.path.exists(version_path)}")
-            if hasattr(sys, '_MEIPASS'):
-                print(f"[DEBUG] Запуск из exe, _MEIPASS: {sys._MEIPASS}")
-                print(
-                    f"[DEBUG] Содержимое _MEIPASS: {os.listdir(sys._MEIPASS) if os.path.exists(sys._MEIPASS) else 'не существует'}")
-            else:
-                print(f"[DEBUG] Обычный запуск, текущая директория: {os.path.abspath('.')}")
-                print(f"[DEBUG] Содержимое текущей директории: {os.listdir('.')}")
-
             with open(version_path, 'r') as f:
                 version = f.read().strip()
-                print(f"[DEBUG] Загружена версия: {version}")
                 return version
-        except Exception as e:
-            print(f"[DEBUG] Ошибка загрузки VERSION: {e}")
+        except (OSError, IOError):
             return "1.0.0"
 
     def open_url(self, url):
@@ -2924,7 +2922,7 @@ class GBTextExtractorGUI:
                 self._create_default_icon()
 
         except Exception as e:
-            print(f"Ошибка при установке иконки: {str(e)}")
+            logger.error(f"Ошибка при установке иконки: {str(e)}")
             self._create_default_icon()
 
     def _create_default_icon(self):
@@ -2948,7 +2946,7 @@ class GBTextExtractorGUI:
             # Устанавливаем иконку
             self.root.iconphoto(True, icon)
         except Exception as e:
-            print(f"Не удалось создать стандартную иконку: {str(e)}")
+            logger.error(f"Не удалось создать стандартную иконку: {str(e)}")
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""

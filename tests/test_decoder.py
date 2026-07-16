@@ -43,8 +43,9 @@ class TestDecoder:
         # Неизвестные символы могут быть заменены на похожие через _find_similar_char
         data = b'AB\x00C'
         result = decoder.decode(data, 0, len(data))
-        # Терминатор (0x00) отображается в пустую строку, 'C' может стать 'A' как похожий
-        assert result in ['AB', 'ABA']  #取决于 реализации _find_similar_char
+        # Терминатор (0x00) отображается в пустую строку, 'C'(0x43) заменяется на ближайший символ
+        # Ближайший к 0x43 это 0x42='B'(разница 1), а не 0x41='A'(разница 2)
+        assert result in ['AB', 'ABA', 'ABB']  #取决于 реализации _find_similar_char
 
     def test_encode(self):
         """Тест кодирования"""

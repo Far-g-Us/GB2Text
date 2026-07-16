@@ -229,8 +229,10 @@ class TestEncodingDetector(unittest.TestCase):
         self.assertEqual(len(self.detector.known_encodings["English ASCII"]), 1)
         
     def test_detect_encoding_unknown(self):
-        """Тест определения неизвестной кодировки"""
-        unknown_data = b"Some unknown data"
+        """Тест определения кодировки для неизвестных данных"""
+        # Данные с низким содержанием ASCII и отсутствием высоких байтов
+        # должны определяться как 'unknown'
+        unknown_data = bytes([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
         encoding, confidence = self.detector.detect_encoding(unknown_data)
         
         self.assertEqual(encoding, 'unknown')

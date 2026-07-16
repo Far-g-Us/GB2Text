@@ -108,9 +108,66 @@ class GBALZ77Handler(CompressionHandler):
     def compress(self, data: bytes) -> bytes:
         """
         Компрессия LZ77 (тип 0x10).
-        Не реализована: сложнее, чем распаковка, и зависит от требований к эффективности.
+        Простой lazy-match алгоритм: ищет совпадения в предыдущих 4096 байтах.
         """
-        raise NotImplementedError("LZ77 (0x10) compression is not implemented")
+        import logging
+        logger = logging.getLogger('gb2text.gba_lz77')
+
+        if not data:
+            return b'\x10\x00\x00\x00'
+
+        out = bytearray()
+        i = 0
+
+        # Вычисляем длину распакованных данных (24-bit LE)
+        decomp_len = len(data)
+        out.extend([
+            0x10,
+            decomp_len & 0xFF,
+            (decomp_len >> 8) & 0xFF,
+            (decomp_len >> 16) & 0xFF,
+        ])
+
+        while i < len(data):
+            flags_pos = len(out)
+            out.append(0)  # placeholder для флагового байта
+            flags = 0
+
+            for bit in range(8):
+                if i >= len(data):
+                    break
+
+                # Ищем совпадение в предыдущих 4096 байтах
+                best_length = 0
+                best_offset = 0
+                window_start = max(0, i - 4096)
+
+                for j in range(window_start, i):
+                    length = 0
+                    while (i + length < len(data)
+                           and length < 18
+                           and data[j + length] == data[i + length]):
+                        length += 1
+                    if length >= 3 and length > best_length:
+                        best_length = length
+                        best_offset = i - j - 1
+
+                if best_length >= 3:
+                    # Ссылка: bit=1
+                    flags |= (1 << (7 - bit))
+                    length_byte = ((best_length - 3) << 4) | ((best_offset >> 8) & 0x0F)
+                    offset_byte = best_offset & 0xFF
+                    out.append(length_byte)
+                    out.append(offset_byte)
+                    i += best_length
+                else:
+                    # Литерал: bit=0
+                    out.append(data[i])
+                    i += 1
+
+            out[flags_pos] = flags
+
+        return bytes(out)
 
 # def analyze_gba_text_regions(rom: GameBoyROM) -> list:
 #     """Анализ GBA ROM для поиска текстовых регионов"""

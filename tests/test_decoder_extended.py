@@ -300,7 +300,8 @@ class TestDetectEncoding(unittest.TestCase):
     def test_detect_encoding_without_detector(self):
         """Тест определения кодировки без детектора"""
         decoder = MultiCharMapDecoder()
-        data = b"Test data"
+        # Данные с низким содержанием ASCII
+        data = bytes([0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
         
         encoding, confidence = decoder.detect_encoding(data)
         

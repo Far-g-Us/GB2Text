@@ -85,7 +85,7 @@ class GameBoyROM:
         self.data = self._load_rom(rom_path)
         self.header = self._parse_header()
         self.system = self._detect_system()
-        self.mbc = create_mbc(self.data, self.header['cartridge_type'])
+        self.mbc = create_mbc(self.data, self.header['cartridge_type'], self.header['ram_size'])
         logger.info(f"ROM загружен успешно. Размер: {len(self.data)} байт")
         logger.info(f"Определена система: {self.system}")
         logger.debug(f"Заголовок ROM: {self.header}")
@@ -185,10 +185,52 @@ class GameBoyROM:
         cartridge_type = self.header['cartridge_type']
         return f"GAME_{cartridge_type:02X}"
 
+    @property
+    def size(self) -> int:
+        return len(self.data)
+
+    @property
+    def type(self) -> str:
+        return self.system
+
+    @property
+    def title(self) -> str:
+        return self.header.get('title', '')
+
+    @property
+    def cgb_flag(self) -> int:
+        return self.header.get('cgb_flag', 0)
+
+    @property
+    def rom_size(self) -> int:
+        return self.header.get('rom_size', 0)
+
+    @property
+    def ram_size(self) -> int:
+        return self.header.get('ram_size', 0)
+
+    @property
+    def region(self) -> int:
+        return self.header.get('destination_code', 0)
+
+    def validate_header(self) -> bool:
+        """Проверяет checksum заголовка ROM"""
+        checksum = 0
+        for addr in range(0x0134, 0x014D):
+            checksum = (checksum - self.data[addr] - 1) & 0xFF
+        return checksum == self.header['header_checksum']
+
+    def calculate_checksum(self) -> int:
+        """Вычисляет глобальный checksum ROM"""
+        checksum = 0
+        for i in range(0x0134, 0x014E):
+            checksum = (checksum + self.data[i]) & 0xFFFF
+        return checksum
+
     def read(self, address: int) -> int:
         """Чтение из ROM с учетом MBC"""
         if 0x0000 <= address < 0x8000:
             return self.mbc.read_rom(address)
         elif 0xA000 <= address < 0xC000:
-            return self.mbc.read_ram(address - 0xA000)
+            return self.mbc.read_ram(address)
         return 0xFF

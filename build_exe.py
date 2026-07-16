@@ -113,7 +113,7 @@ finally:
     print("\\n🔍 Для закрытия нажмите Enter...")
     try:
         input()
-    except:
+    except (EOFError, KeyboardInterrupt):
         import time
         time.sleep(10)  # Ждем 10 секунд если input не работает
 '''

@@ -108,7 +108,7 @@ class TextEditorFrame(ttk.Frame):
         
         # Копируем файл
         shutil.copy2(self.rom_path, self.backup_path)
-        print(f"Бэкап создан: {self.backup_path}")
+        logger.info(f"Бэкап создан: {self.backup_path}")
     
     def _on_text_change(self, event=None):
         """Обработка изменения текста для истории"""
