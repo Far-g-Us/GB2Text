@@ -1,0 +1,76 @@
+{
+  "description": "Hand-labeled etalon blocks for ML classifier regression testing",
+  "version": "1.0",
+  "blocks": [
+    {
+      "name": "ascii_dialogue",
+      "data_hex": "48656C6C6F2C20776F726C642100",
+      "label": "text",
+      "expected_confidence": "high",
+      "description": "ASCII dialogue with null terminator"
+    },
+    {
+      "name": "japanese_text",
+      "data_hex": "304230BF30B930C800",
+      "label": "text",
+      "expected_confidence": "high",
+      "description": "Japanese text (hiragana/katakana) with null terminator"
+    },
+    {
+      "name": "cyrillic_text",
+      "data_hex": "C0C1C2C3C4C500",
+      "label": "text",
+      "expected_confidence": "high",
+      "description": "Cyrillic text with null terminator"
+    },
+    {
+      "name": "arm_code",
+      "data_hex": "000000EA010000000200000003000000",
+      "label": "non-text",
+      "expected_confidence": "high",
+      "description": "ARM branch instructions (GBA code)"
+    },
+    {
+      "name": "gb_opcodes",
+      "data_hex": "C30040CD1B000100FE00C90000000000",
+      "label": "non-text",
+      "expected_confidence": "high",
+      "description": "Game Boy Z80 opcodes"
+    },
+    {
+      "name": "graphics_data",
+      "data_hex": "FF00FF00FF00FF00FF00FF00FF00FF00",
+      "label": "non-text",
+      "expected_confidence": "high",
+      "description": "Alternating pattern (tile graphics)"
+    },
+    {
+      "name": "mixed_text_code",
+      "data_hex": "48454C0000C300404C444F00CD1B00",
+      "label": "needs_review",
+      "expected_confidence": "low",
+      "description": "Mixed text and code bytes — ambiguous"
+    },
+    {
+      "name": "sparse_text",
+      "data_hex": "41000000420000004300000044000000",
+      "label": "needs_review",
+      "expected_confidence": "low",
+      "description": "Text bytes with many nulls between — unclear if text"
+    },
+    {
+      "name": "empty_block",
+      "data_hex": "00000000000000000000000000000000",
+      "label": "non-text",
+      "expected_confidence": "high",
+      "description": "All null bytes"
+    },
+    {
+      "name": "terminators_only",
+      "data_hex": "00FFFE0D0A00FFFE0D0A00FFFE0D0A00",
+      "label": "non-text",
+      "expected_confidence": "high",
+      "description": "Only terminator bytes — no actual text content"
+    }
+  ]
+}

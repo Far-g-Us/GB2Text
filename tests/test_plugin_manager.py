@@ -1,53 +1,53 @@
 """Тесты для модуля plugin_manager"""
+import json
 import os
 import sys
 import tempfile
-import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.plugin_manager import PluginManager, CancellationToken, get_safe_plugin_manager, ConfigurablePlugin
+from core.plugin_manager import CancellationToken, ConfigurablePlugin, PluginManager, get_safe_plugin_manager
 from core.rom import GameBoyROM
 
 
 class TestPluginManager:
     """Тесты для класса PluginManager"""
-    
+
     def test_plugin_manager_init(self):
         """Тест инициализации PluginManager"""
         pm = PluginManager("plugins")
         assert pm is not None
         assert hasattr(pm, 'plugins')
-    
+
     def test_plugin_manager_nonexistent_dir(self):
         """Тест с несуществующей директорией плагинов"""
         pm = PluginManager("nonexistent_plugins_dir")
         assert pm is not None
-    
+
     def test_get_plugin_gba(self):
         """Тест получения плагина для GBA"""
         pm = PluginManager("plugins")
         plugin = pm.get_plugin("TEST GAME", "gba")
         assert plugin is not None
-    
+
     def test_get_plugin_gb(self):
         """Тест получения плагина для GB"""
         pm = PluginManager("plugins")
         plugin = pm.get_plugin("TEST GAME", "gb")
         assert plugin is not None
-    
+
     def test_get_plugin_gbc(self):
         """Тест получения плагина для GBC"""
         pm = PluginManager("plugins")
         plugin = pm.get_plugin("TEST GAME", "gbc")
         assert plugin is not None
-    
+
     def test_get_plugin_unknown(self):
         """Тест с неизвестной игрой"""
         pm = PluginManager("plugins")
         plugin = pm.get_plugin("UNKNOWN GAME XYZ123", "gba")
         assert plugin is not None
-    
+
     def test_get_plugin_with_rom(self):
         """Тест получения плагина с ROM объектом"""
         pm = PluginManager("plugins")
@@ -56,37 +56,37 @@ class TestPluginManager:
         rom.header = {}
         plugin = pm.get_plugin("TEST", "gba")
         assert plugin is not None
-    
+
     def test_get_text_segments_gba(self):
         """Тест получения текстовых сегментов"""
         pm = PluginManager("plugins")
         plugin = pm.get_plugin("POKEMON RUBY", "gba")
         assert plugin is not None
         assert hasattr(plugin, 'get_text_segments')
-    
+
     def test_cancellation_token_init(self):
         """Тест инициализации токена отмены"""
         token = CancellationToken()
         assert token is not None
-        assert token.is_cancellation_requested() == False
-    
+        assert not token.is_cancellation_requested()
+
     def test_cancellation_token_request(self):
         """Тест запроса отмены"""
         token = CancellationToken()
         token.cancel()
-        assert token.is_cancellation_requested() == True
-    
+        assert token.is_cancellation_requested()
+
     def test_cancellation_token_reset(self):
         """Тест сброса токена отмены"""
         token = CancellationToken()
         token.cancel()
-        assert token.is_cancellation_requested() == True
-    
+        assert token.is_cancellation_requested()
+
     def test_load_plugins_from_directory(self):
         """Тест загрузки плагинов из директории"""
         pm = PluginManager("plugins")
         assert pm is not None
-    
+
     def test_get_plugin_none_system(self):
         """Тест с None системой"""
         pm = PluginManager("plugins")
@@ -346,7 +346,7 @@ class TestPluginManager:
             "segments": []
         }
         # Теперь возвращает True, но с предупреждением
-        assert pm._is_config_safe(config) == True
+        assert pm._is_config_safe(config)
 
     def test_is_config_safe_user_created(self):
         """Тест что user_created конфиг безопасен"""
@@ -483,7 +483,7 @@ class TestPluginManager:
             "segments": []
         }
         # Теперь возвращает True, но с предупреждением
-        assert pm._is_config_safe(config) == True
+        assert pm._is_config_safe(config)
 
     def test_is_config_safe_with_nintendo(self):
         """Тест что NINTENDO в конфиге вызывает предупреждение"""
@@ -492,7 +492,7 @@ class TestPluginManager:
             "game_id_pattern": "NINTENDO GAME",
             "segments": []
         }
-        assert pm._is_config_safe(config) == True
+        assert pm._is_config_safe(config)
 
     def test_is_config_safe_with_gameboy(self):
         """Тест что GAMEBOY в конфиге вызывает предупреждение"""
@@ -501,7 +501,7 @@ class TestPluginManager:
             "game_id_pattern": "GAMEBOY ADVANCE",
             "segments": []
         }
-        assert pm._is_config_safe(config) == True
+        assert pm._is_config_safe(config)
 
     def test_is_config_safe_with_charmap_50(self):
         """Тест с charmap ровно 50 символов"""
@@ -713,7 +713,7 @@ class TestPluginManager:
         """Тест создания директории конфигов"""
         import tempfile
         with tempfile.TemporaryDirectory() as tmpdir:
-            config_dir = os.path.join(tmpdir, "config")
+            os.path.join(tmpdir, "config")
             pm = PluginManager(os.path.join(tmpdir, "plugins"))
             pm._load_config_plugins()
 

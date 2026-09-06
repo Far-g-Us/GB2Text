@@ -3,7 +3,7 @@ Debugging tools for GB2Text.
 
 Usage:
     python scripts/debug.py --rom <rom_path> --action <action>
-    
+
 Actions:
     dump-header   - Dump ROM header info
     scan-blocks   - Scan and list text blocks
@@ -14,15 +14,15 @@ Actions:
 
 import argparse
 import logging
-import sys
 import os
+import sys
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.rom import GameBoyROM
-from core.scanner import find_text_pointers, auto_detect_charmap
 from core.decoder import CharMapDecoder
+from core.rom import GameBoyROM
+from core.scanner import auto_detect_charmap, find_text_pointers
 
 
 def setup_debug_logging(level=logging.DEBUG):
@@ -40,9 +40,9 @@ def dump_header(rom_path):
     print(f"\n{'='*60}")
     print(f"ROM Header Dump: {rom_path}")
     print(f"{'='*60}\n")
-    
+
     rom = GameBoyROM(rom_path)
-    
+
     print(f"File: {os.path.basename(rom_path)}")
     print(f"Size: {rom.size} bytes ({rom.size / 1024:.1f} KB)")
     print(f"Header: {rom.header}")
@@ -52,7 +52,7 @@ def dump_header(rom_path):
     print(f"Region: {rom.region}")
     print(f"Game Title: {rom.title}")
     print(f"CGB Flag: {rom.cgb_flag}")
-    
+
     print(f"\nNintendo Logo Valid: {rom.validate_header()}")
     print(f"\nChecksum Valid: {hex(rom.calculate_checksum())}")
 
@@ -62,20 +62,20 @@ def scan_blocks(rom_path, limit=None):
     print(f"\n{'='*60}")
     print(f"Text Block Scanner: {rom_path}")
     print(f"{'='*60}\n")
-    
+
     rom = GameBoyROM(rom_path)
-    
+
     print("Scanning for text blocks...")
     pointers = find_text_pointers(rom.data)
-    
+
     if limit:
         pointers = pointers[:limit]
-    
+
     print(f"\nFound {len(pointers)} text pointers:\n")
-    
+
     for i, (ptr_addr, text_addr) in enumerate(pointers):
         print(f"[{i:04d}] Pointer: 0x{ptr_addr:06X} -> Text: 0x{text_addr:06X}")
-        
+
         # Try to decode
         charmap = auto_detect_charmap(rom.data, text_addr)
         decoder = CharMapDecoder(charmap)
@@ -95,17 +95,17 @@ def decode_block(rom_path, address):
     print(f"Block Decoder: {rom_path}")
     print(f"Address: 0x{address:X}")
     print(f"{'='*60}\n")
-    
+
     rom = GameBoyROM(rom_path)
     charmap = auto_detect_charmap(rom.data, address)
     decoder = CharMapDecoder(charmap)
-    
+
     # Read bytes from address
     data = rom.data[address:address + 256]
-    
+
     print(f"Raw bytes: {data[:64].hex()}")
     print()
-    
+
     text = decoder.decode(data, 0, len(data))
     print(f"Decoded text: {text}")
 
@@ -113,18 +113,18 @@ def decode_block(rom_path, address):
 def trace_mode(rom_path, enable=True):
     """Enable debug tracing mode."""
     logger = setup_debug_logging(logging.DEBUG if enable else logging.INFO)
-    
+
     print(f"\n{'='*60}")
     print(f"Trace Mode: {'ENABLED' if enable else 'DISABLED'}")
     print(f"ROM: {rom_path}")
     print(f"{'='*60}\n")
-    
+
     rom = GameBoyROM(rom_path)
-    
+
     logger.debug("ROM object created")
     logger.debug(f"ROM size: {rom.size}")
     logger.debug(f"ROM type: {rom.type}")
-    
+
     logger.info("Starting scan...")
     pointers = find_text_pointers(rom.data)
     logger.info(f"Scan complete: {len(pointers)} pointers found")
@@ -135,9 +135,9 @@ def inspect_rom(rom_path):
     print(f"\n{'='*60}")
     print(f"ROM Structure Inspector: {rom_path}")
     print(f"{'='*60}\n")
-    
+
     rom = GameBoyROM(rom_path)
-    
+
     # Header details
     print("=== ROM Header ===")
     raw_header = rom.data[:0x150]
@@ -153,16 +153,16 @@ def inspect_rom(rom_path):
         ('Destination Code', raw_header[0x4A:0x4B] if len(raw_header) > 0x4A else None),
         ('ROM Version', raw_header[0x4C:0x4D] if len(raw_header) > 0x4C else None),
     ]
-    
+
     for name, value in header_fields:
         if value:
             value_repr = value.hex() if isinstance(value, bytes) else str(value)
             print(f"  {name}: {value_repr}")
-    
+
     print("\n=== ROM Structure ===")
     banks = rom.size // 0x4000
     print(f"Total Banks: {banks}")
-    
+
     # MBC info
     print("\n=== MBC Information ===")
     if rom.mbc:
@@ -171,7 +171,7 @@ def inspect_rom(rom_path):
         print(f"  Battery: {'Yes' if rom.mbc.has_battery else 'No'}")
     else:
         print("  Type: ROM Only (no MBC)")
-    
+
     print("\n=== Memory Map ===")
     print("  0x0000-0x3FFF: Bank 0 (fixed)")
     print("  0x4000-0x7FFF: Bank N (switchable)")
@@ -191,9 +191,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
-    
+
     parser.add_argument('--rom', '-r', required=True, help='ROM file path')
-    parser.add_argument('--action', '-a', 
+    parser.add_argument('--action', '-a',
                         choices=['dump-header', 'scan-blocks', 'decode-block', 'trace', 'inspect'],
                         default='dump-header',
                         help='Debug action to perform')
@@ -203,16 +203,16 @@ def main():
                         help='Limit number of results')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Enable verbose output')
-    
+
     args = parser.parse_args()
-    
+
     if not os.path.exists(args.rom):
         print(f"Error: ROM file not found: {args.rom}")
         sys.exit(1)
-    
+
     if args.verbose:
         setup_debug_logging()
-    
+
     try:
         if args.action == 'dump-header':
             dump_header(args.rom)

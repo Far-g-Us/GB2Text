@@ -22,7 +22,7 @@ GB Text Extraction Framework
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any
 
 logger = logging.getLogger('gb2text.guide')
 
@@ -35,28 +35,28 @@ class GuideManager:
         self.guides_dir = Path(guides_dir)
         self.guides_dir.mkdir(parents=True, exist_ok=True)
 
-    def get_guide(self, game_id: str) -> Optional[Dict[str, Any]]:
+    def get_guide(self, game_id: str) -> dict[str, Any] | None:
         """Получает руководство для конкретной игры"""
         guide_path = self.guides_dir / f"{game_id}.json"
         if guide_path.exists():
             try:
                 with open(guide_path) as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError) as e:
+            except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"Ошибка чтения руководства для {game_id}: {e}")
         return None
 
-    def save_guide(self, game_id: str, guide: Dict[str, Any]) -> bool:
+    def save_guide(self, game_id: str, guide: dict[str, Any]) -> bool:
         """Сохраняет руководство для игры"""
         try:
             guide_path = self.guides_dir / f"{game_id}.json"
             with open(guide_path, 'w', encoding='utf-8') as f:
                 json.dump(guide, f, indent=2, ensure_ascii=False)
             return True
-        except (IOError, TypeError):
+        except (OSError, TypeError):
             return False
 
-    def create_template(self, game_id: str) -> Dict[str, Any]:
+    def create_template(self, game_id: str) -> dict[str, Any]:
         """Создает шаблон руководства для игры"""
         return {
             "game_id": game_id,
@@ -91,13 +91,13 @@ class GuideManager:
             f.write(str(rating))
         return True
 
-    def get_guide_rating(self, game_id: str) -> Optional[int]:
+    def get_guide_rating(self, game_id: str) -> int | None:
         """Получает оценку руководства"""
         rating_file = self.guides_dir / f"{game_id}.rating"
         if rating_file.exists():
             try:
-                with open(rating_file, 'r') as f:
+                with open(rating_file) as f:
                     return int(f.read().strip())
-            except (ValueError, IOError):
+            except (OSError, ValueError):
                 pass
         return None

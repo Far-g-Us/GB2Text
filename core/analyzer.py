@@ -15,10 +15,10 @@ GB Text Extraction Framework
 обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
 """
 
-from core.rom import GameBoyROM
 import logging
-from typing import List, Dict, Tuple
+
 from core.constants import MIN_READABILITY_MEDIUM, QUALITY_GOOD
+from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.analyzer')
 
@@ -27,7 +27,7 @@ class TextAnalyzer:
     """Анализ извлеченного текста для улучшения обработки"""
 
     @staticmethod
-    def detect_terminators(text_data: bytes, start: int = 0, length: int = 1000) -> List[int]:
+    def detect_terminators(text_data: bytes, start: int = 0, length: int = 1000) -> list[int]:
         """
         Определение терминаторов текста в бинарных данных
         Возвращает список байтов, которые, вероятно, являются терминаторами текста
@@ -77,7 +77,7 @@ class TextAnalyzer:
         return terminators
 
     @staticmethod
-    def detect_text_regions(rom: GameBoyROM, min_length: int = 100) -> List[Tuple[int, int]]:
+    def detect_text_regions(rom: GameBoyROM, min_length: int = 100) -> list[tuple[int, int]]:
         """
         Автоматическое определение регионов с текстом
 
@@ -121,7 +121,7 @@ class TextAnalyzer:
         return regions
 
     @staticmethod
-    def validate_extraction(rom: GameBoyROM, results: Dict[str, List[Dict]]) -> Dict:
+    def validate_extraction(rom: GameBoyROM, results: dict[str, list[dict]]) -> dict:
         """
         Проверка корректности извлечения текста
 

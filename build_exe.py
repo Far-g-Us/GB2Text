@@ -3,16 +3,17 @@
 """
 
 import os
-import sys
-import subprocess
 import shutil
+import subprocess
+import sys
 from pathlib import Path
+
 
 def create_exe():
     """Создает exe файл используя PyInstaller"""
-    
+
     print("🔨 Создание exe файла для GB2Text...")
-    
+
     # Проверяем наличие PyInstaller
     try:
         import PyInstaller
@@ -21,33 +22,33 @@ def create_exe():
         print("❌ PyInstaller не найден. Устанавливаем...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
         print("✅ PyInstaller установлен")
-    
+
     current_dir = Path(__file__).parent.parent
     gb2text_dir = None
-    
+
     # Ищем папку GB2Text в текущей директории и родительских
     for path in [current_dir, current_dir.parent, current_dir.parent.parent]:
         potential_gb2text = path / "GB2Text"
         if potential_gb2text.exists() and (potential_gb2text / "main.py").exists():
             gb2text_dir = potential_gb2text
             break
-    
+
     if not gb2text_dir:
         print("❌ Папка GB2Text с main.py не найдена!")
         print("🔍 Поиск проводился в:")
         for path in [current_dir, current_dir.parent, current_dir.parent.parent]:
             print(f"   - {path / 'GB2Text'}")
         return False
-    
+
     print(f"✅ Найдена папка GB2Text: {gb2text_dir}")
-    
+
     main_script = gb2text_dir / "main.py"
     dist_dir = gb2text_dir / "dist"
     build_dir = gb2text_dir / "build"
-    
-    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+
+    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
     existing_folders = []
-    
+
     for folder in required_folders:
         folder_path = gb2text_dir / folder
         if folder_path.exists():
@@ -55,13 +56,13 @@ def create_exe():
             print(f"✅ Найдена папка: {folder}")
         else:
             print(f"⚠️ Папка не найдена: {folder}")
-    
+
     # Очищаем предыдущие сборки
     if dist_dir.exists():
         shutil.rmtree(dist_dir)
     if build_dir.exists():
         shutil.rmtree(build_dir)
-    
+
     versions = [
         {
             'name': 'GB2Text-Debug',
@@ -125,7 +126,7 @@ finally:
     for version in versions:
         print(f"\n🔨 Создание {version['description']}...")
         entry_script = debug_wrapper_path if version['console'] else main_script
-        
+
         cmd = [
             sys.executable, "-m", "PyInstaller",  # Используем Python модуль вместо прямого вызова
             "--onefile",                    # Один exe файл (портативный)
@@ -140,6 +141,27 @@ finally:
             "--hidden-import=logging",
             "--hidden-import=pathlib",
             "--hidden-import=collections",
+            "--hidden-import=core.decoder",
+            "--hidden-import=core.scanner",
+            "--hidden-import=core.extractor",
+            "--hidden-import=core.injector",
+            "--hidden-import=core.compression",
+            "--hidden-import=core.gba_support",
+            "--hidden-import=core.multi_charmap",
+            "--hidden-import=core.plugin_api",
+            "--hidden-import=core.tmx",
+            "--hidden-import=core.ml_classifier",
+            "--hidden-import=core.translation_validator",
+            "--hidden-import=core.translation_filler",
+            "--hidden-import=core.analyzer",
+            "--hidden-import=core.database",
+            "--hidden-import=core.encoding",
+            "--hidden-import=core.charset",
+            "--hidden-import=core.guide",
+            "--hidden-import=core.mbc",
+            "--hidden-import=core.rom_cache",
+            "--hidden-import=core.i18n",
+            "--hidden-import=core.machine_translation",
             "--exclude-module=posix",
             "--exclude-module=pwd",
             "--exclude-module=grp",
@@ -157,17 +179,17 @@ finally:
             "--exclude-module=PIL",
             "--exclude-module=cv2",
         ]
-        
+
         if not version['console']:
             cmd.append("--windowed")
 
         version_file = gb2text_dir / "VERSION"
         if version_file.exists():
             cmd.extend([f"--add-data={version_file};."])
-            print(f"✅ Добавлен файл VERSION")
+            print("✅ Добавлен файл VERSION")
         else:
             print(f"⚠️ Файл VERSION не найден в {version_file}")
-        
+
         for folder in existing_folders:
             folder_path = gb2text_dir / folder
             if folder == 'locales':
@@ -178,24 +200,24 @@ finally:
                 print(f"✅ Добавлены файлы локализации: {len(locales_files)} файлов")
             else:
                 cmd.extend([f"--add-data={folder_path};{folder}"])
-        
+
         icon_path = gb2text_dir / "resources" / "app_icon.ico"
         if icon_path.exists():
             cmd.append(f"--icon={icon_path}")
             print("✅ Найдена иконка")
         else:
             print("⚠️ Иконка не найдена, используется стандартная")
-        
+
         cmd.append(str(entry_script))
-        
+
         print(f"🚀 Запуск команды: {' '.join(str(x) for x in cmd)}")
-        
+
         try:
             print(f"🔧 Рабочая директория: {gb2text_dir}")
             print(f"🔧 Команда: {' '.join(str(x) for x in cmd)}")
-            
+
             result = subprocess.run(cmd, cwd=gb2text_dir, capture_output=True, text=True)
-            
+
             if result.returncode == 0:
                 exe_path = dist_dir / f"{version['name']}.exe"
                 if exe_path.exists():
@@ -209,7 +231,7 @@ finally:
                 print(f"Return code: {result.returncode}")
                 print(f"STDOUT: {result.stdout}")
                 print(f"STDERR: {result.stderr}")
-                
+
         except Exception as e:
             print(f"❌ Исключение при создании {version['description']}: {e}")
             print(f"🔧 Тип ошибки: {type(e).__name__}")
@@ -218,19 +240,19 @@ finally:
         debug_wrapper_path.unlink()
 
     create_portable_package(gb2text_dir, dist_dir)
-    
+
     return True
 
 def create_portable_package(gb2text_dir, dist_dir):
     """Создает портативный пакет с exe файлом"""
-    
+
     print("\n📦 Создание портативного пакета...")
-    
+
     portable_dir = gb2text_dir.parent / "GB2Text-Portable"
     if portable_dir.exists():
         shutil.rmtree(portable_dir)
     portable_dir.mkdir()
-    
+
     # Копируем exe файлы
     for exe_name in ["GB2Text.exe", "GB2Text-Debug.exe"]:
         exe_path = dist_dir / exe_name
@@ -255,7 +277,7 @@ def create_portable_package(gb2text_dir, dist_dir):
 
 ИСПОЛЬЗОВАНИЕ:
 1. Запустите GB2Text.exe для обычной работы
-2. Если программа не запускается или работает неправильно, 
+2. Если программа не запускается или работает неправильно,
    запустите GB2Text-Debug.exe чтобы увидеть ошибки в консоли
 
 ОТЛАДКА ОШИБОК:
@@ -272,25 +294,25 @@ def create_portable_package(gb2text_dir, dist_dir):
 - Если возникают проблемы, запустите Debug версию
 - Скопируйте текст ошибок из консоли или gb2text_debug.log для диагностики
 """
-    
+
     with open(portable_dir / "README.txt", 'w', encoding='utf-8') as f:
         f.write(readme_content)
-    
+
     print(f"✅ Портативный пакет создан: {portable_dir}")
     print("📋 Включает обе версии exe и инструкции")
 
 def create_spec_file():
     """Создает .spec файл для более тонкой настройки"""
-    
+
     current_dir = Path(__file__).parent.parent
     gb2text_dir = None
-    
+
     for path in [current_dir, current_dir.parent, current_dir.parent.parent]:
         potential_gb2text = path / "GB2Text"
         if potential_gb2text.exists() and (potential_gb2text / "main.py").exists():
             gb2text_dir = potential_gb2text
             break
-    
+
     if not gb2text_dir:
         print("❌ Папка GB2Text не найдена для создания spec файла!")
         return
@@ -348,7 +370,7 @@ def create_spec_file():
         return
 
     folders_to_include = []
-    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
 
     for folder in required_folders:
         folder_path = gb2text_dir / folder
@@ -451,7 +473,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.zipfiles,
-    a.datas, 
+    a.datas,
     strip=False,
     upx=True,
     upx_exclude=[],
@@ -462,19 +484,19 @@ coll = COLLECT(
     spec_path = gb2text_dir / 'GB2Text.spec'
     with open(spec_path, 'w', encoding='utf-8') as f:
         f.write(spec_content)
-    
+
     print("✅ Создан файл GB2Text.spec для настройки сборки")
 
 if __name__ == "__main__":
     print("GB2Text - Создание exe файла")
     print("=" * 40)
-    
+
     # Создаем spec файл
     create_spec_file()
-    
+
     # Создаем exe
     success = create_exe()
-    
+
     if success:
         print("\n🎉 Exe файл успешно создан!")
         print("📁 Найти его можно в папке dist/")

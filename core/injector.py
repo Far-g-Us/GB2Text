@@ -19,9 +19,10 @@ GB Text Extraction Framework
 Модуль для внедрения текста обратно в ROM
 """
 
-from core.rom import GameBoyROM
-from typing import List, Dict
 import logging
+
+from core.rom import GameBoyROM
+
 
 class TextInjector:
     """Внедрение измененного текста обратно в ROM"""
@@ -34,10 +35,19 @@ class TextInjector:
         self.modified_data = bytearray(self.rom.data)
         self.logger = logging.getLogger('gb2text.injector')
 
-    def inject_segment(self, segment_name: str, translations: List[str], plugin) -> bool:
+    def inject_segment(self, segment_name: str, translations: list[str], plugin,
+                       skip_long: bool = True) -> bool:
         """
         Внедряет переводы в указанный сегмент
-        Возвращает True, если внедрение прошло успешно
+
+        Args:
+            segment_name: имя сегмента
+            translations: список переводов
+            plugin: плагин игры
+            skip_long: если True, пропускает слишком длинные сообщения вместо отклонения всего сегмента
+
+        Returns:
+            True если хотя бы одно сообщение было внедрено
         """
         if not plugin:
             return False
@@ -59,31 +69,44 @@ class TextInjector:
         if len(translations) != len(original_messages):
             return False
 
+        # Пустой список переводов = нет сообщений = OK
+        if len(translations) == 0:
+            return True
+
+        injected = 0
+        skipped = 0
         enc = segment['decoder'].encode
-        for original, translation in zip(original_messages, translations):
-        # Сравниваем длину в байтах
+        for i, (original, translation) in enumerate(zip(original_messages, translations, strict=False)):
+            # Сравниваем длину в байтах
             trans_bytes = enc(translation)
             if len(trans_bytes) > original['length']:
-                return False
+                if skip_long:
+                    skipped += 1
+                    self.logger.debug(f"Message {i}: translation too long ({len(trans_bytes)} > {original['length']}), skipping")
+                    continue
+                else:
+                    return False
 
             # Внедряем перевод
             self._inject_message(segment, original['offset'], trans_bytes, original['length'])
+            injected += 1
 
-        return True
+        self.logger.info(f"Injected {injected} messages, skipped {skipped}")
+        return injected > 0
 
 
     def _ensure_decoder(self, segment):
         """Гарантирует, что у сегмента есть decoder"""
         if not segment.get('decoder'):
             try:
-                from core.scanner import auto_detect_charmap
                 from core.decoder import CharMapDecoder
+                from core.scanner import auto_detect_charmap
                 charmap = auto_detect_charmap(self.rom.data, segment['start'])
                 segment['decoder'] = CharMapDecoder(charmap)
             except Exception:
                 segment['decoder'] = None
 
-    def _extract_original_messages(self, segment) -> List[Dict]:
+    def _extract_original_messages(self, segment) -> list[dict]:
         """
         Извлекает оригинальные сообщения из сегмента, считая смещения в БАЙТАХ.
         Разделители: 0x00, 0xFF, 0xFE, 0x0D, 0x0A (терминаторы/переводы строки).
@@ -93,7 +116,7 @@ class TextInjector:
         data = self.rom.data[start:end]
         decoder = segment['decoder']
 
-        msgs: List[Dict] = []
+        msgs: list[dict] = []
         i = 0
         n = len(data)
         terminators = {0x00, 0xFF, 0xFE, 0x0D, 0x0A}

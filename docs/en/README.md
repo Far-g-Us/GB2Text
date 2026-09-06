@@ -114,7 +114,7 @@ Configure the encoding in the Settings tab of the GUI.
 - Distribution of commercial game configurations
 - Commercial use of the framework
 
-See [LICENSE](LICENSE.md) for full details. 
+See [LICENSE](../../LICENSE.md) for full details. 
  
 ### 🤝 Contributing 
 

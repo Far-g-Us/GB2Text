@@ -36,26 +36,46 @@ pytest tests/test_charset.py -v
 ```
 tests/
 ├── __init__.py
-├── test_analyzer.py        # Тесты анализатора текста
-├── test_auto_detect.py    # Тесты автоопределения
-├── test_charset.py        # Тесты загрузки charset файлов
-├── test_compression.py    # Тесты сжатия (LZSS, RLE)
-├── test_constants.py      # Тесты констант
-├── test_decoder.py        # Тесты декодера
-├── test_encoding.py       # Тесты кодирования
-├── test_extractor.py      # Тесты экстрактора текста
-├── test_gba_support.py    # Тесты GBA поддержки
-├── test_guide.py         # Тесты менеджера гайдов
-├── test_i18n.py           # Тесты локализации (i18n)
-├── test_injector.py      # Тесты инжектора текста
-├── test_integration.py   # Интеграционные тесты
-├── test_mbc.py           # Тесты MBC
-├── test_plugin.py        # Тесты плагинов
-├── test_plugin_manager.py # Тесты менеджера плагинов
-├── test_rom.py           # Тесты ROM
-├── test_rom_cache.py     # Тесты кэширования ROM
-├── test_rom_validation.py # Тесты валидации ROM
-└── test_scanner.py       # Тесты сканера
+├── test_analyzer.py           # Тесты анализатора текста
+├── test_auto_detect.py        # Тесты автоопределения
+├── test_charset.py            # Тесты загрузки charset файлов
+├── test_compression.py        # Тесты сжатия (LZSS, RLE)
+├── test_constants.py          # Тесты констант
+├── test_decoder.py            # Тесты декодера
+├── test_decoder_extended.py   # Расширенные тесты декодера
+├── test_encoding.py           # Тесты кодирования
+├── test_extractor.py          # Тесты экстрактора текста
+├── test_gba_support.py        # Тесты GBA поддержки
+├── test_generic_plugin.py     # Тесты.generic плагина
+├── test_guide.py              # Тесты менеджера гайдов
+├── test_gui.py                # Тесты GUI
+├── test_gui_edge_cases.py     # Тесты GUI (edge cases)
+├── test_gui_methods.py        # Тесты GUI методов
+├── test_gui_real.py           # Тесты GUI (реальные сценарии)
+├── test_gui_robot.py          # Тесты GUI (Robot Framework)
+├── test_i18n.py               # Тесты локализации (i18n)
+├── test_injector.py           # Тесты инжектора текста
+├── test_integration.py        # Интеграционные тесты
+├── test_integration_extended.py # Расширенные интеграционные тесты
+├── test_machine_translation.py # Тесты машинного перевода
+├── test_main_window.py        # Тесты главного окна
+├── test_mbc.py                # Тесты MBC
+├── test_ml_classifier.py      # Тесты ML классификатора
+├── test_multi_charmap.py      # Тесты мульти-чармапов
+├── test_plugin.py             # Тесты плагинов
+├── test_plugin_api.py         # Тесты API плагинов
+├── test_plugin_api_extended.py # Расширенные тесты API плагинов
+├── test_plugin_manager.py     # Тесты менеджера плагинов
+├── test_rom.py                # Тесты ROM
+├── test_rom_cache.py          # Тесты кэширования ROM
+├── test_rom_discovery.py      # Тесты обнаружения ROM
+├── test_rom_validation.py     # Тесты валидации ROM
+├── test_roundtrip.py          # Тесты round-trip извлечения/вставки
+├── test_scanner.py            # Тесты сканера
+├── test_scanner_extended.py   # Расширенные тесты сканера
+├── test_tmx.py                # Тесты TMX
+├── test_translation_filler.py # Тесты заполнения переводов
+└── test_translation_validator.py # Тесты валидации переводов
 ```
 
 ## Типы тестов
@@ -99,31 +119,5 @@ pytest tests/ -v
 ## Coverage
 
 **Целевое покрытие: 80%+ для всех файлов core**
-
-Текущее покрытие (2026-03-01):
-- **Общее покрытие: 88%**
-- Все файлы core/ имеют ≥80% покрытия
-
-### Покрытие по файлам
-| Файл | Покрытие |
-|------|----------|
-| core/analyzer.py | 89% |
-| core/charset.py | 100% |
-| core/compression.py | 81% |
-| core/constants.py | 100% |
-| core/database.py | 86% |
-| core/decoder.py | 91% |
-| core/encoding.py | 95% |
-| core/extractor.py | 85% |
-| core/gba_support.py | 86% |
-| core/guide.py | 100% |
-| core/i18n.py | 100% |
-| core/injector.py | 90% |
-| core/mbc.py | 82% |
-| core/plugin.py | 89% |
-| core/plugin_manager.py | 84% |
-| core/rom.py | 84% |
-| core/rom_cache.py | 93% |
-| core/scanner.py | 86% |
 
 Текущее покрытие см. в отчёте HTML после запуска с `--cov-report=html`

@@ -1,37 +1,34 @@
-# How to contribute to GB Text Extraction Framework
+# Contributing to GB Text Extraction Framework
 
-Thank you for wanting to contribute to GB Text Extraction Framework! This document explains how you can help in the development of the project, observing the legal restrictions.
+Thank you for your interest in contributing to GB Text Extraction Framework! This document explains how you can help develop the project while respecting legal boundaries.
 
-## ⚠️ Important legal warning
+## ⚠️ Important Legal Notice
 
-**Please review our before making a contribution [LICENSE](../../LICENSE.md)**.
+**Before contributing, please review our [LICENSE](../../LICENSE.md).**
 
 This project:
-- DOES NOT contain or distribute any ROM files of commercial games
-- It is intended ONLY for use with home (homebrew) ROM files created by you yourself
-- Should NOT be used to analyze commercial games without the explicit permission of the copyright holder
+- Does NOT contain or distribute any commercial ROM files
+- Is intended ONLY for use with legally-owned ROM files (homebrew or legally acquired)
+- Must NOT be used to facilitate unauthorized copying or distribution of copyrighted content
 
-**Violation of these rules will result in rejection of your contribution and possible removal from the project.**
+**Violations of these rules will result in rejection of your contribution and possible removal from the project.**
 
-## How to contribute safely
+## How to Contribute Safely
 
-### 1. Configuration files (`plugins/config/`)
+### 1. Configuration Files (`plugins/config/`)
 
-- **IT IS ACCEPTABLE** to add configurations ONLY for:
-  - Home (homebrew) games created by you
-  - Examples unrelated to real commercial games
+- **Allowed** to add configurations ONLY for:
+  - Homebrew games you created yourself
+  - Generic examples not tied to real commercial games
 
-- **IT is UNACCEPTABLE** to add configurations for:
+- **NOT allowed** to add configurations for:
   - Commercial games (Pokémon, Zelda, etc.)
-  - ROM files not created by you yourself
-  
-- **Example of a secure configuration**:
-```json
-{
-"game_id_pattern": "^HOME_BREW_[A-Z0-9]+_[0-9A-F]{2}$",
-"segments": [
+  - ROM files you do not legally own
+
+- **Example of a safe configuration**:
+  ```json
   {
-    "game_id_pattern": "^HOME_BREW_[A-Z0-9]+_[0-9A-F]{2}$",
+    "game_id_pattern": "^MY_HOMEBREW_[A-Z0-9]+_[0-9A-F]{2}$",
     "segments": [
       {
         "name": "main_text",
@@ -46,117 +43,115 @@ This project:
       }
     ]
   }
+  ```
+
+### 2. Character Tables and Encodings
+
+- **Allowed** to add:
+  - Basic ASCII characters (A-Z, a-z, 0-9, punctuation)
+  - Generic Japanese characters (hiragana, katakana) not tied to specific games
+
+- **NOT allowed** to add:
+  - Game-specific character mappings (e.g., Pokémon abbreviations like "PK", "MN")
+  - Exact charmap tables matching commercial game structures
+  - Elements that could be considered trademarked content
+
+### 3. Guides (`guides/`)
+
+- **Allowed** to create guides for:
+  - Homebrew games you created
+  - General framework usage principles
+
+- **NOT allowed** to create guides for:
+  - Specific commercial games
+  - Working with unauthorized ROM copies
+
+## Contribution Process
+
+### 1. Create an Issue Before Starting Work
+- Discuss whether your idea aligns with the project's legal requirements
+- Ensure your contribution does not infringe on copyrights
+
+### 2. Create a Branch for Your Work
+
+```bash
+git checkout -b feature/your-feature-name
 ```
 
-### 2. Character tables and encodings 
+### 3. Follow Code Standards
+- Add the legal notice header to every source file
+- Avoid mentioning commercial games in code
+- Write clear comments in English
+- Keep code style consistent with the existing codebase
 
-- **IT IS ACCEPTABLE** to add:
-  - Basic ASCII characters (A-Z, a-z, 0-9, punctuation)
-  - General Japanese characters without reference to specific games
-         
-
-- **IT IS NOT ALLOWED** to add: 
-  - Game-specific elements (for example, "PK", "MN", "POKéMON")
-  - Exact symbol tables that match the structure of commercial games
-  - Elements that can be regarded as trademarks
-         
-     
-
-### 3. Guides (guides/) 
-
-- **IT IS ACCEPTABLE** to create guides for:
-  - Home games created by you
-  - General principles of working with the framework
-         
-
-- **IT IS UNACCEPTABLE** to create guides for:
-  - Specific commercial games
-  - Instructions on how to work with illegal copies of games
-         
-     
-
-### The process of making changes 
-
-#### 1. Create an issue before starting work on a new feature or fix 
-- Discuss whether your idea meets the legal requirements of the project.
-- Make sure that your idea does not infringe on copyrights
-
-#### 2. Create a branch for your work: 
-
-
-`git checkout -b feature/your-feature-name`
-
-
-#### 3. Follow the code standards: 
-- Add a legal warning to the beginning of each file.
-- Avoid mentioning commercial games in the code
-- Write clear comments
-         
-
-#### 4. Create a Pull Request with a description of the changes: 
-- Explain clearly how your contribution meets the legal requirements.
+### 4. Create a Pull Request
+- Clearly explain how your contribution meets legal requirements
 - Specify which games (if any) are supported by your contribution
-- Confirm that you are following all the rules in this document.
+- Confirm you follow all rules in this document
+- Include tests for new functionality when applicable
 
-## 🐞 Debugging and diagnostics
+## Testing Your Changes
+
+Before submitting a PR, run the test suite:
+
+```bash
+pytest tests/ -v
+```
+
+Ensure all tests pass and coverage remains above 80% for core modules.
+
+## 🐞 Debugging and Diagnostics
 
 If you encounter a problem, please collect diagnostic information before creating an issue:
 
-1. Make sure that you have the `sha1sum` utility installed (usually included in the coreutils package)
+1. Make sure you have `sha1sum` installed (usually part of coreutils)
 2. Run the diagnostic script:
 ```bash
 chmod +x scripts/diagnostics.sh
 ./scripts/diagnostics.sh your_file.gb
-or
-./scripts/diagnostics.bat your_file.gb
+# or on Windows:
+scripts\diagnostics.bat your_file.gb
 ```
-3. Attach the resulting directory to your issue on GitHub
-This will significantly speed up the problem resolution process. 
+3. Attach the resulting directory to your GitHub issue
 
-### In README.md add:
+This will significantly speed up the debugging process.
 
-```
-## 🐞 Debugging
+## Examples of Safe Contributions
 
-If you encounter a problem, use a diagnostic script to collect information.:
+**Good examples:**
+- Adding support for a new compression algorithm (game-agnostic)
+- Improving the automatic charmap detection algorithm
+- Creating templates for homebrew game plugins
+- Fixing bugs in core extraction/injection logic
+- Improving test coverage
+- Adding new language support to the UI
 
-```bash
-# Make the script executable
-by chmod +x scripts/diagnostics.sh
+**Bad examples:**
+- Adding a plugin with exact charmap tables for commercial games
+- Including specific text segment addresses from commercial ROMs
+- Creating guides for working with unauthorized game copies
+- Adding copyrighted dialogue text to the repository
 
-# Run diagnostics (replace your_game.gb to your ROM file)
-./scripts/diagnostics.sh your_game.gb
-```
-The script will create a directory with diagnostic information that you can attach to an issue on GitHub.
+## Mandatory Confirmation
 
-### An example of a secure deposit 
+Before your contribution is accepted, you must confirm:
 
-A good example of a contribution: 
+> "I confirm that my contribution:
+> 1. Does not contain information specific to commercial games
+> 2. Is intended ONLY for use with legally-owned ROM files
+> 3. Does not infringe on third-party copyrights
+> 4. Complies with all requirements in the LICENSE and this document"
 
-- Adding support for a new type of compression (without being tied to specific games)
-- Improvement of the automatic character table detection algorithm
-- Creating a template for home games
+## Code Style
 
+- Python 3.11+ compatible
+- Use type hints where appropriate
+- Follow PEP 8 style guidelines
+- Run `ruff check .` before submitting
+- Add docstrings to public functions and classes
 
-A bad example of a contribution: 
+## Thank You
 
-- Adding a plugin for Pokémon with a specific symbol table
-- Enabling text segment addresses for Zelda
-- Creating a guide for working with illegal ROMs
-
-
-### Mandatory confirmation 
-
-Before your contribution is accepted, you must confirm the following:
-
-    "I confirm that my contribution is:"
-    1. It does not contain information specific to commercial games
-    2. It is intended ONLY for use with home (homebrew) ROM files
-    3. Does not infringe on the copyrights of third parties
-    4. Meets all the requirements set out in the LICENSE and this document
-
-### Thanks for understanding! 
-
-Your compliance with these rules helps keep the project safe and accessible to legitimate users. Together, we can create a powerful tool for research purposes without violating copyrights. 
+Your compliance with these rules helps keep the project safe and accessible to legitimate users. Together, we can create a powerful tool for research and educational purposes while respecting intellectual property rights.
 
 Nintendo, Pokémon, The Legend of Zelda, and all related trademarks are the property of their respective owners.

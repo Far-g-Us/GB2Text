@@ -19,9 +19,11 @@ GB Text Extraction Framework
 Модуль для интернационализации приложения
 """
 
-import json, os, sys, logging
+import json
+import logging
+import os
+import sys
 from pathlib import Path
-from typing import Dict, Any
 
 logger = logging.getLogger('gb2text.i18n')
 
@@ -31,7 +33,7 @@ class I18N:
 
     def __init__(self, default_lang: str = "en"):
         self.current_lang = default_lang
-        self.translations: Dict[str, Dict[str, str]] = {}
+        self.translations: dict[str, dict[str, str]] = {}
         self._load_translations()
 
         # # Загружаем переводы
@@ -67,16 +69,16 @@ class I18N:
             for lang_dir in locales_dir.iterdir():
                 if not lang_dir.is_dir():
                     continue
-                
+
                 lang_code = lang_dir.name
                 messages_file = lang_dir / "messages.json"
-                
+
                 if not messages_file.exists():
                     logger.debug(f"Файл messages.json не найден для языка: {lang_code}")
                     continue
-                    
+
                 try:
-                    with open(messages_file, 'r', encoding='utf-8') as f:
+                    with open(messages_file, encoding='utf-8') as f:
                         self.translations[lang_code] = json.load(f)
                     logger.info(f"Загружен перевод: {lang_code}")
                 except json.JSONDecodeError as e:
@@ -172,7 +174,6 @@ class I18N:
                 "file.select.rom": "Please select a ROM file first",
                 "rom.loaded": "ROM is loaded",
                 "config.created": "Configuration created and saved to:\n{path}\n\nYou can now edit it for better text extraction.",
-                "settings.saved": "Settings saved",
                 "warning.no.segment": "First load a text segment",
                 "success.title": "Success",
                 "copy.original": "Copy Original",
@@ -206,7 +207,7 @@ class I18N:
                 "page": "Page:",
                 "of": "of",
                 "go": "Go",
-                "entry": "Entry",
+                "entry.short": "Entry",
                 "invalid.page": "Invalid page number. Please enter a number between 1 and {total}.",
                 "prev.segment": "← Previous Segment",
                 "next.segment": "Next Segment →",
@@ -312,9 +313,6 @@ class I18N:
                 "file.select.rom": "Сначала выберите ROM-файл",
                 "rom.loaded": "ROM загружен",
                 "config.created": "Конфигурация создана и сохранена в:\n{path}\n\nТеперь вы можете отредактировать её для лучшего извлечения текста.",
-                "settings.saved": "Настройки сохранены",
-                "warning.no.segment": "Сначала загрузите текстовый сегмент",
-                "success.title": "Успех",
                 "copy.original": "Копировать оригинал",
                 "paste.translation": "Вставить перевод",
                 "text.copied": "Оригинальный текст скопирован в буфер обмена",
@@ -346,7 +344,7 @@ class I18N:
                 "page": "Страница:",
                 "of": "из",
                 "go": "Перейти",
-                "entry": "Запись",
+                "entry.short": "Запись",
                 "invalid.page": "Неверный номер страницы. Пожалуйста, введите число от 1 до {total}.",
                 "prev.segment": "← Предыдущий сегмент",
                 "next.segment": "Следующий сегмент →",
@@ -478,7 +476,7 @@ class I18N:
                 "page": "ページ:",
                 "of": "/",
                 "go": "移動",
-                "entry": "エントリ",
+                "entry.short": "エントリ",
                 "invalid.page": "無効なページ番号です。1 から {total} の間の数字を入力してください。",
                 "prev.segment": "← 前のセグメント",
                 "next.segment": "次のセグメント →",
@@ -632,7 +630,7 @@ class I18N:
             logger.error(f"Ошибка перевода для ключа '{key}': {e}")
             return key
 
-    def get_available_languages(self) -> Dict[str, str]:
+    def get_available_languages(self) -> dict[str, str]:
         """Возвращает доступные языки в формате код: название"""
         return {
             "en": "English",

@@ -21,7 +21,6 @@ GB Text Extraction Framework
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +117,7 @@ class BingTranslator(Translator):
     def __init__(self, api_key: str, region: str = 'global'):
         self.api_key = api_key
         self.region = region
-        self.endpoint = f"https://api.cognitive.microsofttranslator.com/translate?api-version=3.0"
+        self.endpoint = "https://api.cognitive.microsofttranslator.com/translate?api-version=3.0"
         self.headers = {
             'Ocp-Apim-Subscription-Key': api_key,
             'Ocp-Apim-Subscription-Region': region,
@@ -149,18 +148,22 @@ class BingTranslator(Translator):
 
 
 class MachineTranslation:
-    """Менеджер машинного перевода"""
+    """Менеджер машинного перевода с автоматическим fallback"""
 
     def __init__(self):
         self.translators = {}
         self.current_service = None
 
     def add_google_translator(self) -> None:
-        """Добавить Google Translate"""
+        """Добавить Google Translate (deprecated — используйте DeepL)"""
         self.translators['google'] = GoogleTranslator()
+        logger.warning(
+            "Google Translate добавлен. "
+            "Рекомендуется использовать DeepL для стабильности."
+        )
 
     def add_deepl_translator(self, auth_key: str) -> None:
-        """Добавить DeepL"""
+        """Добавить DeepL (рекомендуемый сервис)"""
         self.translators['deepl'] = DeepLTranslator(auth_key)
 
     def add_bing_translator(self, api_key: str, region: str = 'global') -> None:
@@ -175,7 +178,7 @@ class MachineTranslation:
             raise ValueError(f"Сервис {service} недоступен")
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
-        """Перевести текст"""
+        """Перевести текст текущим сервисом"""
         if not self.current_service:
             raise Exception("Сервис перевода не выбран")
 
@@ -185,6 +188,62 @@ class MachineTranslation:
 
         return translator.translate(text, source_lang, target_lang)
 
+    def translate_with_fallback(self, text: str, source_lang: str, target_lang: str) -> str:
+        """
+        Перевести текст с автоматическим fallback на другие сервисы.
+
+        Порядок приоритетов: текущий сервис → DeepL → Bing → Google.
+        Если текущий сервис падает, пробует следующий доступный.
+        """
+        # Порядок приоритетов для fallback
+        priority_order = ['deepl', 'bing', 'google']
+        services_to_try = []
+
+        # Сначала текущий сервис
+        if self.current_service and self.current_service in self.translators:
+            services_to_try.append(self.current_service)
+
+        # Затем остальные по приоритету
+        for service in priority_order:
+            if service not in services_to_try and service in self.translators:
+                if self.translators[service].is_available():
+                    services_to_try.append(service)
+
+        last_error = None
+        for service in services_to_try:
+            translator = self.translators[service]
+            if not translator.is_available():
+                continue
+
+            try:
+                result = translator.translate(text, source_lang, target_lang)
+                if service != self.current_service:
+                    logger.warning(
+                        f"Перевод выполнен через {service} (fallback) "
+                        f"вместо {self.current_service}"
+                    )
+                return result
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Сервис {service} недоступен: {e}")
+                continue
+
+        raise Exception(
+            f"Все сервисы перевода недоступны. "
+            f"Последняя ошибка: {last_error}"
+        )
+
     def get_available_services(self) -> list:
         """Получить список доступных сервисов"""
         return [service for service, translator in self.translators.items() if translator.is_available()]
+
+    def get_preferred_service(self) -> str | None:
+        """
+        Получить предпочтительный сервис (DeepL > Bing > Google).
+        Возвращает первый доступный сервис в порядке приоритетов.
+        """
+        priority = ['deepl', 'bing', 'google']
+        for service in priority:
+            if service in self.translators and self.translators[service].is_available():
+                return service
+        return None

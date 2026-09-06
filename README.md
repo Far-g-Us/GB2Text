@@ -15,7 +15,8 @@ A universal framework for extracting and translating text from Game Boy, Game Bo
 
 ## 🗺️ Roadmap
 
-### 🇷🇺 [Development Roadmap](ROADMAP.md)
+### 🇺🇸 [English](docs/en/ROADMAP.md)
+### 🇷🇺 [Русский](ROADMAP.md)
 
 ## 🌍 Contributing
 
@@ -24,7 +25,8 @@ A universal framework for extracting and translating text from Game Boy, Game Bo
 
 ## 🧪 Testing
 
-### 🇷🇺 [Testing Guide](tests/README.md)
+### 🇺🇸 [English](tests/en/README.md)
+### 🇷🇺 [Русский](tests/README.md)
 
 **This project is available in multiple languages. Please select your preferred language from the links above.**
 

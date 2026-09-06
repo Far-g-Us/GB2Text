@@ -4,15 +4,14 @@ Run with: pytest tests/benchmarks/test_performance.py --benchmark-only
 """
 
 import os
-import tempfile
+
 import pytest
 
+from core.compression import AutoDetectCompressionHandler
+from core.decoder import CharMapDecoder
+from core.encoding import auto_detect_charmap, get_generic_english_charmap
 from core.rom import GameBoyROM
 from core.scanner import auto_detect_segments
-from core.decoder import CharMapDecoder
-from core.encoding import auto_detect_charmap
-from core.compression import AutoDetectCompressionHandler
-from core.encoding import get_generic_english_charmap
 
 
 class TestPerformanceBenchmarks:
@@ -30,14 +29,14 @@ class TestPerformanceBenchmarks:
         rom_data[0x146] = 0x00  # MBC type (ROM only)
         rom_data[0x148] = 0x00  # ROM size (32KB)
         rom_data[0x149] = 0x00  # RAM size
-        
+
         # Add some text patterns for scanning
         text_data = bytes([
             0x48, 0x45, 0x4C, 0x4C, 0x4F, 0x00,  # "HELLO"
             0x57, 0x4F, 0x52, 0x4C, 0x44, 0x00,  # "WORLD"
         ])
         rom_data[0x200:0x200 + len(text_data)] = text_data
-        
+
         rom_file.write_bytes(bytes(rom_data))
         return str(rom_file)
 
@@ -56,7 +55,7 @@ class TestPerformanceBenchmarks:
         gb_data[0x104:0x108] = b'NTEJ'
         gb_data[0x134:0x14C] = b'TEST\x00' + bytes(12)
         gb_file.write_bytes(bytes(gb_data))
-        
+
         result = benchmark(GameBoyROM, str(gb_file))
         assert result is not None
 
@@ -64,7 +63,7 @@ class TestPerformanceBenchmarks:
     def test_text_scanning_benchmark(self, benchmark, sample_rom_path):
         """Benchmark text scanning performance."""
         rom = GameBoyROM(sample_rom_path)
-        
+
         result = benchmark(auto_detect_segments, rom.data)
         assert result is not None
 
@@ -75,14 +74,14 @@ class TestPerformanceBenchmarks:
         rom_data = bytearray(0x20000)  # 128KB
         rom_data[0x104:0x108] = b'NTEJ'
         rom_data[0x134:0x14C] = b'LARGE ROM\x00' + bytes(13)
-        
+
         # Add multiple text patterns
         text_pattern = bytes([0x54, 0x45, 0x53, 0x54, 0x00])  # "TEST"
         for offset in range(0, len(rom_data) - len(text_pattern), 256):
             rom_data[offset:offset + len(text_pattern)] = text_pattern
-        
+
         large_rom.write_bytes(bytes(rom_data))
-        
+
         result = benchmark(auto_detect_segments, bytes(rom_data))
         assert result is not None
 
@@ -95,7 +94,7 @@ class TestPerformanceBenchmarks:
             0x48, 0x45, 0x4C, 0x4C, 0x4F, 0x00,
             0x57, 0x4F, 0x52, 0x4C, 0x44, 0x00,
         ])
-        
+
         result = benchmark(decoder.decode, encoded_data, 0, len(encoded_data))
         assert result is not None
 
@@ -107,7 +106,7 @@ class TestPerformanceBenchmarks:
             0x48, 0x45, 0x4C, 0x4C, 0x4F, 0x00,  # "HELLO"
             0x57, 0x4F, 0x52, 0x4C, 0x44, 0x00,  # "WORLD"
         ] * 10)
-        
+
         result = benchmark(auto_detect_charmap, sample_data, start=0, length=200)
         assert result is not None
 
@@ -115,9 +114,9 @@ class TestPerformanceBenchmarks:
     def test_decompression_benchmark(self, benchmark):
         """Benchmark data decompression."""
         # Create compressed-like data
-        original = bytes([0x00, 0x01, 0x02] * 100)
+        bytes([0x00, 0x01, 0x02] * 100)
         compressed = bytes([0x03, 0x03, 0x64]) + bytes([0x00, 0x01, 0x02])  # Simple compression marker
-        
+
         handler = AutoDetectCompressionHandler()
         result = benchmark(handler.decompress, compressed, start=0)
         assert result is not None
@@ -126,15 +125,15 @@ class TestPerformanceBenchmarks:
     def test_rom_cache_operations(self, benchmark, tmp_path):
         """Benchmark ROM cache operations."""
         from core.rom_cache import ROMCache
-        
+
         cache = ROMCache(max_cache_size=3)
-        
+
         rom_file = tmp_path / "cached_rom.gb"
         rom_data = bytearray(0x8000)
         rom_data[0x104:0x108] = b'NTEJ'
         rom_data[0x134:0x14C] = b'CACHED\x00' + bytes(14)
         rom_file.write_bytes(bytes(rom_data))
-        
+
         # Load ROM first then test cache
         rom = GameBoyROM(str(rom_file))
         result = benchmark(cache.put, str(rom_file), rom)
@@ -164,13 +163,13 @@ class TestMemoryBenchmarks:
     def test_rom_memory_footprint(self, sample_rom_path):
         """Measure ROM memory usage."""
         import tracemalloc
-        
-        rom = GameBoyROM(sample_rom_path)
-        
+
+        GameBoyROM(sample_rom_path)
+
         tracemalloc.start()
-        current, peak = tracemalloc.get_traced_memory()
+        _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        
+
         # Store result for benchmark output
         result = peak
         assert result > 0
@@ -179,14 +178,14 @@ class TestMemoryBenchmarks:
     def test_scanner_memory_usage(self, sample_rom_path):
         """Measure scanner memory usage."""
         import tracemalloc
-        
+
         rom = GameBoyROM(sample_rom_path)
-        
+
         tracemalloc.start()
-        results = auto_detect_segments(rom.data)
-        current, peak = tracemalloc.get_traced_memory()
+        auto_detect_segments(rom.data)
+        _current, peak = tracemalloc.get_traced_memory()
         tracemalloc.stop()
-        
+
         result = peak
         assert result > 0
 
@@ -214,18 +213,18 @@ class TestIOBenchmarks:
         def read_file():
             with open(sample_rom_path, 'rb') as f:
                 return f.read()
-        
+
         result = benchmark(read_file)
         assert result is not None
 
     @pytest.mark.benchmark(group="io")
     def test_tmx_export_benchmark(self, benchmark, tmp_path):
         """Benchmark TMX file export."""
+
         from core.tmx import TMXHandler
-        import tempfile
-        
+
         handler = TMXHandler()
-        
+
         def export_tmx():
             output_file = tmp_path / "export.tmx"
             segments = {
@@ -235,7 +234,7 @@ class TestIOBenchmarks:
             tmx_content = handler.export_tmx(segments, source_lang='en', target_lang='ru', game_title='Test Game')
             output_file.write_text(tmx_content, encoding='utf-8')
             return str(output_file)
-        
+
         result = benchmark(export_tmx)
         assert os.path.exists(result)
 

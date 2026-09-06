@@ -19,14 +19,21 @@ GB Text Extraction Framework
 Менеджер плагинов для динамической загрузки
 """
 
-import importlib, pkgutil, os, json, re, logging, threading, sys
+import importlib
+import json
+import logging
+import os
+import pkgutil
+import re
+import sys
+import threading
 from pathlib import Path
-from typing import List, Optional, Dict
+
+from core.decoder import CompressionHandler
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.decoder import CompressionHandler
-from plugins.generic import GenericGBPlugin, GenericGBCPlugin, GenericGBAPlugin
 from plugins.auto_detect import AutoDetectPlugin
+from plugins.generic import GenericGBAPlugin, GenericGBCPlugin, GenericGBPlugin
 
 logger = logging.getLogger('gb2text.plugin_manager')
 
@@ -53,12 +60,17 @@ class PluginManager:
     """Менеджер динамической загрузки плагинов"""
 
     def __init__(self, plugins_dir: str = "plugins"):
-        self.plugins = [
+        # Generic плагины (fallback) — проверяются ПОСЛЕ специфичных
+        self.generic_plugins = [
             GenericGBPlugin(),
             GenericGBCPlugin(),
             GenericGBAPlugin(),
-            AutoDetectPlugin()
         ]
+        # Специфичные плагины — проверяются ПЕРВЫМИ
+        self.specific_plugins = []
+        # AutoDetect — последний fallback
+        self.auto_detect = AutoDetectPlugin()
+
         self.plugins_dir = self._get_resource_path(plugins_dir)
         self.load_plugins()
 
@@ -103,12 +115,22 @@ class PluginManager:
                                     issubclass(attribute, GamePlugin) and
                                     attribute != GamePlugin
                             ):
-                                self.plugins.append(attribute())
+                                plugin_instance = attribute()
+                                # Определяем, является ли плагин generic или specific
+                                if self._is_generic_plugin(attribute):
+                                    self.generic_plugins.append(plugin_instance)
+                                else:
+                                    self.specific_plugins.append(plugin_instance)
                                 logger.info(f"Загружен плагин: {attribute.__name__}")
                     except Exception as e:
-                        logger.error(f"Ошибка загрузки модуля {module_name}: {str(e)}")
+                        logger.error(f"Ошибка загрузки модуля {module_name}: {e!s}")
             except Exception as e:
-                logger.error(f"Ошибка доступа к директории плагинов: {str(e)}")
+                logger.error(f"Ошибка доступа к директории плагинов: {e!s}")
+
+    def _is_generic_plugin(self, plugin_class) -> bool:
+        """Проверяет, является ли плагин generic (fallback)"""
+        generic_names = ['GenericGBPlugin', 'GenericGBCPlugin', 'GenericGBAPlugin', 'AutoDetectPlugin']
+        return plugin_class.__name__ in generic_names
 
     def _load_config_plugins(self) -> None:
         """Загружает конфигурационные плагины из JSON-файлов"""
@@ -141,18 +163,19 @@ class PluginManager:
 
                 # Проверяем на дубликаты
                 is_duplicate = False
-                for plugin in self.plugins:
+                all_plugins = self.specific_plugins + self.generic_plugins
+                for plugin in all_plugins:
                     if hasattr(plugin, 'game_id_pattern') and plugin.game_id_pattern == config.get('game_id_pattern', ''):
                         logger.info(f"Пропущен дубликат конфигурации: {json_file.name}")
                         is_duplicate = True
                         break
 
                 if not is_duplicate:
-                    self.plugins.append(ConfigurablePlugin(config))
+                    self.specific_plugins.append(ConfigurablePlugin(config))
                     logger.info(f"Загружена конфигурация: {json_file.name}")
                     loaded_configs += 1
             except Exception as e:
-                logger.error(f"Ошибка загрузки конфигурации {json_file.name}: {str(e)}")
+                logger.error(f"Ошибка загрузки конфигурации {json_file.name}: {e!s}")
 
         logger.info(f"Загружено {loaded_configs} конфигураций")
 
@@ -183,7 +206,7 @@ class PluginManager:
 
     def _is_config_safe(self, config: dict) -> bool:
         """Проверяет, что конфигурация безопасна с юридической точки зрения"""
-        
+
         # Разрешаем конфигурации, созданные через GUI
         if config.get('user_created', False):
             return True
@@ -230,49 +253,53 @@ class PluginManager:
                 return False
         return True
 
-    def get_plugin(self, game_id: str, system: str = None,
-                   cancellation_token: Optional[CancellationToken] = None) -> Optional[GamePlugin]:
+    def get_plugin(self, game_id: str, system: str | None = None,
+                   cancellation_token: CancellationToken | None = None) -> GamePlugin | None:
         """Находит подходящий плагин для игры с поддержкой отмены"""
         logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
 
-        # Сначала пытаемся найти специфичный плагин
-        total_plugins = len(self.plugins)
-        for i, plugin in enumerate(self.plugins):
-            # Проверяем, запрошена ли отмена
+        # 1. Сначала проверяем специфичные плагины (game-specific)
+        for plugin in self.specific_plugins:
             if cancellation_token and cancellation_token.is_cancellation_requested():
                 logger.info("Операция отменена пользователем")
                 return None
 
             try:
                 if re.match(plugin.game_id_pattern, game_id):
-                    logger.info(f"Найден подходящий плагин: {plugin.__class__.__name__}")
+                    logger.info(f"Найден специфичный плагин: {plugin.__class__.__name__}")
                     return plugin
             except re.error as e:
-                logger.warning(f"Ошибка регулярного выражения в плагине {plugin.__class__.__name__}: {str(e)}")
+                logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
 
-        # Если не найден, возвращаем базовый плагин для системы
-        if system == 'gba':
-            logger.info("Используем GenericGBAPlugin по умолчанию")
-            return GenericGBAPlugin()
-        elif system == 'gbc':
-            logger.info("Используем GenericGBCPlugin по умолчанию")
-            return GenericGBCPlugin()
-        else:
-            logger.info("Используем GenericGBPlugin по умолчанию")
-            return GenericGBPlugin()
+        # 2. Потом проверяем generic плагины
+        for plugin in self.generic_plugins:
+            if cancellation_token and cancellation_token.is_cancellation_requested():
+                logger.info("Операция отменена пользователем")
+                return None
+
+            try:
+                if re.match(plugin.game_id_pattern, game_id):
+                    logger.info(f"Найден generic плагин: {plugin.__class__.__name__}")
+                    return plugin
+            except re.error as e:
+                logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
+
+        # 3. Последний fallback — AutoDetect
+        logger.info("Используем AutoDetectPlugin по умолчанию")
+        return self.auto_detect
 
 
 class ConfigurablePlugin(GamePlugin):
     """Плагин на основе конфигурационного файла"""
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: dict):
         self.config = config
 
     @property
     def game_id_pattern(self) -> str:
         return self.config['game_id_pattern']
 
-    def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
+    def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         logger.info("Определение текстовых сегментов...")
 
         segments = []

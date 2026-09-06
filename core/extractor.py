@@ -20,16 +20,16 @@ GB Text Extraction Framework
 """
 
 import logging
-from typing import Dict, List, Optional
-from core.rom import GameBoyROM
-from core.plugin_manager import PluginManager, CancellationToken
+
 from core.guide import GuideManager
+from core.plugin_manager import CancellationToken, PluginManager
+from core.rom import GameBoyROM
 
 
 class TextExtractor:
     """Основной класс извлечения текста"""
 
-    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: Optional[CancellationToken] = None, max_segments: int = None, rom: GameBoyROM = None, progress_callback=None):
+    def __init__(self, rom_path: str, plugin_manager=None, guide_manager=None, cancellation_token: CancellationToken | None = None, max_segments: int | None = None, rom: GameBoyROM | None = None, progress_callback=None):
         if not isinstance(rom_path, str):
             raise TypeError("rom_path должен быть строкой, а не типом")
 
@@ -63,7 +63,7 @@ class TextExtractor:
         elif hasattr(self.plugin_manager, 'update_status'):
             self.plugin_manager.update_status(message, percent)
 
-    def extract(self) -> Dict[str, List[Dict]]:
+    def extract(self) -> dict[str, list[dict]]:
         """Извлекает текст из ROM"""
         logger = logging.getLogger('gb2text.extractor')
         logger.info("Начало процесса извлечения текста")
@@ -212,7 +212,7 @@ class TextExtractor:
 
         return results
 
-    def _split_messages(self, text: str, base_offset: int) -> List[Dict]:
+    def _split_messages(self, text: str, base_offset: int) -> list[dict]:
         """Разделение на отдельные сообщения с улучшенной обработкой"""
         logger = logging.getLogger('gb2text.extractor')
         logger.debug(f"Начало разделения текста (длина: {len(text)})")

@@ -20,8 +20,13 @@ GB Text Extraction Framework
 Универсальный фреймворк для извлечения текста из Game Boy ROM с поддержкой плагинов
 """
 
-import argparse, json, logging, sys, os
+import argparse
+import json
+import logging
+import os
+import sys
 from pathlib import Path
+
 from core.injector import TextInjector
 
 logger = logging.getLogger('gb2text')
@@ -78,9 +83,9 @@ def get_version():
     """Возвращает версию приложения"""
     try:
         version_path = get_resource_path('VERSION')
-        with open(version_path, 'r') as f:
+        with open(version_path) as f:
             return f.read().strip()
-    except (OSError, IOError):
+    except OSError:
         return "1.0.0"
 
 
@@ -131,7 +136,7 @@ def main():
             run_gui(args.rom, get_resource_path(args.plugin_dir), lang=args.lang)
             return
         except ImportError as e:
-            print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {str(e)}")
+            print(f"Ошибка: GUI не установлен. Установите зависимости или запустите без --gui: {e!s}")
         return
 
     if not args.rom:
@@ -146,7 +151,7 @@ def main():
 
         try:
             # Загружаем переводы
-            with open(args.translations, 'r', encoding='utf-8') as f:
+            with open(args.translations, encoding='utf-8') as f:
                 translations = json.load(f)
 
             from core.plugin_manager import get_safe_plugin_manager
@@ -177,12 +182,12 @@ def main():
             print(f"Текст успешно внедрен. Новый ROM сохранен в {args.output_rom}")
 
         except Exception as e:
-            print(f"Ошибка при внедрении текста: {str(e)}")
+            print(f"Ошибка при внедрении текста: {e!s}")
             return
 
     try:
-        from core.plugin_manager import get_safe_plugin_manager
         from core.extractor import TextExtractor
+        from core.plugin_manager import get_safe_plugin_manager
 
         plugin_manager = get_safe_plugin_manager(get_resource_path(args.plugin_dir))
         extractor = TextExtractor(args.rom, plugin_manager)
@@ -199,7 +204,7 @@ def main():
             print(json.dumps(results, indent=2, ensure_ascii=False))
 
     except Exception as e:
-        print(f"Ошибка: {str(e)}")
+        print(f"Ошибка: {e!s}")
         print("Подсказка: Попробуйте добавить конфигурацию для этой игры в папку plugins/")
 
 if __name__ == "__main__":

@@ -17,8 +17,12 @@ select = [
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
+    "E402",   # module import not at top of file (copyright notice pattern)
     "B008",   # do not perform function calls in argument defaults
     "C901",   # too complex
+    "RUF001", # ambiguous unicode character in string (Cyrillic is intentional)
+    "RUF002", # ambiguous unicode character in docstring (Cyrillic is intentional)
+    "RUF003", # ambiguous unicode character in comment (Cyrillic is intentional)
 ]
 
 [lint.isort]
