@@ -4,79 +4,79 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from plugins.auto_detect import AutoDetectPlugin
 from core.rom import GameBoyROM
+from plugins.auto_detect import AutoDetectPlugin
 
 
 class TestAutoDetectPlugin:
     """Тесты для AutoDetectPlugin"""
-    
+
     def test_init(self):
         """Тест инициализации"""
         plugin = AutoDetectPlugin()
         assert plugin is not None
-    
+
     def test_game_id_pattern(self):
         """Тест паттерна ID игры"""
         plugin = AutoDetectPlugin()
         pattern = plugin.game_id_pattern
         assert pattern == r'^.*$'
-    
+
     def test_get_text_segments_gba(self):
         """Тест получения сегментов для GBA"""
         plugin = AutoDetectPlugin()
-        
+
         # Создаём минимальный ROM
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = b'\\x00' * 10000
         rom.system = 'gba'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
-    
+
     def test_get_text_segments_gb(self):
         """Тест получения сегментов для GB"""
         plugin = AutoDetectPlugin()
-        
+
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = b'\\x00' * 5000
         rom.system = 'gb'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
-    
+
     def test_get_text_segments_gbc(self):
         """Тест получения сегментов для GBC"""
         plugin = AutoDetectPlugin()
-        
+
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = b'\\x00' * 5000
         rom.system = 'gbc'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
-    
+
     def test_group_close_pointers(self):
         """Тест группировки указателей"""
         plugin = AutoDetectPlugin()
         pointers = [(100, 200), (210, 300), (500, 600)]
         groups = plugin._group_close_pointers(pointers, max_distance=50)
         assert isinstance(groups, list)
-    
+
     def test_estimate_segment_length(self):
         """Тест оценки длины сегмента"""
         plugin = AutoDetectPlugin()
         data = b'\\x00' * 1000
         length = plugin._estimate_segment_length(data, 0)
         assert isinstance(length, int)
-    
+
     def test_get_compression_for_system(self):
         """Тест определения сжатия для системы"""
         plugin = AutoDetectPlugin()
-        
+
         compression = plugin._get_compression_for_system('gba')
         # Может быть None или строка
         assert compression is None or isinstance(compression, str)
@@ -97,7 +97,7 @@ class TestAutoDetectPlugin:
     def test_estimate_segment_length_different_sizes(self):
         """Тест оценки длины сегмента с разными размерами"""
         plugin = AutoDetectPlugin()
-        
+
         # Test with different data sizes
         for size in [100, 500, 1000, 5000]:
             data = b'\x00' * size
@@ -120,28 +120,28 @@ class TestAutoDetectPlugin:
     def test_get_text_segments_with_text_data(self):
         """Тест получения сегментов с текстовыми данными"""
         plugin = AutoDetectPlugin()
-        
+
         # Create ROM with some text-like data
         rom_data = b'\x00' * 1000 + b'Hello World!' + b'\x00' * 500
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = rom_data
         rom.system = 'gba'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
 
     def test_get_text_segments_large_rom(self):
         """Тест получения сегментов для большого ROM"""
         plugin = AutoDetectPlugin()
-        
+
         # Large ROM
         rom_data = b'\x00' * 100000
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = rom_data
         rom.system = 'gba'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
 
@@ -164,13 +164,13 @@ class TestAutoDetectPlugin:
     def test_get_text_segments_with_gb_system(self):
         """Тест получения сегментов для GB системы"""
         plugin = AutoDetectPlugin()
-        
+
         rom_data = b'\x00' * 0x8000
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = rom_data
         rom.system = 'gb'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
 
@@ -184,7 +184,7 @@ class TestAutoDetectPlugin:
     def test_get_compression_with_none(self):
         """Тест получения сжатия для неизвестной системы"""
         plugin = AutoDetectPlugin()
-        compression = plugin._get_compression_for_system('unknown')
+        plugin._get_compression_for_system('unknown')
         # Should return None for unknown systems
 
     def test_group_close_pointers_with_overlapping_groups(self):
@@ -222,20 +222,20 @@ class TestAutoDetectPlugin:
     def test_filter_overlapping_segments(self):
         """Тест фильтрации перекрывающихся сегментов"""
         plugin = AutoDetectPlugin()
-        
+
         # Create mock ROM
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = b'A' * 10000
         rom.system = 'gba'
         rom.header = {}
-        
+
         # Create overlapping segments
         segments = [
             {'start': 100, 'end': 500, 'name': 'seg1'},
             {'start': 300, 'end': 700, 'name': 'seg2'},  # Overlapping with seg1
             {'start': 800, 'end': 1000, 'name': 'seg3'},  # Not overlapping
         ]
-        
+
         # Test the filtering - need to call internal method
         # Let's test the get_text_segments with controlled data
         rom.data = b'\x00' * 5000 + b'Hello World! ' * 50 + b'\x00' * 5000
@@ -245,17 +245,17 @@ class TestAutoDetectPlugin:
     def test_get_text_segments_many_segments(self):
         """Тест получения сегментов когда обнаружено много сегментов"""
         plugin = AutoDetectPlugin()
-        
+
         # Create ROM with multiple text-like areas
         rom_data = b'\x00' * 1000
-        for i in range(30):
+        for _i in range(30):
             rom_data += b'Hello World! ' * 10 + b'\x00' * 1000
-        
+
         rom = GameBoyROM.__new__(GameBoyROM)
         rom.data = rom_data
         rom.system = 'gba'
         rom.header = {}
-        
+
         segments = plugin.get_text_segments(rom)
         assert isinstance(segments, list)
         # Should be limited to max_segments (20)

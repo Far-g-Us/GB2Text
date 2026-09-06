@@ -17,12 +17,12 @@ except ImportError:
 @pytest.mark.skipif(not ROBOT_AVAILABLE, reason="Robot Framework not installed")
 class TestGUIRobot:
     """Robot Framework тесты для графического интерфейса."""
-    
+
     def test_robot_import(self):
         """Тест что Robot Framework доступен."""
         assert ROBOT_AVAILABLE
         assert logger is not None
-    
+
     def test_robot_library_import(self):
         """Тест импорта Robot библиотек."""
         try:

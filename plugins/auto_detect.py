@@ -19,12 +19,12 @@ GB Text Extraction Framework
 Плагин для автоматического определения структуры текста в неизвестных играх
 """
 
-from typing import List, Dict, Tuple
+import logging
+
+from core.database import get_pointer_size, get_segment_patterns
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.database import get_segment_patterns, get_pointer_size
-from core.scanner import auto_detect_segments, find_text_pointers, analyze_text_segment
-import logging
+from core.scanner import analyze_text_segment, auto_detect_segments, find_text_pointers
 
 # Настройки логирования выполняются в точках входа (main/run_gui)
 logger = logging.getLogger('gb2text.auto_detect')
@@ -36,7 +36,7 @@ class AutoDetectPlugin(GamePlugin):
     def game_id_pattern(self) -> str:
         return r'^.*$'
 
-    def get_text_segments(self, rom: GameBoyROM) -> List[Dict]:
+    def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         """Автоматическое определение текстовых сегментов"""
         logger = logging.getLogger('gb2text.auto_detect')
         logger.info(f"Начало автоопределения текстовых сегментов для системы {rom.system}")
@@ -185,8 +185,8 @@ class AutoDetectPlugin(GamePlugin):
 
         return segments
 
-    def _group_close_pointers(self, pointers: List[Tuple[int, int]], max_distance: int = 50) -> List[
-        List[Tuple[int, int]]]:
+    def _group_close_pointers(self, pointers: list[tuple[int, int]], max_distance: int = 50) -> list[
+        list[tuple[int, int]]]:
         """Группирует близко расположенные указатели с улучшенной логикой"""
         if not pointers:
             return []
@@ -224,7 +224,7 @@ class AutoDetectPlugin(GamePlugin):
 
     def _estimate_segment_length(self, data: bytes, start_addr: int, min_length: int = 100) -> int:
         """Оценивает длину текстового сегмента с улучшенной точностью"""
-        logger = logging.getLogger('gb2text.auto_detect')
+        logging.getLogger('gb2text.auto_detect')
 
         # Проверяем, не выходит ли за пределы ROM
         if start_addr >= len(data):

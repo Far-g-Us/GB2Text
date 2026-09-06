@@ -1,20 +1,20 @@
 """Тесты для модуля extractor"""
 import os
+import random
 import sys
 import tempfile
-import random
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.extractor import TextExtractor
-from core.plugin_manager import PluginManager, CancellationToken
 from core.guide import GuideManager
+from core.plugin_manager import CancellationToken, PluginManager
 
 # Путь к тестовым ROM
 TEST_ROMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_roms")
 
 
-def create_temp_rom_file(data: bytes = None, size: int = 0x8000) -> str:
+def create_temp_rom_file(data: bytes | None = None, size: int = 0x8000) -> str:
     """Создаёт временный ROM файл с правильным расширением"""
     if data is None:
         data = b'\x00' * size
@@ -52,73 +52,73 @@ GB_ROMS = get_gb_roms()
 
 class TestTextExtractor:
     """Тесты для TextExtractor"""
-    
+
     def test_init_valid_path(self):
         """Тест инициализации с валидным путём"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             assert extractor is not None
         finally:
             os.unlink(temp_path)
-    
+
     def test_init_invalid_path(self):
         """Тест инициализации с невалидным путём"""
         try:
-            extractor = TextExtractor("nonexistent.rom", PluginManager(), GuideManager())
+            TextExtractor("nonexistent.rom", PluginManager(), GuideManager())
         except (FileNotFoundError, TypeError):
             pass
-    
+
     def test_init_with_cancellation_token(self):
         """Тест инициализации с токеном отмены"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             token = CancellationToken()
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager(), token)
             assert extractor.cancellation_token == token
         finally:
             os.unlink(temp_path)
-    
+
     def test_apply_guide_recommendations(self):
         """Тест применения рекомендаций"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             extractor._apply_guide_recommendations()
         finally:
             os.unlink(temp_path)
-    
+
     def test_adjust_decoder(self):
         """Тест корректировки декодера"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             extractor._adjust_decoder(None, {})
         finally:
             os.unlink(temp_path)
-    
+
     def test_export_text(self):
         """Тест экспорта текста"""
         with tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='w') as f:
             temp_path = f.name
-        
+
         try:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
                 f.write(b'\x00' * 1000)
                 rom_path = f.name
-            
+
             try:
                 pm = PluginManager()
                 extractor = TextExtractor(rom_path, pm, GuideManager())
@@ -137,19 +137,19 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager(), max_segments=100)
             assert extractor is not None
         finally:
             os.unlink(temp_path)
-    
+
     def test_extract_returns_dict(self):
         """Тест что extract возвращает словарь"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             pm = PluginManager()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -160,7 +160,7 @@ class TestTextExtractor:
                 pass
         finally:
             os.unlink(temp_path)
-    
+
     def test_extract_gba_rom(self):
         """Тест извлечения из GBA ROM"""
         if GBA_ROMS:
@@ -169,7 +169,7 @@ class TestTextExtractor:
             extractor = TextExtractor(rom_path, pm, GuideManager())
             result = extractor.extract()
             assert isinstance(result, dict)
-    
+
     def test_extract_gbc_rom(self):
         """Тест извлечения из GBC ROM"""
         if GBC_ROMS:
@@ -178,7 +178,7 @@ class TestTextExtractor:
             extractor = TextExtractor(rom_path, pm, GuideManager())
             result = extractor.extract()
             assert isinstance(result, dict)
-    
+
     def test_extract_gb_rom(self):
         """Тест извлечения из GB ROM"""
         if GB_ROMS:
@@ -187,7 +187,7 @@ class TestTextExtractor:
             extractor = TextExtractor(rom_path, pm, GuideManager())
             result = extractor.extract()
             assert isinstance(result, dict)
-    
+
     def test_extract_japanese_gba(self):
         """Тест извлечения из японского GBA ROM"""
         # Автоматически ищем японский ROM
@@ -234,7 +234,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             # Test _split_messages method
@@ -248,7 +248,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             result = extractor._split_messages("", 0)
@@ -279,7 +279,7 @@ class TestTextExtractor:
         """Тест инициализации с неправильным типом"""
         try:
             TextExtractor(123, PluginManager(), GuideManager())
-            assert False, "Должно вызвать TypeError"
+            raise AssertionError("Должно вызвать TypeError")
         except TypeError:
             pass
 
@@ -288,7 +288,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)  # Больше 0x150
             temp_path = f.name
-        
+
         try:
             token = CancellationToken()
             token.cancel()
@@ -304,7 +304,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             # Test with multiple terminators
@@ -318,7 +318,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             extractor.guide = None  # No guide
@@ -331,7 +331,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             # Test with None and empty adjustments
@@ -345,7 +345,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             # Test with multiple different terminators
@@ -359,7 +359,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             result = extractor._split_messages("Hello[END]World", 0x1000)
@@ -372,7 +372,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             extractor.rom = None  # Simulate not loaded
@@ -389,14 +389,14 @@ class TestTextExtractor:
             def __init__(self):
                 super().__init__()
                 self.status_updates = []
-            
+
             def update_status(self, status, progress):
                 self.status_updates.append((status, progress))
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManager()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -412,9 +412,9 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
-            extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
+            TextExtractor(temp_path, PluginManager(), GuideManager())
             # Test with LZ77 compression handler
             from core.compression import get_compression_handler
             handler = get_compression_handler('LZ77')
@@ -435,7 +435,7 @@ class TestTextExtractor:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             extractor = TextExtractor(temp_path, PluginManager(), GuideManager())
             # Simulate a segment with mostly unknown characters
@@ -452,11 +452,11 @@ class TestTextExtractor:
                     def get_text_segments(self, rom):
                         return []
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManager()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -476,11 +476,11 @@ class TestTextExtractor:
                             {'name': 'invalid', 'start': 0x100000, 'end': 0x200000, 'decoder': None}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManager()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -500,11 +500,11 @@ class TestTextExtractor:
                             {'name': 'test', 'start': 0x150, 'end': 0x200, 'decoder': None}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManager()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -517,7 +517,7 @@ class TestTextExtractor:
         """Тест что инициализация с неправильным типом вызывает TypeError"""
         try:
             TextExtractor(12345, PluginManager(), GuideManager())
-            assert False, "Должно вызвать TypeError"
+            raise AssertionError("Должно вызвать TypeError")
         except TypeError as e:
             assert "rom_path" in str(e).lower() or "должен" in str(e).lower()
 
@@ -526,11 +526,11 @@ class TestTextExtractor:
         class MockPluginManagerNoPlugin(PluginManager):
             def get_plugin(self, game_id, system, cancellation_token):
                 return None  # No plugin
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerNoPlugin()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -559,11 +559,11 @@ class TestTextExtractor:
                             })
                         return segments
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 5000)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerManySegments()
             # Limit to 5 segments
@@ -581,15 +581,15 @@ class TestTextExtractor:
                     system = "gba"
                     def get_text_segments(self, rom):
                         return [
-                            {'name': 'compressed', 'start': 0x150, 'end': 0x300, 
+                            {'name': 'compressed', 'start': 0x150, 'end': 0x300,
                              'decoder': None, 'compression': 'LZ77'}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerWithCompression()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -606,17 +606,17 @@ class TestTextExtractor:
                     system = "gba"
                     def get_text_segments(self, rom):
                         return [
-                            {'name': 'autodecode', 'start': 0x150, 'end': 0x200, 
+                            {'name': 'autodecode', 'start': 0x150, 'end': 0x200,
                              'decoder': None}  # No decoder, should auto-detect
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             # Add some text-like data for auto-detection
             rom_data = bytearray(b'GBA' + b'\x00' * 0x14C + b'Hello World!' + b'\x00' * 500)
             f.write(rom_data)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerAutoDecoder()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -633,17 +633,17 @@ class TestTextExtractor:
                     system = "gba"
                     def get_text_segments(self, rom):
                         return [
-                            {'name': 'lowqual', 'start': 0x150, 'end': 0x200, 
+                            {'name': 'lowqual', 'start': 0x150, 'end': 0x200,
                              'decoder': None}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             # Add mostly unknown characters
             rom_data = bytearray(b'GBA' + b'\x00' * 0x14C + b'\x01\x02\x03\x04\x05\x06\x07\x08' + b'\x00' * 500)
             f.write(rom_data)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerLowQuality()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -663,11 +663,11 @@ class TestTextExtractor:
                             {'name': 'invalid', 'start': 0x100000, 'end': 0x200000, 'decoder': None}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 500)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerInvalidAddr()
             extractor = TextExtractor(temp_path, pm, GuideManager())
@@ -681,22 +681,22 @@ class TestTextExtractor:
         class MockCompression:
             def decompress(self, data, offset):
                 return b'Decompressed data', len(data)
-        
+
         class MockPluginManagerWithCompObj(PluginManager):
             def get_plugin(self, game_id, system, cancellation_token):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
                         return [
-                            {'name': 'compobj', 'start': 0x150, 'end': 0x200, 
+                            {'name': 'compobj', 'start': 0x150, 'end': 0x200,
                              'decoder': None, 'compression': MockCompression()}
                         ]
                 return MockPlugin()
-        
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
             f.write(b'GBA' + b'\x00' * 1000)
             temp_path = f.name
-        
+
         try:
             pm = MockPluginManagerWithCompObj()
             extractor = TextExtractor(temp_path, pm, GuideManager())

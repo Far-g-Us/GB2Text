@@ -19,11 +19,9 @@ GB Text Extraction Framework
 Модуль для работы с TMX (Translation Memory eXchange) форматом
 """
 
+import logging
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
-from datetime import datetime
-from typing import Dict, List, Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +37,7 @@ class TMXHandler:
     def __init__(self):
         self.version = "1.4"
 
-    def export_tmx(self, results: Dict, source_lang: str = "en", target_lang: str = "ru",
+    def export_tmx(self, results: dict, source_lang: str = "en", target_lang: str = "ru",
                    game_title: str = "Unknown Game") -> str:
         """Экспорт результатов в TMX формат
 
@@ -128,7 +126,7 @@ class TMXHandler:
             logger.warning(f"Не удалось отформатировать XML: {e}, возвращаем без форматирования")
             return '<?xml version="1.0" encoding="utf-8"?>\n' + rough_string
 
-    def import_tmx(self, tmx_content: str) -> Dict[str, Dict[int, str]]:
+    def import_tmx(self, tmx_content: str) -> dict[str, dict[int, str]]:
         """Импорт переводов из TMX файла
 
         Args:
@@ -137,7 +135,7 @@ class TMXHandler:
         Returns:
             Словарь {segment_name: {offset: translation}}
         """
-        translations = {}
+        translations: dict[str, dict[int, str]] = {}
 
         try:
             # Парсим XML
@@ -149,9 +147,8 @@ class TMXHandler:
 
             # Определяем исходный язык из header
             header = root.find("header")
-            source_lang = None
             if header is not None:
-                source_lang = header.get("srclang")
+                header.get("srclang")
 
             body = root.find("body")
             if body is None:
@@ -182,7 +179,7 @@ class TMXHandler:
                 # Извлекаем тексты
                 tuv_elements = tu.findall("tuv")
                 if len(tuv_elements) < 2:
-                    logger.debug(f"Пропускаем TU с менее чем 2 tuv элементами")
+                    logger.debug("Пропускаем TU с менее чем 2 tuv элементами")
                     continue
 
                 source_text = None
@@ -190,7 +187,7 @@ class TMXHandler:
 
                 for tuv in tuv_elements:
                     # Проверяем оба варианта атрибута xml:lang
-                    lang = tuv.get(f"{{{XML_NS}}}lang") or tuv.get("xml:lang")
+                    tuv.get(f"{{{XML_NS}}}lang") or tuv.get("xml:lang")
 
                     seg = tuv.find("seg")
                     if seg is None:
@@ -231,7 +228,7 @@ class TMXHandler:
 
         return translations
 
-    def _get_seg_text(self, seg_element: ET.Element) -> Optional[str]:
+    def _get_seg_text(self, seg_element: ET.Element) -> str | None:
         """Извлечение полного текста из элемента <seg>, включая вложенные элементы
 
         Обрабатывает случаи когда <seg> содержит inline-элементы (bpt, ept, ph и т.д.)
@@ -274,7 +271,7 @@ class TMXHandler:
         from xml.sax.saxutils import escape as sax_escape
         return sax_escape(text, {'"': '&quot;', "'": '&apos;'})
 
-    def get_tmx_info(self, tmx_content: str) -> Dict:
+    def get_tmx_info(self, tmx_content: str) -> dict:
         """Получение информации о TMX файле
 
         Args:

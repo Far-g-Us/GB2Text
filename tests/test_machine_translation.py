@@ -2,9 +2,11 @@
 Tests for machine translation functionality
 """
 
-import pytest
 from unittest.mock import Mock, patch
-from core.machine_translation import MachineTranslation, GoogleTranslator, DeepLTranslator, BingTranslator
+
+import pytest
+
+from core.machine_translation import BingTranslator, DeepLTranslator, GoogleTranslator, MachineTranslation
 
 
 class TestGoogleTranslator:
@@ -266,7 +268,7 @@ class TestMachineTranslationEdgeCases:
     def test_add_google_when_already_exists(self):
         mt = MachineTranslation()
         mt.add_google_translator()
-        first_translator = mt.translators['google']
+        mt.translators['google']
         mt.add_google_translator()
         # Should replace
         assert mt.translators['google'] is not None
@@ -284,3 +286,123 @@ class TestMachineTranslationEdgeCases:
         assert result == "Translated"
         # Verify translate was called on the translator instance
         mock_instance.translate.assert_called_once()
+
+
+# ─────────────────────────────────────────────────────────────
+# P1: Fallback tests
+# ─────────────────────────────────────────────────────────────
+
+class TestTranslationFallback:
+    """P1: Тесты translate_with_fallback и get_preferred_service."""
+
+    def test_get_preferred_service_returns_deepl_first(self):
+        """DeepL имеет наивысший приоритет."""
+        mt = MachineTranslation()
+        # Добавляем моки
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = True
+        mt.translators['deepl'] = deepl_mock
+
+        google_mock = Mock()
+        google_mock.is_available.return_value = True
+        mt.translators['google'] = google_mock
+
+        assert mt.get_preferred_service() == 'deepl'
+
+    def test_get_preferred_service_falls_back_to_google(self):
+        """Если DeepL недоступен, используется Google."""
+        mt = MachineTranslation()
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = False
+        mt.translators['deepl'] = deepl_mock
+
+        google_mock = Mock()
+        google_mock.is_available.return_value = True
+        mt.translators['google'] = google_mock
+
+        assert mt.get_preferred_service() == 'google'
+
+    def test_get_preferred_service_returns_none_if_none_available(self):
+        """Если ни один сервис недоступен, возвращает None."""
+        mt = MachineTranslation()
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = False
+        mt.translators['deepl'] = deepl_mock
+
+        google_mock = Mock()
+        google_mock.is_available.return_value = False
+        mt.translators['google'] = google_mock
+
+        assert mt.get_preferred_service() is None
+
+    def test_translate_with_fallback_uses_current_service(self):
+        """translate_with_fallback использует текущий сервис."""
+        mt = MachineTranslation()
+        google_mock = Mock()
+        google_mock.is_available.return_value = True
+        google_mock.translate.return_value = "Hello"
+        mt.translators['google'] = google_mock
+        mt.current_service = 'google'
+
+        result = mt.translate_with_fallback("Hola", "es", "en")
+        assert result == "Hello"
+        google_mock.translate.assert_called_once()
+
+    def test_translate_with_fallback_falls_back_on_error(self):
+        """translate_with_fallback fallback при ошибке текущего сервиса."""
+        mt = MachineTranslation()
+        # Google падает
+        google_mock = Mock()
+        google_mock.is_available.return_value = True
+        google_mock.translate.side_effect = Exception("Google API Error")
+        mt.translators['google'] = google_mock
+
+        # DeepL работает
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = True
+        deepl_mock.translate.return_value = "Translated by DeepL"
+        mt.translators['deepl'] = deepl_mock
+
+        mt.current_service = 'google'
+        result = mt.translate_with_fallback("Hola", "es", "en")
+        assert result == "Translated by DeepL"
+
+    def test_translate_with_fallback_raises_when_all_fail(self):
+        """translate_with_fallback поднимает исключение если все сервисы упали."""
+        mt = MachineTranslation()
+        google_mock = Mock()
+        google_mock.is_available.return_value = True
+        google_mock.translate.side_effect = Exception("Google Error")
+        mt.translators['google'] = google_mock
+
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = True
+        deepl_mock.translate.side_effect = Exception("DeepL Error")
+        mt.translators['deepl'] = deepl_mock
+
+        mt.current_service = 'google'
+        with pytest.raises(Exception, match="Все сервисы перевода недоступны"):
+            mt.translate_with_fallback("Hola", "es", "en")
+
+    def test_translate_with_fallback_skips_unavailable(self):
+        """translate_with_fallback пропускает недоступные сервисы."""
+        mt = MachineTranslation()
+        google_mock = Mock()
+        google_mock.is_available.return_value = False
+        mt.translators['google'] = google_mock
+
+        deepl_mock = Mock()
+        deepl_mock.is_available.return_value = True
+        deepl_mock.translate.return_value = "OK"
+        mt.translators['deepl'] = deepl_mock
+
+        mt.current_service = 'google'
+        result = mt.translate_with_fallback("Test", "en", "ru")
+        assert result == "OK"
+
+    def test_google_translator_logs_warning(self):
+        """add_google_translator() логирует предупреждение."""
+        mt = MachineTranslation()
+        # Не должен упасть
+        mt.add_google_translator()
+        assert 'google' in mt.translators

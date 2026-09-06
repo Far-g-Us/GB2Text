@@ -2,8 +2,10 @@
 Tests for TMX functionality
 """
 
-import pytest
 import xml.etree.ElementTree as ET
+
+import pytest
+
 from core.tmx import TMXHandler
 
 
@@ -288,10 +290,10 @@ class TestTMXHandler:
         escaped = handler._escape_xml_chars(test_text)
 
         # Проверяем что спецсимволы заменены на XML-сущности
-        assert '&lt;' in escaped, f"Expected &lt; in: {repr(escaped)}"
-        assert '&gt;' in escaped, f"Expected &gt; in: {repr(escaped)}"
-        assert '&amp;' in escaped, f"Expected &amp; in: {repr(escaped)}"
-        assert '&quot;' in escaped, f"Expected &quot; in: {repr(escaped)}"
+        assert '&lt;' in escaped, f"Expected &lt; in: {escaped!r}"
+        assert '&gt;' in escaped, f"Expected &gt; in: {escaped!r}"
+        assert '&amp;' in escaped, f"Expected &amp; in: {escaped!r}"
+        assert '&quot;' in escaped, f"Expected &quot; in: {escaped!r}"
 
         # Проверяем конкретные значения через repr для однозначности
         assert repr(escaped) == repr('Text with &lt;tags&gt; &amp; &quot;quotes&quot;')

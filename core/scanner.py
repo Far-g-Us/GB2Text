@@ -21,29 +21,28 @@ GB Text Extraction Framework
 
 import logging
 from collections import Counter
-from typing import List, Dict, Tuple
 
 from core.constants import (
-    ROM_HEADER_SIZE,
-    MIN_SEGMENT_LENGTH,
-    MIN_READABILITY,
-    MIN_POINTER_LENGTH,
-    READABLE_BLOCK_SIZE,
-    TEXT_TERMINATORS,
-    ASCII_PRINTABLE_START,
     ASCII_PRINTABLE_END,
-    KATAKANA_RANGE,
-    HIRAGANA_RANGE,
+    ASCII_PRINTABLE_START,
     BANK_0_START,
-    VRAM_START,
-    VRAM_END,
-    CYRILLIC_UPPER,
     CYRILLIC_LOWER,
+    CYRILLIC_UPPER,
+    HIRAGANA_RANGE,
+    KATAKANA_RANGE,
+    MIN_POINTER_LENGTH,
+    MIN_READABILITY,
+    MIN_SEGMENT_LENGTH,
+    READABLE_BLOCK_SIZE,
+    ROM_HEADER_SIZE,
+    TEXT_TERMINATORS,
+    VRAM_END,
+    VRAM_START,
 )
 
 # ML-based segment classification
 try:
-    from core.ml_classifier import get_ml_classifier, SKLEARN_AVAILABLE
+    from core.ml_classifier import SKLEARN_AVAILABLE, get_ml_classifier
 except ImportError:
     SKLEARN_AVAILABLE = False
     get_ml_classifier = None
@@ -51,9 +50,63 @@ except ImportError:
 logger = logging.getLogger('gb2text.scanner')
 
 
-def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
+def _detect_constant_stride(pointers: list[tuple[int, int]], min_run: int = 8) -> list[tuple[int, int]]:
+    """
+    Детектор ложных срабатываний: отбрасывает последовательности указателей
+    с постоянной дельтой (constant stride).
+    
+    Признаки ложного срабатывания:
+    - Разница между соседними указателями постоянна на протяжении >= min_run записей
+    - Это индексный массив, таблица ширин глифов, или двойная косвенность,
+      а не реальные указатели на строки (у которых длина = длина предыдущей строки)
+    
+    Returns:
+        Отфильтрованный список указателей без constant-stride последовательностей
+    """
+    if len(pointers) < min_run:
+        return pointers
+    
+    # Вычисляем дельты между соседними указателями (по адресам в ROM)
+    deltas = []
+    for i in range(1, len(pointers)):
+        delta = pointers[i][1] - pointers[i - 1][1]
+        deltas.append(delta)
+    
+    # Ищем runs с постоянной дельтой
+    filtered = []
+    i = 0
+    while i < len(pointers):
+        # Проверяем, начинается ли здесь constant-stride run
+        if i + min_run <= len(pointers):
+            # Смотрим дельты в окне [i, i+min_run)
+            window_deltas = deltas[i:i + min_run - 1] if i + min_run - 1 <= len(deltas) else deltas[i:]
+            
+            if len(window_deltas) >= min_run - 1:
+                # Проверяем, все ли дельты одинаковы и ненулевые
+                first_delta = window_deltas[0]
+                if first_delta != 0 and all(d == first_delta for d in window_deltas):
+                    # Это constant-stride! Пропускаем всю последовательность
+                    # Ищем конец run
+                    run_end = i + min_run - 1
+                    while run_end < len(deltas) and deltas[run_end] == first_delta:
+                        run_end += 1
+                    
+                    logger.warning(
+                        f"Constant-stride detected at 0x{pointers[i][0]:X}: "
+                        f"stride=0x{first_delta:X}, skipping {run_end - i + 1} entries"
+                    )
+                    i = run_end + 1
+                    continue
+        
+        filtered.append(pointers[i])
+        i += 1
+    
+    return filtered
+
+
+def find_text_pointers(rom_data: bytes, start: int = 0, end: int | None = None,
                        pointer_size: int = 2, min_length: int = MIN_POINTER_LENGTH,
-                       address_base: int = 0) -> List[Tuple[int, int]]:
+                       address_base: int = 0) -> list[tuple[int, int]]:
     """
     Поиск указателей на текст в ROM с учетом размера указателя и базового адреса (для GBA)
     Возвращает список кортежей (адрес, адрес_текста)
@@ -90,31 +143,76 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int = None,
                 pointers.append((i, mapped))
                 logger.debug(f"Найден указатель: 0x{i:X} -> 0x{mapped:X} (raw=0x{addr:X}, base=0x{address_base:X})")
 
+    # Фильтруем constant-stride false positives
+    original_count = len(pointers)
+    pointers = _detect_constant_stride(pointers)
+    if len(pointers) < original_count:
+        logger.info(
+            f"Constant-stride filter: {original_count} -> {len(pointers)} pointers "
+            f"(removed {original_count - len(pointers)} false positives)"
+        )
+
     logger.info(f"Найдено {len(pointers)} указателей")
     return pointers
 
 
-def is_text_like(rom_data: bytes, start: int, min_length: int) -> bool:
-    """Проверяет, похож ли участок данных на текст"""
+def is_text_like(rom_data: bytes, start: int, min_length: int,
+                 min_printable_ratio: float = 0.6) -> bool:
+    """Проверяет, похож ли участок данных на текст
+
+    Args:
+        rom_data: данные ROM
+        start: начальный адрес
+        min_length: минимальная длина для проверки
+        min_printable_ratio: минимальный процент printable символов (по умолчанию 0.6)
+    """
 
     if start + min_length > len(rom_data):
         return False
 
     # Подсчитываем процент "читаемых" символов
     printable = 0
+    consecutive_printable = 0
+    max_consecutive = 0
+    has_terminator = False
+
     for i in range(min_length):
         byte = rom_data[start + i]
-        # ASCII символы и распространенные терминаторы
-        if 0x20 <= byte <= 0x7E or byte in [0x00, 0x0A, 0x0D, 0xFF]:
+        # ASCII printable символы (0x20-0x7E) + перенос строки + возврат каретки
+        if 0x20 <= byte <= 0x7E or byte in [0x0A, 0x0D]:
             printable += 1
+            consecutive_printable += 1
+            max_consecutive = max(max_consecutive, consecutive_printable)
+        else:
+            consecutive_printable = 0
+            # Проверяем терминаторы
+            if byte in [0x00, 0xFF]:
+                has_terminator = True
 
-    result = min_length > 0 and printable / min_length > 0.6  # 60% символов должны быть "читаемыми"
-    if result:
-        logger.debug(f"Область 0x{start:X} похожа на текст ({printable / min_length:.0%} читаемых символов)")
-    return result
+    # Проверяем условия
+    ratio = printable / min_length if min_length > 0 else 0
+
+    # Текст должен иметь достаточно printable символов
+    if ratio < min_printable_ratio:
+        return False
+
+    # Текст должен иметь непрерывные последовательности (не случайные символы)
+    # Для коротких блоков (min_length <= 8) требуем хотя бы 4 символа подряд
+    # Для длинных блоков требуем хотя бы 8 символов подряд
+    min_consecutive = 4 if min_length <= 8 else 8
+    if max_consecutive < min_consecutive:
+        return False
+
+    # Если есть терминатор, это хороший знак
+    # Если нет терминатора, требуем более высокий порог printable
+    if not has_terminator and ratio < 0.8:
+        return False
+
+    logger.debug(f"Область 0x{start:X} похожа на текст ({ratio:.0%} printable, {max_consecutive} consecutive)")
+    return True
 
 
-def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000) -> List[str]:
+def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000) -> list[str]:
     """Определяет все языки, присутствующие в ROM"""
 
     logger = logging.getLogger('gb2text.scanner')
@@ -148,7 +246,7 @@ def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 200
     return detected_languages if detected_languages else ['english']
 
 
-def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> Dict[int, str]:
+def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> dict[int, str]:
     """Автоматическое определение таблицы символов с поддержкой нескольких языков"""
 
     logger = logging.getLogger('gb2text.scanner')
@@ -224,7 +322,7 @@ def _detect_language(rom_data: bytes, start: int, length: int, freq: Counter) ->
     return 'english'  # По умолчанию английский
 
 
-def _setup_russian_charmap(charmap: Dict):
+def _setup_russian_charmap(charmap: dict):
     """Настраивает таблицу символов для русского языка"""
 
     # Пример таблицы для русского языка в CP866
@@ -257,7 +355,7 @@ def _setup_russian_charmap(charmap: Dict):
     charmap[0x0A] = '\n'
 
 
-def _setup_english_charmap(charmap: Dict):
+def _setup_english_charmap(charmap: dict):
     """Настраивает таблицу символов для английского языка"""
     # Добавляем только стандартные ASCII символы
     for byte in range(ASCII_PRINTABLE_START, ASCII_PRINTABLE_END + 1):
@@ -272,7 +370,7 @@ def _setup_english_charmap(charmap: Dict):
     logger.info("Настроена английская ASCII таблица символов")
 
 
-def _setup_japanese_charmap(charmap: Dict, freq: Counter):
+def _setup_japanese_charmap(charmap: dict, freq: Counter):
     """Настраивает таблицу символов для японского языка с поддержкой катаканы и хираганы"""
 
     # Проверяем, какие диапазоны реально используются
@@ -332,14 +430,14 @@ def _setup_japanese_charmap(charmap: Dict, freq: Counter):
     charmap[0x0D] = '\n'  # Возврат каретки
 
 
-def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: bytes = None):
+def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: bytes | None = None):
     """Добавляет общие символы и терминаторы"""
 
     logger = logging.getLogger('gb2text.scanner')
     logger.info("Настройка общих символов и терминаторов")
 
     # Ищем наиболее частый байт как потенциальный пробел
-    if freq:
+    if freq and rom_data is not None:
         most_common = freq.most_common(10)
         for byte, count in most_common:
             # Если байт встречается часто и не является ASCII символом
@@ -378,7 +476,7 @@ def _setup_common_symbols(charmap: Dict, freq: Counter, is_gbc: bool, rom_data: 
 
 
 def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH, min_readability: float = MIN_READABILITY,
-                         block_size: int = READABLE_BLOCK_SIZE) -> List[Dict]:
+                         block_size: int = READABLE_BLOCK_SIZE) -> list[dict]:
     """Автоматическое определение текстовых сегментов с улучшенной фильтрацией"""
 
     logger = logging.getLogger('gb2text.scanner')
@@ -450,64 +548,66 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_
 
 
 def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH,
-                              block_size: int = 16, ml_threshold: float = 0.6) -> List[Dict]:
+                              block_size: int = 16, ml_threshold: float = 0.6,
+                              confidence_threshold: float = 0.5) -> list[dict]:
     """
     ML-based автоматическое определение текстовых сегментов
     Использует Random Forest классификатор для более точного определения текста
-    
+
     Args:
         rom_data: данные ROM файла
         min_segment_length: минимальная длина сегмента
         block_size: размер блока для анализа
         ml_threshold: порог ML классификатора (0-1)
-    
+        confidence_threshold: порог уверенности для needs_review статуса
+
     Returns:
         список найденных текстовых сегментов
     """
-    
+
     logger = logging.getLogger('gb2text.scanner')
-    
+
     if get_ml_classifier is None or not SKLEARN_AVAILABLE:
         logger.warning("ML not available, falling back to heuristic method")
         return auto_detect_segments(rom_data, min_segment_length, MIN_READABILITY, block_size)
-    
+
     logger.info(
         f"ML автоопределение текстовых сегментов (мин. длина={min_segment_length}, "
         f"размер блока={block_size}, порог={ml_threshold})")
-    
+
     ml_classifier = get_ml_classifier()
-    
+
     segments = []
     in_segment = False
     segment_start = 0
     ml_scores = []
-    
+
     # Пропускаем известные нетекстовые области
     skip_ranges = [
         (0x0000, BANK_0_START),  # Область кода
         (VRAM_START, VRAM_END)   # Область VRAM
     ]
-    
+
     i = 0
     while i + block_size <= len(rom_data):
         # Пропускаем известные нетекстовые области
         i = _skip_non_text_regions(i, rom_data, skip_ranges)
         if i >= len(rom_data):
             break
-        
+
         # Получаем блок данных
         block = rom_data[i:i + block_size]
-        
+
         # ML классификация
         ml_score = ml_classifier.predict(block)
         ml_scores.append(ml_score)
-        
+
         # Также вычисляем читаемость
         readability = _compute_block_readability(rom_data, i, block_size)
-        
+
         # Комбинированный скор (70% ML + 30% эвристика)
         combined_score = ml_score * 0.7 + readability * 0.3
-        
+
         if combined_score >= ml_threshold:
             if not in_segment:
                 in_segment = True
@@ -517,13 +617,13 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
                 # Завершаем сегмент
                 segment_end = i
                 segment_length = segment_end - segment_start
-                
+
                 if segment_length >= min_segment_length:
                     # Вычисляем средний ML скор для сегмента
                     start_idx = segment_start // block_size
                     end_idx = segment_end // block_size
                     avg_ml = sum(ml_scores[start_idx:end_idx]) / max(1, end_idx - start_idx)
-                    
+
                     segments.append({
                         'name': f'ml_segment_{len(segments)}',
                         'start': segment_start,
@@ -531,20 +631,20 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
                         'ml_score': avg_ml,
                         'method': 'ml'
                     })
-                
+
                 in_segment = False
-        
+
         i += block_size
-    
+
     # Проверяем последний сегмент
     if in_segment:
         segment_end = len(rom_data)
         segment_length = segment_end - segment_start
-        
+
         if segment_length >= min_segment_length:
             start_idx = segment_start // block_size
             avg_ml = sum(ml_scores[start_idx:]) / max(1, len(ml_scores) - start_idx)
-            
+
             segments.append({
                 'name': f'ml_segment_{len(segments)}',
                 'start': segment_start,
@@ -552,16 +652,16 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
                 'ml_score': avg_ml,
                 'method': 'ml'
             })
-    
+
     logger.info(f"ML автоопределено {len(segments)} текстовых сегментов")
-    
+
     if SKLEARN_AVAILABLE:
-        logger.info(f"ML классификатор доступен и используется")
-    
+        logger.info("ML классификатор доступен и используется")
+
     return segments
 
 
-def _skip_non_text_regions(i: int, rom_data: bytes, skip_ranges: List[Tuple[int, int]]) -> int:
+def _skip_non_text_regions(i: int, rom_data: bytes, skip_ranges: list[tuple[int, int]]) -> int:
     """Пропускает известные нетекстовые области"""
     for start_skip, end_skip in skip_ranges:
         if start_skip <= i < end_skip:
@@ -579,7 +679,7 @@ def _compute_block_readability(rom_data: bytes, start: int, block_size: int) -> 
     return readable_chars / (end_block - start) if end_block > start else 0
 
 
-def _add_segment(segments: List[Dict], start: int, end: int, readability: float, logger) -> List[Dict]:
+def _add_segment(segments: list[dict], start: int, end: int, readability: float, logger) -> list[dict]:
     """Добавляет сегмент в список"""
     segments.append({
         'name': f'auto_segment_{len(segments)}',
@@ -591,7 +691,7 @@ def _add_segment(segments: List[Dict], start: int, end: int, readability: float,
     return segments
 
 
-def analyze_text_segment(rom_data: bytes, start: int, end: int) -> Dict:
+def analyze_text_segment(rom_data: bytes, start: int, end: int) -> dict:
     """Анализ текстового сегмента для определения характеристик"""
 
     logger = logging.getLogger('gb2text.scanner')

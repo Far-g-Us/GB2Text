@@ -1,6 +1,6 @@
 # GB2Text Roadmap
 
-**Текущая версия:** 1.0
+**Текущая версия:** 1.2
 
 ## ✅ Версия 0.9
 
@@ -31,18 +31,18 @@
 ## 🎯 Версия 1.0
 
 ### Приоритет 1 - Стабильность
-- [x] Расширение покрытия тестами (базовое покрытие core модулей) - **90% общее покрытие, все файлы ≥80%**
-- [x] CI/CD для автоматического запуска тестов (.github/workflows/tests.yml)
+- [x] Расширение покрытия тестами (базовое покрытие core модулей)
+- [ ] CI/CD для автоматического запуска тестов (.github/workflows/tests.yml)
 - [x] Валидация ROM файлов (проверка расширения, размера)
 - [x] Тесты для GUI (tests/test_main_window.py)
-- [x] **Расширенное тестирование** - Matrix testing (Python 3.10-3.12, Ubuntu, Windows)
-- [x] **Бенчмарки производительности** - tests/benchmarks/test_performance.py
-- [x] **Интеграционные тесты** - tests/test_integration_extended.py
+- [ ] **Расширенное тестирование** — Matrix testing (Python 3.10-3.12, Ubuntu, Windows)
+- [x] **Бенчмарки производительности** — tests/benchmarks/test_performance.py
+- [x] **Интеграционные тесты** — tests/test_integration_extended.py
 
 ### Приоритет 2 - Улучшение UX
-- [x] Улучшенный GUI - более интуитивный интерфейс
+- [x] Улучшенный GUI — более интуитивный интерфейс
 - [x] Предпросмотр изменений перед сохранением
-- [x] История изменений (undo/redo) - Ctrl+Z / Ctrl+Y
+- [x] История изменений (undo/redo) — Ctrl+Z / Ctrl+Y
 - [x] Тёмная тема (dark mode)
 - [x] Поддержка перетаскивания (drag & drop) файлов
 - [x] Копирование/вставка текста между сегментами
@@ -53,7 +53,7 @@
 - [x] Экспорт/импорт CSV
 
 ### Приоритет 3 - Документация
-- [x] Полная документация API
+- [x] Базовая документация API
 - [x] Примеры использования
 
 ### Приоритет 4 - Исправления
@@ -65,7 +65,7 @@
 - [x] Добавлен README в test_roms/
 - [x] Добавлены константы UI (COMBOBOX_WIDTH, DEFAULT_PADDING и др.)
 - [x] Заменены голые исключения (except:) на конкретные типы
-- [x] **Добавлено кэширование ROM** - при переключении между вкладками Extract и Edit ROM не перезагружается
+- [x] **Добавлено кэширование ROM** — при переключении между вкладками Extract и Edit ROM не перезагружается
 - [x] Добавлен модуль core/rom_cache.py с классом ROMCache
 
 ---
@@ -98,9 +98,9 @@
 - [x] Валидация перевода (проверка длины текста)
 - [x] Автоматическое заполнение нулевых переводов
 - [ ] Проверка орфографии
-- [x] **Инструменты разработки** - scripts/debug.py, profile.py, diagnostics.py
-- [x] **Бенчмарки** - tests/benchmarks/test_performance.py
-- [x] **Coverage отчёты** - .github/workflows/coverage.yml
+- [x] **Инструменты разработки** — scripts/debug.py, profile.py, diagnostics.py
+- [x] **Бенчмарки** — tests/benchmarks/test_performance.py
+- [ ] **Coverage отчёты** — .github/workflows/coverage.yml
 
 ### Плагины и расширяемость
 - [x] API для создания плагинов
@@ -109,9 +109,57 @@
 
 ---
 
+## 🆕 Версия 1.2
+
+### Плагины GBA игр
+- [x] Поддержка 20+ GBA игр (Pokemon, Fire Emblem, FF4/5/6, Zelda TMC, Castlevania и др.)
+- [x] FFTA: полное извлечение текста через указательные таблицы + LZSS + CRN
+- [x] Huffman декодер для Fire Emblem
+- [x] Константный.stride детектор для автоматического поиска таблиц
+- [x] DataCrystal TBL таблицы для Castlevania AoS, Wario Land 4, Astro Boy
+
+### Документация
+- [x] Двуязычная документация (en/ru): README, CONTRIBUTING, ROADMAP, API
+- [x] Тестовое руководство (tests/README.md)
+- [x] SUPPORTED_GAMES.md — список поддерживаемых игр
+- [x] Юридический guard — нет дистрибуции ROM, disclaimer на месте
+
+### Качество
+- [x] 15 plugin contract тестов (все проходят)
+- [x] Критики: critic, bug-critic, security-critic, ui-critic
+- [x] Исправлены ошибки в ROADMAP (CI/CD, API docs, ссылки)
+
+---
+
+## 🔮 Версия 1.3 (план)
+
+### Приоритет 1 — Доупаковка
+- [ ] CI/CD: .github/workflows/tests.yml + coverage.yml
+- [ ] Pointer relocation после вставки текста
+- [ ] Пересчёт header/global checksum после инъекции
+- [ ] Тесты для FFTA LZSS и Huffman декодеров
+
+### Приоритет 2 — Новые плагины
+- [ ] GB/GBC плагины (пока только GBA)
+- [ ] Metroid Fusion — dialogue pointer tables
+- [ ] Castlevania AoS — pointer table brute-force
+
+### Приоритет 3 — UI/UX
+- [ ] Визуальный редактор таблицы символов
+- [ ] Карта ROM с подсветкой текстовых сегментов
+- [ ] Фильтр/поиск по имени сегмента (для 1500+ сегментов)
+
+### Приоритет 4 — Экспорт
+- [ ] XLIFF формат (CAT-интеграция)
+- [ ] Plugin auto-discovery через entry_points
+
+---
+
 ## 🐛 Известные проблемы
 
-- Некоторые игры с нестандартной кодировкой не распознаются (про них стоит уточнять)
+- Некоторые игры с нестандартной кодировкой не распознаются
+- FE Huffman декодер не работает для Europe ROMs (неизвестны адреса деревьев)
+- Castlevania AoS — указательные таблицы не найдены
 
 ---
 
@@ -126,10 +174,8 @@
 
 ## 📄 Дополнительная документация
 
-- [AUDIT.md](AUDIT.md) - Аудит репозитория
-- [CODE_REVIEW.md](CODE_REVIEW.md) - Code review
-- [IMPROVEMENTS.md](IMPROVEMENTS.md) - Предложения по улучшению
+- [IMPROVEMENTS.md](IMPROVEMENTS.md) — Предложения по улучшению
 
 ---
 
-*Roadmap обновлён: 2026-03-30*
+*Roadmap обновлён: 2026-09-06*

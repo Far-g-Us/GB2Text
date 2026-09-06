@@ -19,8 +19,8 @@ GB Text Extraction Framework
 Поддержка различных Memory Bank Controllers
 """
 
-import time
 import logging
+import time
 
 logger = logging.getLogger('gb2text.mbc')
 

@@ -19,12 +19,17 @@ GB Text Extraction Framework
 Графический интерфейс для GB Text Extractor с полной функциональностью
 """
 
+import json
+import logging
+import os
+import sys
+import threading
+import time
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-import json, re, os, logging, threading, time, sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from collections import Counter
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 # Опциональный импорт для drag & drop
 try:
@@ -37,17 +42,23 @@ except ImportError:
 # Инициализация логгера
 logger = logging.getLogger('gb2text.gui')
 
-from core.rom import GameBoyROM
-from core.i18n import I18N
-from core.guide import GuideManager
+from core.constants import DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH
+from core.encoding import (
+    auto_detect_charmap,
+    get_generic_chinese_charmap,
+    get_generic_english_charmap,
+    get_generic_japanese_charmap,
+    get_generic_russian_charmap,
+    get_generic_shiftjis_charmap,
+)
 from core.extractor import TextExtractor
+from core.guide import GuideManager
+from core.i18n import I18N
 from core.injector import TextInjector
-from core.plugin_manager import PluginManager, CancellationToken
-from core.encoding import get_generic_english_charmap, get_generic_japanese_charmap, get_generic_russian_charmap, \
-    get_generic_chinese_charmap, get_generic_shiftjis_charmap, auto_detect_charmap
-from core.scanner import analyze_text_segment, _detect_language
-from core.constants import DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT
 from core.machine_translation import MachineTranslation
+from core.plugin_manager import CancellationToken, PluginManager
+from core.rom import GameBoyROM
+from core.scanner import _detect_language, analyze_text_segment
 from core.tmx import TMXHandler
 
 
@@ -82,7 +93,7 @@ class GBTextExtractorGUI:
         self.current_segment = None
         self.current_entries = None
         self.current_entry_index = 0
-        
+
         # Поиск и замена
         self.search_results = []
         self.search_index = 0
@@ -865,7 +876,7 @@ class GBTextExtractorGUI:
         try:
             # Создаем временный плагин для извлечения информации
             from core.extractor import TextExtractor
-            extractor = TextExtractor(self.rom_path.get())
+            TextExtractor(self.rom_path.get())
 
             # Попробуем использовать автоопределение
             from plugins.auto_detect import AutoDetectPlugin
@@ -908,7 +919,7 @@ class GBTextExtractorGUI:
         except Exception as e:
             messagebox.showerror(
                 self.i18n.t("error.title"),
-                self.i18n.t("config.error") + f": {str(e)}"
+                self.i18n.t("config.error") + f": {e!s}"
             )
 
     def apply_encoding(self):
@@ -985,11 +996,11 @@ class GBTextExtractorGUI:
         self.guide_text.delete(1.0, tk.END)
 
         # Заголовок
-        self.guide_text.insert(tk.END, f"Руководство для {self.current_guide.get('game_id', 'игры')}\n\n", "header")
+        self.guide_text.insert(tk.END, f"{self.i18n.t('guide.for.game').format(game_id=self.current_guide.get('game_id', ''))}\n\n", "header")
         self.guide_text.insert(tk.END, f"{self.current_guide.get('description', '')}\n\n")
 
         # Шаги
-        self.guide_text.insert(tk.END, "Пошаговая инструкция:\n", "section")
+        self.guide_text.insert(tk.END, f"{self.i18n.t('guide.step.by.step')}\n", "section")
         steps = self.current_guide.get('steps', [])
         for i, step in enumerate(steps, 1):
             self.guide_text.insert(tk.END, f"{i}. {step.get('title', '')}\n", "step")
@@ -998,7 +1009,7 @@ class GBTextExtractorGUI:
         # Советы
         tips = self.current_guide.get('tips', [])
         if tips:
-            self.guide_text.insert(tk.END, "Полезные советы:\n", "section")
+            self.guide_text.insert(tk.END, f"{self.i18n.t('guide.tips')}\n", "section")
             for i, tip in enumerate(tips, 1):
                 self.guide_text.insert(tk.END, f"• {tip}\n")
 
@@ -1012,7 +1023,7 @@ class GBTextExtractorGUI:
     def load_guide_template(self):
         """Загружает шаблон руководства"""
         if not self.current_rom:
-            messagebox.showwarning("Предупреждение", "Сначала загрузите ROM-файл")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("guide.load.rom.first"))
             return
 
         game_id = self.current_rom.get_game_id()
@@ -1025,9 +1036,9 @@ class GBTextExtractorGUI:
             return
 
         if self.guide_manager.save_guide(self.current_rom.get_game_id(), self.current_guide):
-            messagebox.showinfo("Успех", "Руководство сохранено")
+            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("guide.saved"))
         else:
-            messagebox.showerror("Ошибка", "Не удалось сохранить руководство")
+            messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("guide.save.error"))
 
     def apply_guide(self):
         """Применяет рекомендации из руководства к извлечению текста"""
@@ -1035,9 +1046,8 @@ class GBTextExtractorGUI:
             return
 
         # Здесь можно добавить логику применения рекомендаций
-        messagebox.showinfo("Информация",
-                            "Рекомендации из руководства применены.\n"
-                            "Теперь вы можете извлечь текст с учетом специфики этой игры.")
+        messagebox.showinfo(self.i18n.t("info.title"),
+                            self.i18n.t("guide.applied"))
 
     def set_status(self, message: str, progress: int = 0):
         """Устанавливает статус и прогресс"""
@@ -1051,14 +1061,14 @@ class GBTextExtractorGUI:
         self.progress['maximum'] = max_value
         self.root.update_idletasks()
 
-    def update_progress(self, value: int, message: str = None):
+    def update_progress(self, value: int, message: str | None = None):
         """Обновляет прогресс"""
         self.progress['value'] = value
         if message:
             self.status_label.config(text=message)
         self.root.update_idletasks()
 
-    def end_progress(self, message: str = None):
+    def end_progress(self, message: str | None = None):
         """Завершает индикацию прогресса"""
         if message:
             self.set_status(message)
@@ -1240,7 +1250,7 @@ class GBTextExtractorGUI:
         self.text_output.delete(1.0, tk.END)
 
         if not self.current_results:
-            self.text_output.insert(tk.END, "Нет данных для отображения")
+            self.text_output.insert(tk.END, self.i18n.t("no.data.to.display"))
             return
 
         # Получаем выбранный сегмент
@@ -1253,7 +1263,7 @@ class GBTextExtractorGUI:
 
         # Проверяем, есть ли такой сегмент в результатах
         if segment_name not in self.current_results:
-            self.text_output.insert(tk.END, "Сегмент не найден")
+            self.text_output.insert(tk.END, self.i18n.t("segment.not.found"))
             return
 
         # Отображаем содержимое сегмента в текстовой области
@@ -1328,7 +1338,7 @@ class GBTextExtractorGUI:
                 with open(path, 'w', encoding='utf-8', newline='') as f:
                     writer = csv.writer(f)
                     writer.writerow(['segment', 'offset', 'original_text', 'translation'])
-                    
+
                     for segment_name, messages in self.current_results.items():
                         for msg in messages:
                             translation = msg.get('translation', '')
@@ -1338,7 +1348,7 @@ class GBTextExtractorGUI:
                                 msg.get('text', ''),
                                 translation
                             ])
-                
+
                 messagebox.showinfo(
                     self.i18n.t("success.title"),
                     self.i18n.t("export.csv.success")
@@ -1362,25 +1372,25 @@ class GBTextExtractorGUI:
         try:
             import csv
             translations = {}
-            
-            with open(path, 'r', encoding='utf-8') as f:
+
+            with open(path, encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     segment = row.get('segment', '')
                     offset_str = row.get('offset', '')
                     translation = row.get('translation', '')
-                    
+
                     if segment and offset_str and translation:
                         # Конвертируем offset из hex
                         try:
                             offset = int(offset_str.replace('0x', ''), 16)
                         except ValueError:
                             offset = 0
-                        
+
                         if segment not in translations:
                             translations[segment] = {}
                         translations[segment][offset] = translation
-            
+
             # Применяем переводы
             if self.current_results:
                 for segment_name, messages in self.current_results.items():
@@ -1389,15 +1399,15 @@ class GBTextExtractorGUI:
                             offset = msg.get('offset')
                             if offset in translations[segment_name]:
                                 msg['translation'] = translations[segment_name][offset]
-            
+
             messagebox.showinfo(
                 self.i18n.t("success.title"),
                 self.i18n.t("import.csv.success")
             )
-            
+
             # Обновляем отображение
             self._display_current_entry()
-            
+
         except Exception as e:
             messagebox.showerror(
                 self.i18n.t("error.title"),
@@ -1407,13 +1417,13 @@ class GBTextExtractorGUI:
     def export_tmx(self):
         """Экспорт результатов в TMX"""
         if not self.current_results:
-            messagebox.showwarning("Warning", "No results to export")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("batch.no.results"))
             return
 
         path = filedialog.asksaveasfilename(
             defaultextension=".tmx",
             filetypes=[("TMX files", "*.tmx"), ("All files", "*.*")],
-            title="Export to TMX"
+            title=self.i18n.t("file.export.tmx")
         )
 
         if path:
@@ -1439,23 +1449,23 @@ class GBTextExtractorGUI:
                 with open(path, 'w', encoding='utf-8') as f:
                     f.write(tmx_content)
 
-                messagebox.showinfo("Success", f"TMX exported to {path}")
+                messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("export.tmx.success").format(path=path))
 
             except Exception as e:
-                messagebox.showerror("Error", f"TMX export failed: {e}")
+                messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("export.tmx.error").format(error=e))
 
     def import_tmx(self):
         """Импорт переводов из TMX"""
         path = filedialog.askopenfilename(
             filetypes=[("TMX files", "*.tmx"), ("All files", "*.*")],
-            title="Import from TMX"
+            title=self.i18n.t("file.import.tmx")
         )
 
         if not path:
             return
 
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 tmx_content = f.read()
 
             # Импортируем переводы
@@ -1472,18 +1482,18 @@ class GBTextExtractorGUI:
                                 msg['translation'] = translations[segment_name][offset]
                                 applied_count += 1
 
-                messagebox.showinfo("Success", f"Imported {applied_count} translations from TMX")
+                messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("import.tmx.success").format(count=applied_count))
 
                 # Обновляем отображение
                 self._display_current_entry()
 
         except Exception as e:
-            messagebox.showerror("Error", f"TMX import failed: {e}")
+            messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("import.tmx.error").format(error=e))
 
     def switch_to_edit_tab(self):
         """Переключение на вкладку редактирования"""
         if not self.current_results:
-            messagebox.showwarning("Предупреждение", "Сначала извлеките текст")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("extract.text.first"))
             return
 
         # Автоматически переключаемся на вкладку редактирования
@@ -1605,7 +1615,7 @@ class GBTextExtractorGUI:
         settings_path = Path(self._get_resource_path("settings/settings.json"))
         if settings_path.exists():
             try:
-                with open(settings_path, "r", encoding="utf-8") as f:
+                with open(settings_path, encoding="utf-8") as f:
                     settings = json.load(f)
                 self.ui_lang = tk.StringVar(value=settings.get("ui_language", "en"))
                 self.target_lang = tk.StringVar(value=settings.get("target_language", "ru"))
@@ -1616,7 +1626,7 @@ class GBTextExtractorGUI:
                 self.bing_key = tk.StringVar(value=settings.get("bing_key", ""))
                 self.bing_region = tk.StringVar(value=settings.get("bing_region", "global"))
             except Exception as e:
-                logger.error(f"Ошибка загрузки настроек: {str(e)}")
+                logger.error(f"Ошибка загрузки настроек: {e!s}")
                 self._init_default_settings()
         else:
             self._init_default_settings()
@@ -1735,7 +1745,7 @@ class GBTextExtractorGUI:
             self.translated_text.config(state="normal")
 
         except Exception as e:
-            logger.error(f"Ошибка при отображении записи: {str(e)}")
+            logger.error(f"Ошибка при отображении записи: {e!s}")
             messagebox.showerror(
                 self.i18n.t("error.title"),
                 self.i18n.t("display.error", error=str(e))
@@ -2025,7 +2035,7 @@ class GBTextExtractorGUI:
             return
 
         # Начинаем поиск от текущей позиции + 1 символ
-        start_pos = text_widget.index("insert")
+        text_widget.index("insert")
         content = text_widget.get("1.0", "end-1c")
 
         # Ищем от текущей позиции
@@ -2056,7 +2066,7 @@ class GBTextExtractorGUI:
             self.show_search_dialog()
             return
 
-        start_pos = text_widget.index("insert")
+        text_widget.index("insert")
         content = text_widget.get("1.0", "end-1c")
 
         # Ищем назад от текущей позиции
@@ -2173,14 +2183,14 @@ class GBTextExtractorGUI:
     def machine_translate_current(self):
         """Выполняет машинный перевод текущего текста"""
         if not self.current_entries:
-            messagebox.showwarning("Warning", "No text loaded")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("warning.no.text"))
             return
 
         entry = self.current_entries[self.current_entry_index]
         original_text = entry.get('text', '').strip()
 
         if not original_text:
-            messagebox.showwarning("Warning", "No original text to translate")
+            messagebox.showwarning(self.i18n.t("warning.title"), self.i18n.t("warning.no.original"))
             return
 
         # Определяем языки
@@ -2195,14 +2205,14 @@ class GBTextExtractorGUI:
         target_lang = self.target_lang.get()
 
         try:
-            self.set_status("Translating...", 0)
+            self.set_status(self.i18n.t("status.translating"), 0)
             translated = self.machine_translation.translate(original_text, source_lang, target_lang)
             self.translated_text.delete(1.0, tk.END)
             self.translated_text.insert(1.0, translated)
-            self.set_status("Translation completed")
+            self.set_status(self.i18n.t("translation.completed"))
         except Exception as e:
-            self.set_status("Translation failed")
-            messagebox.showerror("Error", f"Machine translation failed: {str(e)}")
+            self.set_status(self.i18n.t("translation.failed"))
+            messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("translation.error").format(error=e))
 
     def _show_preview_dialog(self, translation):
         """Показывает диалог предпросмотра изменений"""
@@ -2268,7 +2278,7 @@ class GBTextExtractorGUI:
         # Заголовок
         title_label = ttk.Label(
             about_frame,
-            text=f"GB Text Extractor & Translator",
+            text="GB Text Extractor & Translator",
             font=("Helvetica", 16, "bold")
         )
         title_label.pack(anchor="w", pady=(0, 10))
@@ -2401,10 +2411,10 @@ class GBTextExtractorGUI:
             if name == lang_name:
                 new_lang = code
                 break
-        
+
         if not new_lang:
             new_lang = lang_name  # Если не найден, используем как есть
-        
+
         self.i18n.change_language(new_lang)
 
         # Обновляем все тексты в интерфейсе
@@ -2482,7 +2492,7 @@ class GBTextExtractorGUI:
         """Загружает текущий лог-файл в текстовую область"""
         try:
             log_path = self._get_resource_path('gb2text.log')
-            with open(log_path, 'r') as f:
+            with open(log_path) as f:
                 log_content = f.read()
 
             self.log_text.config(state="normal")
@@ -2494,7 +2504,7 @@ class GBTextExtractorGUI:
             self.log_text.see(tk.END)
         except Exception as e:
             logger = logging.getLogger('gb2text.gui')
-            logger.error(f"Не удалось загрузить лог-файл: {str(e)}")
+            logger.error(f"Не удалось загрузить лог-файл: {e!s}")
 
     def run_diagnostics(self):
         """Запуск диагностического процесса"""
@@ -2553,7 +2563,7 @@ class GBTextExtractorGUI:
             logger.info(f"Кириллическая плотность: {language_stats['cyrillic_density']:.2%}")
 
         except Exception as e:
-            logger.error(f"Ошибка при определении языка: {str(e)}")
+            logger.error(f"Ошибка при определении языка: {e!s}")
             diagnostics_info["language_analysis"] = {"error": str(e)}
 
         # Анализ текстовых сегментов
@@ -2605,7 +2615,7 @@ class GBTextExtractorGUI:
 
         messagebox.showinfo(
             self.i18n.t("success.title"),
-            f"Диагностика завершена. Результаты сохранены в {diag_file}"
+            f"{self.i18n.t('diagnostics.saved').format(path=diag_file)}"
         )
 
         # Обновляем отображение лога
@@ -2623,16 +2633,16 @@ class GBTextExtractorGUI:
         if save_path:
             try:
                 log_path = self._get_resource_path('gb2text.log')
-                with open(log_path, 'r') as src, open(save_path, 'w') as dst:
+                with open(log_path) as src, open(save_path, 'w') as dst:
                     dst.write(src.read())
                 messagebox.showinfo(
                     self.i18n.t("success.title"),
-                    f"Лог успешно сохранен в {save_path}"
+                    self.i18n.t("log.saved").format(path=save_path)
                 )
             except Exception as e:
                 messagebox.showerror(
                     self.i18n.t("error.title"),
-                    f"Не удалось сохранить лог: {str(e)}"
+                    self.i18n.t("log.save.error").format(error=e)
                 )
 
     def inject_translation(self):
@@ -2756,22 +2766,22 @@ class GBTextExtractorGUI:
     def apply_theme(self):
         """Применяет выбранную тему оформления"""
         theme = self.theme.get()
-        
+
         if theme == "dark":
             # Тёмная тема
             dark_bg = "#2b2b2b"
             dark_fg = "#ffffff"
             dark_input_bg = "#3c3c3c"
-            
+
             self.root.configure(bg=dark_bg)
-            
+
             # Применяем ко всем виджетам
             for widget in self.root.winfo_children():
                 self._apply_dark_theme(widget, dark_bg, dark_fg, dark_input_bg)
         else:
             # Светлая тема (по умолчанию)
             self.root.configure(bg="SystemButtonFace")
-            
+
             for widget in self.root.winfo_children():
                 self._apply_light_theme(widget)
 
@@ -2779,7 +2789,7 @@ class GBTextExtractorGUI:
         """Рекурсивно применяет тёмную тему к виджету и его потомкам"""
         try:
             widget_class = widget.winfo_class()
-            
+
             if widget_class in ['TFrame', 'TLabelframe']:
                 widget.configure(style=bg)
             elif widget_class == 'TLabel':
@@ -2792,7 +2802,7 @@ class GBTextExtractorGUI:
                 widget.configure(style='Dark.TButton')
         except (tk.TclError, AttributeError, KeyError):
             pass
-        
+
         # Рекурсивно обрабатываем дочерние виджеты
         try:
             for child in widget.winfo_children():
@@ -2804,7 +2814,7 @@ class GBTextExtractorGUI:
         """Восстанавливает светлую тему"""
         try:
             widget_class = widget.winfo_class()
-            
+
             if widget_class in ['TFrame', 'TLabelframe']:
                 widget.configure(style='')
             elif widget_class == 'TLabel':
@@ -2815,7 +2825,7 @@ class GBTextExtractorGUI:
                 widget.configure(background='white', foreground='black', selectbackground='#3399ff')
         except (tk.TclError, AttributeError, KeyError):
             pass
-        
+
         try:
             for child in widget.winfo_children():
                 self._apply_light_theme(child)
@@ -2828,9 +2838,9 @@ class GBTextExtractorGUI:
             return
 
         if self.guide_manager.rate_guide(self.current_rom.get_game_id(), rating):
-            messagebox.showinfo("Успех", f"Руководство оценено на {rating} звезд(ы)")
+            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("guide.rated.success").format(rating=rating))
         else:
-            messagebox.showerror("Ошибка", "Не удалось оценить руководство")
+            messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("guide.rated.error"))
 
     def _setup_guide_tab(self):
         """Настройка вкладки руководства"""
@@ -2878,10 +2888,10 @@ class GBTextExtractorGUI:
         """Возвращает версию приложения"""
         try:
             version_path = self._get_resource_path('VERSION')
-            with open(version_path, 'r') as f:
+            with open(version_path) as f:
                 version = f.read().strip()
                 return version
-        except (OSError, IOError):
+        except OSError:
             return "1.0.0"
 
     def open_url(self, url):
@@ -2922,7 +2932,7 @@ class GBTextExtractorGUI:
                 self._create_default_icon()
 
         except Exception as e:
-            logger.error(f"Ошибка при установке иконки: {str(e)}")
+            logger.error(f"Ошибка при установке иконки: {e!s}")
             self._create_default_icon()
 
     def _create_default_icon(self):
@@ -2946,7 +2956,7 @@ class GBTextExtractorGUI:
             # Устанавливаем иконку
             self.root.iconphoto(True, icon)
         except Exception as e:
-            logger.error(f"Не удалось создать стандартную иконку: {str(e)}")
+            logger.error(f"Не удалось создать стандартную иконку: {e!s}")
 
 def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     """Запуск GUI приложения"""
@@ -2960,5 +2970,5 @@ def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
     logger.info("Запуск GUI версии")
 
     root = tkinterdnd2.TkinterDnD.Tk() if TKINTERDND2_AVAILABLE else tk.Tk()
-    app = GBTextExtractorGUI(root, rom_path, plugin_dir, lang)
+    GBTextExtractorGUI(root, rom_path, plugin_dir, lang)
     root.mainloop()

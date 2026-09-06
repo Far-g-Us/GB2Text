@@ -14,6 +14,10 @@ dist/
 settings/
 coverage.json
 htmlcov/*
+test_roms/
+
+.opencode/
+opencode.json
 
 # Диагностические каталоги
 diagnostics_*

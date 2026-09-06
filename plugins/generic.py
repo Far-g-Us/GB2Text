@@ -19,10 +19,11 @@ GB Text Extraction Framework
 Базовые классы и функции без привязки к коммерческим играм
 """
 
-from core.plugin import GamePlugin
+from core.constants import SYSTEM_GB
 from core.database import get_pointer_size
+from core.plugin import GamePlugin
 from core.scanner import find_text_pointers
-from core.constants import GBA_ROM_BASE_ADDRESS, SYSTEM_GB, SYSTEM_GBC, SYSTEM_GBA
+
 
 class GenericGBPlugin(GamePlugin):
     """Базовый плагин для игр Game Boy"""
@@ -42,7 +43,7 @@ class GenericGBPlugin(GamePlugin):
         )
 
         segments = []
-        for i, (ptr_addr, text_addr) in enumerate(pointers):
+        for i, (_ptr_addr, text_addr) in enumerate(pointers):
             segment_length = self._estimate_segment_length(rom.data, text_addr)
             segments.append({
                 'name': f'{system}_segment_{i}',
@@ -92,20 +93,33 @@ class GenericGBPlugin(GamePlugin):
 
 class GenericGBCPlugin(GenericGBPlugin):
     """Базовый плагин для игр Game Boy Color"""
+
+    @property
+    def game_id_pattern(self) -> str:
+        return r'^GAME_[0-9A-F]{2}$'
+
     pass
 
 
 class GenericGBAPlugin(GenericGBPlugin):
     """Базовый плагин для игр Game Boy Advance"""
 
+    @property
+    def game_id_pattern(self) -> str:
+        return r'^GBA_[0-9A-F]{4}$'
+
     def get_text_segments(self, rom) -> list:
         from core.scanner import find_text_pointers
 
-        # Для GBA используем 32-битные указатели
-        pointers = find_text_pointers(rom.data, pointer_size=get_pointer_size('gba'))
+        # Для GBA используем 32-битные указатели с базовым адресом 0x08000000
+        pointers = find_text_pointers(
+            rom.data,
+            pointer_size=get_pointer_size('gba'),
+            address_base=0x08000000
+        )
 
         segments = []
-        for i, (ptr_addr, text_addr) in enumerate(pointers):
+        for i, (_ptr_addr, text_addr) in enumerate(pointers):
             # Определяем длину сегмента
             segment_length = self._estimate_segment_length(rom.data, text_addr)
             segments.append({

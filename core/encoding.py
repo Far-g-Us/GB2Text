@@ -15,7 +15,6 @@ GB Text Extraction Framework
 обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
 """
 
-from typing import Dict
 
 
 def decode_shiftjis_bytes(data: bytes) -> str:
@@ -70,7 +69,7 @@ def encode_shiftjis_text(text: str) -> bytes:
         return bytes(result)
 
 
-def get_generic_english_charmap() -> Dict[int, str]:
+def get_generic_english_charmap() -> dict[int, str]:
     """Базовая английская таблица символов без привязки к конкретным играм"""
     return {
         0x20: ' ', 0x21: '!', 0x22: '"', 0x23: '#', 0x24: '$',
@@ -100,7 +99,7 @@ def get_generic_english_charmap() -> Dict[int, str]:
     }
 
 
-def get_generic_japanese_charmap() -> Dict[int, str]:
+def get_generic_japanese_charmap() -> dict[int, str]:
     """Базовая японская таблица символов без привязки к конкретным играм"""
     # Включает ТОЛЬКО базовые символы, без специфичных для игр элементов
     return {
@@ -156,7 +155,7 @@ def get_generic_japanese_charmap() -> Dict[int, str]:
     }
 
 
-def get_generic_russian_charmap() -> Dict[int, str]:
+def get_generic_russian_charmap() -> dict[int, str]:
     """Базовая русская таблица символов без привязки к конкретным играм"""
     # Создаем на основе английской, добавляя кириллицу в свободные слоты
     charmap = get_generic_english_charmap().copy()
@@ -186,11 +185,11 @@ def get_generic_russian_charmap() -> Dict[int, str]:
     return charmap
 
 
-def get_generic_chinese_charmap() -> Dict[int, str]:
+def get_generic_chinese_charmap() -> dict[int, str]:
     """Базовая китайская таблица символов без привязки к конкретным играм"""
     # Создаем на основе английской таблицы
     charmap = get_generic_english_charmap().copy()
-    
+
     # GB games обычно не используют китайские символы в стандартной кодировке,
     # но добавляем расширенные символы для совместимости
     extended = {
@@ -229,15 +228,15 @@ def get_generic_chinese_charmap() -> Dict[int, str]:
     return charmap
 
 
-def get_generic_shiftjis_charmap() -> Dict[int, str]:
+def get_generic_shiftjis_charmap() -> dict[int, str]:
     """Базовая таблица Shift-JIS для японских GBA игр.
-    
+
     GBA японские игры часто используют Shift-JIS кодировку.
     Эта функция возвращает базовую таблицу символов.
     """
     # Базовая ASCII часть (такая же как в английской)
     charmap = get_generic_english_charmap().copy()
-    
+
     # Добавляем основные символы Shift-JIS (katakana + базовые kanji)
     # Это упрощенная таблица - полная таблица слишком большая
     shiftjis_base = {
@@ -252,35 +251,35 @@ def get_generic_shiftjis_charmap() -> Dict[int, str]:
         0xC4: 'ヤ', 0xC5: 'ユ', 0xC6: 'ヨ',
         0xC7: 'ラ', 0xC8: 'リ', 0xC9: 'ル', 0xCA: 'レ', 0xCB: 'ロ',
         0xCC: 'ワ', 0xCD: 'ヲ', 0xCE: 'ン',
-        
+
         # Punctuation
         0x81: '、', 0x82: '。', 0x83: '，', 0x84: '．', 0x85: '：',
         0x86: '；', 0x87: '？', 0x88: '！', 0x89: '／', 0x8A: '－',
         0x8B: '（', 0x8C: '）', 0x8D: '［', 0x8E: '］', 0x8F: '｛',
-        0x90: '｝', 
-        
+        0x90: '｝',
+
         # Numbers (Shift-JIS: 0x8250-0x8259, single-byte fallback only)
     }
-    
+
     # Переопределим цифры правильно (Shift-JIS: 0x82 + 0x30-0x39)
     # Dict[int, str] не может представить двухбайтовые последовательности,
     # поэтому добавляем только однобайтовые эквиваленты для fallback
     for i, digit in enumerate('0123456789'):
         charmap[0x30 + i] = digit
-    
+
     # Обновляем базовую таблицу
     charmap.update(shiftjis_base)
-    
+
     return charmap
 
 
-def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> Dict[int, str]:
+def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> dict[int, str]:
     """
     Автоматическое определение возможной таблицы символов.
     Пользователь должен проверить и скорректировать результат.
     """
     # Анализ статистики использования байтов
-    freq = {}
+    freq: dict[int, int] = {}
     for i in range(start, min(start + length, len(rom_data))):
         byte = rom_data[i]
         freq[byte] = freq.get(byte, 0) + 1
@@ -307,7 +306,7 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
     return charmap
 
 
-def validate_charmap(charmap: Dict[int, str]) -> list:
+def validate_charmap(charmap: dict[int, str]) -> list:
     """
     Валидирует таблицу символов и возвращает список проблем.
     Проверяет: некорректные типы ключей/значений, пустые строки.

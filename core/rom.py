@@ -20,9 +20,8 @@ GB Text Extraction Framework
 """
 
 import logging
-from typing import Dict, Optional
-from core.mbc import create_mbc
 
+from core.mbc import create_mbc
 
 # Валидные расширения файлов
 VALID_EXTENSIONS = {'.gb', '.gbc', '.gba'}
@@ -34,32 +33,32 @@ MIN_ROM_SIZE = 0x8000  # 32KB
 MAX_ROM_SIZE = 0x4000000  # 64MB
 
 
-def validate_rom_file(path: str) -> Optional[str]:
+def validate_rom_file(path: str) -> str | None:
     """
     Валидирует ROM файл перед загрузкой.
-    
+
     Returns:
         None если валиден, строку с ошибкой если нет
     """
     import os
-    
+
     # Проверка расширения
     ext = os.path.splitext(path)[1].lower()
     if ext not in VALID_EXTENSIONS:
         return f"Неверное расширение файла: {ext}. Ожидалось .gb, .gbc или .gba"
-    
+
     # Проверка существования
     if not os.path.exists(path):
         return f"Файл не существует: {path}"
-    
+
     # Проверка размера
     size = os.path.getsize(path)
     if size < MIN_ROM_SIZE:
         return f"Файл слишком маленький: {size} байт. Минимум {MIN_ROM_SIZE} байт"
-    
+
     if size > MAX_ROM_SIZE:
         return f"Файл слишком большой: {size} байт. Максимум {MAX_ROM_SIZE} байт"
-    
+
     return None
 
 
@@ -73,14 +72,14 @@ class GameBoyROM:
         if not isinstance(rom_path, str):
             logger.error(f"rom_path должен быть строкой, а не {type(rom_path)}")
             raise TypeError(f"rom_path должен быть строкой, а не {type(rom_path)}")
-        
+
         # Валидация файла перед загрузкой (может быть отключена для тестов)
         if validate:
             validation_error = validate_rom_file(rom_path)
             if validation_error:
                 logger.error(f"Валидация ROM не пройдена: {validation_error}")
                 raise ValueError(validation_error)
-        
+
         self.path = rom_path
         self.data = self._load_rom(rom_path)
         self.header = self._parse_header()
@@ -100,15 +99,58 @@ class GameBoyROM:
             logger.info(f"Успешно прочитано {len(data)} байт")
             return data
         except Exception as e:
-            logger.error(f"Ошибка при чтении ROM файла: {str(e)}")
+            logger.error(f"Ошибка при чтении ROM файла: {e!s}")
             raise
 
-    def _parse_header(self) -> Dict:
+    def _parse_header(self) -> dict:
         """Парсинг заголовка ROM"""
         if len(self.data) < 0x150:
             raise ValueError("Недопустимый ROM файл: слишком маленький")
 
-        # Извлекаем данные заголовка
+        # Определяем систему из расширения файла для выбора формата заголовка
+        is_gba = self.path.lower().endswith('.gba')
+
+        if is_gba:
+            return self._parse_gba_header()
+        else:
+            return self._parse_gb_header()
+
+    def _parse_gba_header(self) -> dict:
+        """Парсинг заголовка GBA ROM"""
+        # GBA заголовок: https://problemkaputt.de/gbatek.htm#gbacartridgeheader
+        try:
+            title = self.data[0x000:0x00A].decode('ascii', errors='replace').rstrip('\x00')
+            game_code = self.data[0x0AC:0x0B0].decode('ascii', errors='replace').rstrip('\x00')
+            maker_code = self.data[0x0B0:0x0B2].decode('ascii', errors='replace').rstrip('\x00')
+
+            # GBA ROM size определяется по размеру файла (не из заголовка)
+            # Стандартные размеры: 4MB, 8MB, 16MB, 32MB
+            rom_size = len(self.data)
+
+            header = {
+                'title': title,
+                'cgb_flag': 0,
+                'new_licensee_code': 0,
+                'sgb_flag': 0,
+                'cartridge_type': 0,
+                'rom_size': rom_size,
+                'ram_size': 0,  # GBA RAM size не определяется из заголовка
+                'destination_code': 0,
+                'old_licensee_code': 0,
+                'mask_rom_version': self.data[0x01D] if len(self.data) > 0x01D else 0,
+                'header_checksum': self.data[0x01E] if len(self.data) > 0x01E else 0,
+                'global_checksum': 0,
+                'game_code': game_code,
+                'maker_code': maker_code,
+                'system': 'gba'
+            }
+        except Exception as e:
+            raise ValueError(f"Недопустимый GBA ROM файл: ошибка при парсинге заголовка: {e!s}") from e
+
+        return header
+
+    def _parse_gb_header(self) -> dict:
+        """Парсинг заголовка GB/GBC ROM"""
         try:
             header = {
                 'title': self.data[0x0134:0x0143].decode('ascii', errors='replace').rstrip('\x00'),
@@ -122,10 +164,13 @@ class GameBoyROM:
                 'old_licensee_code': self.data[0x014B],
                 'mask_rom_version': self.data[0x014C],
                 'header_checksum': self.data[0x014D],
-                'global_checksum': (self.data[0x014E] << 8) | self.data[0x014F]
+                'global_checksum': (self.data[0x014E] << 8) | self.data[0x014F],
+                'game_code': '',
+                'maker_code': '',
+                'system': 'gb'  # будет определён позже
             }
         except Exception as e:
-            raise ValueError(f"Недопустимый ROM файл: ошибка при парсинге заголовка: {str(e)}")
+            raise ValueError(f"Недопустимый ROM файл: ошибка при парсинге заголовка: {e!s}") from e
 
         # Исправляем проблему с отсутствующим new_licensee_code
         if header['new_licensee_code'] == 0xFFFF:
@@ -142,15 +187,17 @@ class GameBoyROM:
         logger = logging.getLogger('gb2text.rom')
         logger.info("Определение типа системы...")
 
+        # Если заголовок уже определил систему (GBA)
+        if self.header.get('system') == 'gba':
+            logger.info("Определена система: Game Boy Advance (gba)")
+            return 'gba'
+
         # Проверка на Game Boy Advance
-        # GBA имеет сигнатуру "GBA " в начале или больший размер
         if len(self.data) > 0x100:
-            # Проверяем начало ROM на наличие GBA сигнатуры
             header_start = self.data[:10]
             if b'GBA ' in header_start or b'AGB' in header_start:
                 logger.info("Определена система: Game Boy Advance (gba)")
                 return 'gba'
-            # Также можно определить по расширению файла
             if self.path.lower().endswith('.gba'):
                 logger.info("Определена система: Game Boy Advance (gba)")
                 return 'gba'
@@ -160,19 +207,17 @@ class GameBoyROM:
             logger.info("Определена система: Game Boy Color (gbc)")
             return 'gbc'
 
-        # Проверка на Game Boy Pocket/Color по заголовку
         if self.header['new_licensee_code'] == 0x33:
             logger.info("Определена система: Game Boy Color (gbc)")
             return 'gbc'
 
-        # Проверка на Game Boy по заголовку
         if self.header['header_checksum'] != 0:
             logger.info("Определена система: Game Boy (gb)")
             return 'gb'
 
         # Проверка по размеру ROM
         rom_size = self.header['rom_size']
-        if rom_size <= 8:  # До 8 MB
+        if rom_size <= 8:
             logger.warning("Не удалось точно определить систему, используем Game Boy (gb) по умолчанию")
             return 'gb'
         else:
@@ -181,7 +226,14 @@ class GameBoyROM:
 
     def get_game_id(self) -> str:
         """Возвращает идентификатор игры"""
-        # Создаем безопасный идентификатор
+        # Для GBA используем game_code из заголовка
+        if self.system == 'gba':
+            game_code = self.header.get('game_code', '')
+            if game_code:
+                return f"GBA_{game_code}"
+            return "GBA_UNKNOWN"
+
+        # Для GB/GBC создаем безопасный идентификатор
         cartridge_type = self.header['cartridge_type']
         return f"GAME_{cartridge_type:02X}"
 
@@ -214,17 +266,18 @@ class GameBoyROM:
         return self.header.get('destination_code', 0)
 
     def validate_header(self) -> bool:
-        """Проверяет checksum заголовка ROM"""
+        """Проверяет checksum заголовка ROM (0x144-0x14C)"""
         checksum = 0
-        for addr in range(0x0134, 0x014D):
+        for addr in range(0x0144, 0x014D):
             checksum = (checksum - self.data[addr] - 1) & 0xFF
         return checksum == self.header['header_checksum']
 
     def calculate_checksum(self) -> int:
-        """Вычисляет глобальный checksum ROM"""
+        """Вычисляет глобальный checksum ROM (сумма всех байт кроме 0x14E-0x14F)"""
         checksum = 0
-        for i in range(0x0134, 0x014E):
-            checksum = (checksum + self.data[i]) & 0xFFFF
+        for i in range(len(self.data)):
+            if i not in (0x14E, 0x14F):
+                checksum = (checksum + self.data[i]) & 0xFFFF
         return checksum
 
     def read(self, address: int) -> int:

@@ -1,7 +1,8 @@
 """Pytest configuration and shared fixtures for GB2Text tests."""
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 # ROM system types for parametrized tests
@@ -134,7 +135,7 @@ def mock_rom_file(tmp_path):
 def pytest_collection_modifyitems(config, items):
     """Modify test collection to add skip markers."""
     import os
-    
+
     # Skip GUI tests if no display available
     if not os.environ.get('DISPLAY') and os.name != 'nt':
         skip_gui = pytest.mark.skip(reason="GUI tests require display")

@@ -1,9 +1,10 @@
 """
 Тесты для модуля constants
 """
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Добавляем корень проекта в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -25,7 +26,7 @@ class TestConstants:
         assert constants.SYSTEM_GB in constants.POINTER_SIZES
         assert constants.SYSTEM_GBC in constants.POINTER_SIZES
         assert constants.SYSTEM_GBA in constants.POINTER_SIZES
-        
+
         # Проверяем что размеры корректны
         assert constants.POINTER_SIZES[constants.SYSTEM_GB] == 2
         assert constants.POINTER_SIZES[constants.SYSTEM_GBC] == 2

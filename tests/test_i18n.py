@@ -10,51 +10,51 @@ from core.i18n import I18N
 
 class TestI18N:
     """Тесты для класса I18N"""
-    
+
     def test_i18n_init_english(self):
         """Тест инициализации с английским языком по умолчанию"""
         i18n = I18N(default_lang="en")
         assert i18n.current_lang == "en"
-    
+
     def test_i18n_init_russian(self):
         """Тест инициализации с русским языком"""
         i18n = I18N(default_lang="ru")
         assert i18n.current_lang == "ru"
-    
+
     def test_get_available_languages(self):
         """Тест получения списка доступных языков"""
         i18n = I18N(default_lang="en")
         langs = i18n.get_available_languages()
         assert isinstance(langs, dict)
         assert "en" in langs
-    
+
     def test_translate_key_exists(self):
         """Тест перевода существующего ключа"""
         i18n = I18N(default_lang="en")
         result = i18n.t("app.title")
         assert isinstance(result, str)
         assert len(result) > 0
-    
+
     def test_translate_key_not_exists(self):
         """Тест перевода несуществующего ключа"""
         i18n = I18N(default_lang="en")
         result = i18n.t("nonexistent.key.12345")
         # Должен вернуть ключ как есть
         assert result == "nonexistent.key.12345"
-    
+
     def test_translate_with_kwargs(self):
         """Тест перевода с параметрами"""
         i18n = I18N(default_lang="en")
         # Ключ "entry" имеет формат "Entry: {current} of {total}"
         result = i18n.t("entry", current=1, total=10)
         assert isinstance(result, str)
-    
+
     def test_change_language(self):
         """Тест смены языка"""
         i18n = I18N(default_lang="en")
         i18n.change_language("ru")
         assert i18n.current_lang == "ru"
-    
+
     def test_change_language_to_japanese(self):
         """Тест смены языка на японский"""
         i18n = I18N(default_lang="en")
@@ -62,7 +62,7 @@ class TestI18N:
         if "ja" in langs:
             i18n.change_language("ja")
             assert i18n.current_lang == "ja"
-    
+
     def test_change_language_to_chinese(self):
         """Тест смены языка на китайский"""
         i18n = I18N(default_lang="en")
@@ -70,13 +70,13 @@ class TestI18N:
         if "zh" in langs:
             i18n.change_language("zh")
             assert i18n.current_lang == "zh"
-    
+
     def test_translations_loaded(self):
         """Тест что переводы загружены"""
         i18n = I18N(default_lang="en")
         assert isinstance(i18n.translations, dict)
         assert len(i18n.translations) > 0
-    
+
     def test_translation_fallback(self):
         """Тест fallback на английский если перевода нет"""
         i18n = I18N(default_lang="ja")
@@ -180,7 +180,7 @@ class TestI18N:
     def test_i18n_with_custom_locale_path(self):
         """Тест с кастомным путём к локалям"""
         import tempfile
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             # Try to initialize with non-existent locale dir
             i18n = I18N(default_lang="en")
             assert i18n.current_lang == "en"
@@ -230,9 +230,8 @@ class TestI18N:
     def test_i18n_load_with_permission_error(self):
         """Тест загрузки с ошибкой доступа"""
         import tempfile
-        import os
         # Create a temp file to mock permission error
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory():
             # Create a mock locales directory with permission issues
             # We'll test the error handling by directly calling _load_translations
             i18n = I18N(default_lang="en")
@@ -258,8 +257,8 @@ class TestI18N:
 
     def test_i18n_load_translations_no_locales_dir(self):
         """Тест загрузки когда папка locales не существует"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import patch
+
         i18n = I18N(default_lang="en")
         # Mock Path to return non-existent directory
         with patch('pathlib.Path.exists', return_value=False):
@@ -269,12 +268,12 @@ class TestI18N:
 
     def test_i18n_load_translations_with_json_error(self):
         """Тест загрузки с ошибкой парсинга JSON"""
-        from unittest.mock import patch, mock_open, MagicMock
         import json
-        
+        from unittest.mock import MagicMock, patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         # Mock the file open to raise JSONDecodeError
         def mock_open_side_effect(*args, **kwargs):
             m = MagicMock()
@@ -283,7 +282,7 @@ class TestI18N:
             # Return invalid JSON
             m.read = MagicMock(side_effect=json.JSONDecodeError("Invalid", "", 0))
             return m
-        
+
         with patch('builtins.open', side_effect=mock_open_side_effect):
             with patch('pathlib.Path.exists', return_value=True):
                 with patch('pathlib.Path.glob', return_value=[MagicMock(stem='test')]):
@@ -291,11 +290,11 @@ class TestI18N:
 
     def test_i18n_load_translations_with_os_error(self):
         """Тест загрузки с ошибкой OS"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.glob', side_effect=OSError("Test error")):
                 i18n._load_translations()
@@ -304,15 +303,15 @@ class TestI18N:
 
     def test_i18n_t_with_exception(self):
         """Тест перевода с исключением"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import MagicMock
+
         i18n = I18N(default_lang="en")
         # Create a mock that raises exception when accessed
         mock_translations = MagicMock()
         mock_translations.__getitem__ = MagicMock(side_effect=Exception("Test exception"))
-        
+
         i18n.translations = mock_translations
-        
+
         try:
             result = i18n.t("test.key")
             assert isinstance(result, str)
@@ -321,17 +320,16 @@ class TestI18N:
 
     def test_i18n_load_skips_non_directories(self):
         """Тест пропуска недиректорий при загрузке языков"""
-        from unittest.mock import patch, MagicMock, mock_open
-        import json
-        
+        from unittest.mock import MagicMock, patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         # Create mock that returns a file (not a directory) for iterdir
         mock_lang_dir = MagicMock()
         mock_lang_dir.is_dir.return_value = False  # Not a directory - should be skipped
         mock_lang_dir.name = "test_lang"
-        
+
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.iterdir', return_value=[mock_lang_dir]):
                 i18n._load_translations()
@@ -340,17 +338,17 @@ class TestI18N:
 
     def test_i18n_load_missing_messages_json(self):
         """Тест когда файл messages.json не найден для языка"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import MagicMock, patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         # Create mock directory with no messages.json
         mock_lang_dir = MagicMock()
         mock_lang_dir.is_dir.return_value = True
         mock_lang_dir.name = "test_lang"
         mock_lang_dir.__truediv__ = MagicMock(return_value=MagicMock(exists=lambda: False))
-        
+
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.iterdir', return_value=[mock_lang_dir]):
                 i18n._load_translations()
@@ -359,23 +357,23 @@ class TestI18N:
 
     def test_i18n_load_file_read_os_error(self):
         """Тест обработки OSError при чтении файла перевода"""
-        from unittest.mock import patch, MagicMock, mock_open
-        
+        from unittest.mock import MagicMock, patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         # Mock directory with messages.json that exists but can't be read
         mock_lang_dir = MagicMock()
         mock_lang_dir.is_dir.return_value = True
         mock_lang_dir.name = "test_lang"
-        
+
         # Create messages.json path that exists
         messages_path = MagicMock()
         messages_path.exists.return_value = True
         messages_path.__truediv__ = lambda self, x: messages_path
-        
+
         mock_lang_dir.__truediv__ = lambda self, x: messages_path
-        
+
         # Mock open to raise OSError when reading
         with patch('builtins.open', side_effect=OSError("Permission denied")):
             with patch('pathlib.Path.exists', return_value=True):
@@ -386,11 +384,11 @@ class TestI18N:
 
     def test_i18n_load_permission_error(self):
         """Тест обработки PermissionError при доступе к папке locales"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.iterdir', side_effect=PermissionError("Access denied")):
                 i18n._load_translations()
@@ -399,11 +397,11 @@ class TestI18N:
 
     def test_i18n_load_runtime_error(self):
         """Тест обработки RuntimeError при загрузке переводов"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         with patch('pathlib.Path.exists', return_value=True):
             with patch('pathlib.Path.iterdir', side_effect=RuntimeError("Initialization error")):
                 i18n._load_translations()
@@ -412,11 +410,11 @@ class TestI18N:
 
     def test_i18n_load_translations_oserror(self):
         """Тест обработки OSError в _load_translations"""
-        from unittest.mock import patch, MagicMock
-        
+        from unittest.mock import patch
+
         i18n = I18N(default_lang="en")
         i18n.translations = {}
-        
+
         # OSError raised by exists() call inside the try block
         with patch('pathlib.Path.exists', side_effect=OSError("Filesystem error")):
             i18n._load_translations()
@@ -425,24 +423,22 @@ class TestI18N:
 
     def test_i18n_t_with_dict_exception(self):
         """Тест обработки исключения в t() при некорректном translations"""
-        from unittest.mock import MagicMock
-        
+
         i18n = I18N(default_lang="en")
         # Create a mock dict that raises exception on access
         original_translations = i18n.translations
         try:
             # Make the translations dict itself raise an exception when accessed
-            mock_translations = {}
             # Use a custom dict class that raises on any access
             class BadDict(dict):
                 def __getitem__(self, key):
                     raise Exception("Dict access error")
                 def get(self, key, default=None):
                     raise Exception("Dict get error")
-            
+
             i18n.translations = BadDict()
             i18n.translations["en"] = {"test.key": "value"}
-            
+
             result = i18n.t("test.key")
             # Should return the key safely due to exception handling
             assert result == "test.key"

@@ -1,9 +1,10 @@
 """
 Тесты для модуля decoder
 """
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 # Добавляем корень проекта в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -24,7 +25,7 @@ class TestDecoder:
             0xFF: '',
         }
         decoder = CharMapDecoder(charmap)
-        
+
         # Тест простого декодирования
         data = b'ABC'
         result = decoder.decode(data, 0, len(data))
@@ -38,7 +39,7 @@ class TestDecoder:
             0x00: '',
         }
         decoder = CharMapDecoder(charmap)
-        
+
         # Декодер не останавливается на терминаторе, а пропускает символы с пустую строку
         # Неизвестные символы могут быть заменены на похожие через _find_similar_char
         data = b'AB\x00C'
@@ -55,7 +56,7 @@ class TestDecoder:
             0x20: ' ',
         }
         decoder = CharMapDecoder(charmap)
-        
+
         # Неизвестные символы заменяются на пробел
         text = 'AB C'
         result = decoder.encode(text)
@@ -68,7 +69,7 @@ class TestDecoder:
             0x41: 'A',
         }
         decoder = CharMapDecoder(charmap)
-        
+
         data = b'AB'  # 'B' неизвестен
         result = decoder.decode(data, 0, len(data))
         assert 'A' in result
@@ -76,7 +77,7 @@ class TestDecoder:
     def test_empty_charmap(self):
         """Тест с пустым charmap"""
         decoder = CharMapDecoder({})
-        
+
         data = b'ABC'
         result = decoder.decode(data, 0, len(data))
         assert result == ''  # Все символы неизвестны

@@ -6,27 +6,28 @@ Welcome to the documentation for GB Text Extraction Framework!
 
 ## Select your language - Readme
 
-- [English](docs/en/README.md)
-- [Русский](docs/ru/README.md)
+- [English](en/README.md)
+- [Русский](ru/README.md)
 
 ## Select your language - Contributing
 
-- [English](docs/en/CONTRIBUTING.md)
-- [Русский](docs/ru/CONTRIBUTING.md)
+- [English](en/CONTRIBUTING.md)
+- [Русский](ru/CONTRIBUTING.md)
 
 ## API Documentation
 
-- [English](docs/en/API.md)
-- [Русский](docs/ru/API.md)
+- [English](en/API.md)
+- [Русский](ru/API.md)
 
 ## Usage Examples
 
-- [English](docs/en/USAGE.md)
-- [Русский](docs/ru/USAGE.md)
+- [English](en/USAGE.md)
+- [Русский](ru/USAGE.md)
 
 ## Roadmap
 
-- [Development Roadmap](../ROADMAP.md)
+- [English](en/ROADMAP.md)
+- [Русский](../ROADMAP.md)
 
 This documentation is available in multiple languages. Please select your preferred language from the links above.
 

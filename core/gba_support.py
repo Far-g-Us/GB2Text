@@ -19,10 +19,10 @@ GB Text Extraction Framework
 Поддержка Game Boy Advance ROM
 """
 
-from core.rom import GameBoyROM
-from core.decoder import CompressionHandler
-from typing import Tuple
 import logging
+
+from core.decoder import CompressionHandler
+
 
 class GBALZ77Handler(CompressionHandler):
     """Обработчик LZ77 (Nintendo, тип 0x10) для GBA.
@@ -38,8 +38,8 @@ class GBALZ77Handler(CompressionHandler):
                 копируем length байт из уже распакованного буфера с заданной distance
     """
 
-    def decompress(self, data: bytes, start: int) -> Tuple[bytes, int]:
-        logger = logging.getLogger('gb2text.gba_lz77')
+    def decompress(self, data: bytes, start: int) -> tuple[bytes, int]:
+        logging.getLogger('gb2text.gba_lz77')
 
         # Грубая защита границ
         if start < 0 or start >= len(data):
@@ -111,7 +111,7 @@ class GBALZ77Handler(CompressionHandler):
         Простой lazy-match алгоритм: ищет совпадения в предыдущих 4096 байтах.
         """
         import logging
-        logger = logging.getLogger('gb2text.gba_lz77')
+        logging.getLogger('gb2text.gba_lz77')
 
         if not data:
             return b'\x10\x00\x00\x00'

@@ -19,9 +19,9 @@ GB Text Extraction Framework
 База данных с безопасной информацией о типичных структурах ROM
 """
 
-from typing import List, Dict, Optional
 import logging
-from core.constants import SYSTEM_GB, SYSTEM_GBC, SYSTEM_GBA, GBA_ROM_BASE_ADDRESS, POINTER_SIZES
+
+from core.constants import GBA_ROM_BASE_ADDRESS, POINTER_SIZES, SYSTEM_GB, SYSTEM_GBA, SYSTEM_GBC
 
 logger = logging.getLogger('gb2text.database')
 
@@ -43,14 +43,14 @@ ROM_DATABASE = {
     },
     SYSTEM_GBA: {
         'text_segment_patterns': [
-            {'start_min': GBA_ROM_BASE_ADDRESS + 0x0D0000, 'start_max': GBA_ROM_BASE_ADDRESS + 0x0E0000, 
+            {'start_min': GBA_ROM_BASE_ADDRESS + 0x0D0000, 'start_max': GBA_ROM_BASE_ADDRESS + 0x0E0000,
              'end_min': GBA_ROM_BASE_ADDRESS + 0x100000, 'end_max': GBA_ROM_BASE_ADDRESS + 0x120000}
         ],
         'pointer_size': POINTER_SIZES[SYSTEM_GBA]  # 32-битные указатели для GBA
     }
 }
 
-def get_segment_patterns(system: str) -> List[Dict]:
+def get_segment_patterns(system: str) -> list[dict]:
     """Получает типичные паттерны текстовых сегментов для системы"""
     return ROM_DATABASE.get(system, {}).get('text_segment_patterns', [])
 
@@ -65,14 +65,14 @@ def get_pointer_size(system: str) -> int:
 
 class TranslationDatabase:
     """Класс для хранения и извлечения переводов с поддержкой SQLite"""
-    
-    def __init__(self, db_path: str = None):
+
+    def __init__(self, db_path: str | None = None):
         """Инициализация базы данных переводов"""
         self.db_path = db_path
-        self._cache = {}
+        self._cache: dict[str, str | int | list] = {}
         self._cache_enabled = False
         self._conn = None
-        
+
         if db_path and db_path != ":memory:":
             import sqlite3
             self._conn = sqlite3.connect(db_path)
@@ -81,7 +81,7 @@ class TranslationDatabase:
             import sqlite3
             self._conn = sqlite3.connect(":memory:")
             self._create_tables()
-    
+
     def _create_tables(self):
         """Создает таблицы SQLite"""
         if self._conn:
@@ -102,12 +102,12 @@ class TranslationDatabase:
                 ON translations(source_lang, target_lang, source)
             ''')
             self._conn.commit()
-    
+
     def store_translation(self, source_lang: str, target_lang: str, source: str, target: str) -> bool:
         """Сохраняет перевод в базу данных"""
         key = (source_lang, target_lang, source)
         self._cache[key] = target
-        
+
         if self._conn:
             try:
                 cursor = self._conn.cursor()
@@ -119,14 +119,14 @@ class TranslationDatabase:
             except Exception:
                 return False
         return True
-    
-    def get_translation(self, source_lang: str, target_lang: str, source: str) -> Optional[str]:
+
+    def get_translation(self, source_lang: str, target_lang: str, source: str) -> str | None:
         """Получает перевод из базы данных"""
         key = (source_lang, target_lang, source)
-        
+
         if key in self._cache:
             return self._cache[key]
-        
+
         if self._conn:
             cursor = self._conn.cursor()
             cursor.execute(
@@ -138,7 +138,7 @@ class TranslationDatabase:
                 self._cache[key] = row[0]
                 return row[0]
         return None
-    
+
     def get_translations_for_source(self, source_lang: str, target_lang: str, source: str) -> list:
         """Получает все переводы для исходного текста"""
         if self._conn:
@@ -148,22 +148,22 @@ class TranslationDatabase:
                 (source_lang, target_lang, source)
             )
             return [row[0] for row in cursor.fetchall()]
-        
+
         translations = []
         for (sl, tl, s), t in self._cache.items():
             if sl == source_lang and tl == target_lang and s == source:
                 translations.append(t)
         return translations
-    
+
     def enable_cache(self):
         """Включает кэширование"""
         self._cache_enabled = True
-    
+
     def disable_cache(self):
         """Выключает кэширование"""
         self._cache_enabled = False
         self._cache.clear()
-    
+
     def store_batch(self, translations: list) -> int:
         """
         Массовая вставка переводов.
@@ -184,7 +184,7 @@ class TranslationDatabase:
             return len(translations)
         except Exception:
             return 0
-    
+
     def search(self, source_lang: str, target_lang: str, query: str, limit: int = 50) -> list:
         """
         Поиск переводов по подстроке (LIKE %query%).
@@ -198,8 +198,8 @@ class TranslationDatabase:
             (source_lang, target_lang, f'%{query}%', limit)
         )
         return [{'source': row[0], 'target': row[1]} for row in cursor.fetchall()]
-    
-    def count(self, source_lang: str = None, target_lang: str = None) -> int:
+
+    def count(self, source_lang: str | None = None, target_lang: str | None = None) -> int:
         """Подсчёт записей с опциональной фильтрацией по языкам"""
         if not self._conn:
             return len(self._cache)
@@ -215,12 +215,12 @@ class TranslationDatabase:
         cursor = self._conn.cursor()
         cursor.execute(f'SELECT COUNT(*) FROM translations{where}', params)
         return cursor.fetchone()[0]
-    
+
     def close(self):
         """Закрывает соединение с базой данных"""
         if self._conn:
             self._conn.close()
             self._conn = None
-    
+
     def __del__(self):
         self.close()
