@@ -39,7 +39,6 @@ import logging
 
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.scanner import find_text_pointers
 
 logger = logging.getLogger('gb2text.plugins.zelda_tmc')
 
@@ -181,7 +180,7 @@ class ZeldaTMCPlugin(GamePlugin):
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         """Извлечение текстовых сегментов Zelda TMC
-        
+
         Uses known text block locations from decomp analysis.
         Text is stored as ASCII directly in the ROM (not via pointer tables).
         """
@@ -197,7 +196,7 @@ class ZeldaTMCPlugin(GamePlugin):
             # Verify there's actual text at this location
             raw = rom.data[start:min(start + 100, end)]
             has_ascii = any(0x20 <= b <= 0x7E for b in raw)
-            
+
             if has_ascii:
                 segments.append({
                     'name': f'zelda_tmc_{name}',

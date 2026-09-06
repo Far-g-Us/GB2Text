@@ -16,10 +16,10 @@ GB Text Extraction Framework
 """
 
 """
-Плагин для Custom Robo GX (GBA)
+Плагин для Metroid: Zero Mission (GBA)
 STUB — requires charmap work.
 
-Game codes: ARJJ (Japan)
+Game codes: BMXE (USA)
 
 NOTE: This plugin contains ONLY factual technical information.
 No copyrighted dialogue or story content is included.
@@ -30,13 +30,13 @@ import logging
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 
-logger = logging.getLogger('gb2text.plugins.custom_robo_gx')
+logger = logging.getLogger('gb2text.plugins.metroid_zero_mission')
 
-GAME_CODES = ['ARJJ']
+GAME_CODES = ['BMXE']
 
 
-class CustomRoboGXPlugin(GamePlugin):
-    """Плагин для Custom Robo GX (GBA)"""
+class MetroidZeroMissionPlugin(GamePlugin):
+    """Плагин для Metroid: Zero Mission (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -50,7 +50,7 @@ class CustomRoboGXPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        logger.info("STUB: charmap not implemented for Custom Robo GX")
+        logger.info("STUB: charmap not implemented for Metroid: Zero Mission")
         return []
 
     def get_terminators(self, segment_name: str) -> list[int]:

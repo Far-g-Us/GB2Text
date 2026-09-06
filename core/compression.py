@@ -282,17 +282,24 @@ class FFTA_LZSSHandler(CompressionHandler):
             cmd = data[i]
             i += 1
 
-            # Бит 7: RLE — повторить следующий байт (X+3) раз
+            # Бит 7: backref — 2-байтовая обратная ссылка
+            # Формат: 0b1HHHLLLL LLLLLLLL — back (H<<8|L)+1 байт, copy 3+((cmd>>3)&0x0F)
             if cmd & 0x80:
-                x = cmd & 0x7F
-                repeat_count = x + 3
-                if i < len(data):
-                    val = data[i]
-                    i += 1
-                    for _ in range(repeat_count):
-                        if len(result) >= decomp_size:
-                            break
-                        result.append(val)
+                if i >= len(data):
+                    break
+                low = data[i]
+                i += 1
+                dist = ((cmd & 0x07) << 8) | low
+                dist = dist + 1
+                count = ((cmd >> 3) & 0x0F) + 3
+                src_pos = len(result) - dist
+                if src_pos < 0:
+                    src_pos = 0
+                for _ in range(count):
+                    if len(result) >= decomp_size:
+                        break
+                    result.append(result[src_pos])
+                    src_pos += 1
 
             # Бит 6: literals — скопировать X+1 следующих байт
             elif cmd & 0x40:
@@ -355,21 +362,22 @@ class FFTA_LZSSHandler(CompressionHandler):
                         result.append(0xFF)
 
             # Нет бит: backref 5-байтовый
+            # Формат: 0x00 cnt dist_lo dist_hi — back dist, copy cnt+5
             else:
-                if i + 2 < len(data):
-                    x = data[i]
-                    _ = data[i + 1]  # unused per DataCrystal spec
-                    z = data[i + 2]
-                    i += 3
+                if i + 3 < len(data):
+                    cnt = data[i]
+                    dist = data[i + 3] | (data[i + 2] << 8)
+                    i += 4
 
-                    # back Z bytes, copy X+5
-                    copy_len = x + 5
-
-                    if z > 0 and z <= len(result):
-                        for _ in range(copy_len):
-                            if len(result) >= decomp_size:
-                                break
-                            result.append(result[len(result) - z])
+                    copy_len = cnt + 5
+                    src_pos = len(result) - dist - 1
+                    if src_pos < 0:
+                        src_pos = 0
+                    for _ in range(copy_len):
+                        if len(result) >= decomp_size:
+                            break
+                        result.append(result[src_pos])
+                        src_pos += 1
 
         return bytes(result[:decomp_size]), i - start
 

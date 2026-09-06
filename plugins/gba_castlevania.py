@@ -34,7 +34,6 @@ import logging
 
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.scanner import find_text_pointers
 
 logger = logging.getLogger('gb2text.plugins.castlevania_gba')
 
@@ -50,7 +49,7 @@ CHARMAP_CVAS: dict[int, str] = {
     0x0E: '[R_BUTTON]',
     0x0F: '[UP]',
     0x10: '[DOWN]',
-    
+
     # ASCII printable characters (0x20-0x7E)
     0x20: ' ', 0x21: '!', 0x22: '"', 0x23: '#', 0x24: '$', 0x25: '%',
     0x26: '&', 0x27: "'", 0x28: '(', 0x29: ')', 0x2A: '*', 0x2B: '+',
@@ -71,8 +70,8 @@ CHARMAP_CVAS: dict[int, str] = {
     0x6D: 'm', 0x6E: 'n', 0x6F: 'o', 0x70: 'p', 0x71: 'q', 0x72: 'r',
     0x73: 's', 0x74: 't', 0x75: 'u', 0x76: 'v', 0x77: 'w', 0x78: 'x',
     0x79: 'y', 0x7A: 'z', 0x7B: '{', 0x7C: '|', 0x7D: '}', 0x7E: '~',
-    
-    # Extended characters
+
+    # Extended characters (French/German)
     0x80: '[HALF_A1]', 0x81: '[HALF_A2]', 0x82: '[HALF_B1]', 0x83: '[HALF_B2]',
     0x84: '[HALF_L1]', 0x85: '[HALF_L2]', 0x86: '[HALF_R1]', 0x87: '[HALF_R2]',
     0x90: 'Œ', 0x91: 'œ',
@@ -87,7 +86,7 @@ CHARMAP_CVAS: dict[int, str] = {
     0xEE: 'î', 0xEF: 'ï',
     0xF4: 'ô', 0xF6: 'ö',
     0xF9: 'ù', 0xFB: 'û', 0xFC: 'ü',
-    
+
     # Multi-byte control codes
     0x0300: '[SOMA_PORTRAIT]', 0x0301: '[MINA_PORTRAIT]',
     0x0302: '[GENYA_PORTRAIT]', 0x0303: '[GRAHAM_PORTRAIT]',
@@ -99,15 +98,21 @@ CHARMAP_CVAS: dict[int, str] = {
     0x0708: '[JULIUS]', 0x0709: '[HAMMER]',
 }
 
-# Known pointer table locations for Castlevania: Aria of Sorrow
+# Known pointer table locations for Castlevania: Aria of Sorrow (multi-language ROM)
+# Source: Analysis of GBA pointers (0x08XXXXXX) pointing to ASCII text
 CVAS_POINTER_TABLES = [
-    # Main dialogue (approximate offsets)
-    (0x08000000 + 0x1E0000, 0x08000000 + 0x200000),  # Story dialogue
-    (0x08000000 + 0x280000, 0x08000000 + 0x2A0000),  # Item descriptions
-    (0x08000000 + 0x380000, 0x08000000 + 0x3A0000),  # Menu/UI text
+    # English UI/system text
+    (0x08000000 + 0x0E0000, 0x08000000 + 0x0F0000),
+    # English dialogue (main text bank)
+    (0x08000000 + 0x0F0000, 0x08000000 + 0x100000),
+    # French dialogue
+    (0x08000000 + 0x100000, 0x08000000 + 0x110000),
+    # German dialogue
+    (0x08000000 + 0x110000, 0x08000000 + 0x120000),
 ]
 
-# Text terminators for Castlevania GBA (0x0A = [END] per TBL)
+# Text terminators for Castlevania GBA
+# 0x06 = line break/pause, 0x0A = [END] per TBL
 CVAS_TERMINATORS = [0x0A]
 
 # Game codes for detection
@@ -117,10 +122,10 @@ CVAS_GAME_CODES = ['A2CE', 'AGBJ', 'AGBE']
 
 class CVASTextDecoder:
     """Decoder for Castlevania GBA text
-    
+
     Text is ASCII with control codes (0x01-0x0F) that precede text blocks.
-    Control codes are skipped during decoding.
-    Null bytes (0x00) between control codes are padding, not terminators.
+    0x06 = line break/pause, 0x0A = [END] terminator.
+    Control codes are output as labels during decoding.
     """
 
     def __init__(self, charmap: dict[int, str]):
@@ -133,7 +138,7 @@ class CVASTextDecoder:
 
         while i < end:
             byte = data[i]
-            
+
             # Check for multi-byte codes first (0x03XX, 0x07XX)
             if i + 1 < end:
                 two_byte = (byte << 8) | data[i + 1]
@@ -141,11 +146,17 @@ class CVASTextDecoder:
                     result.append(self.charmap[two_byte])
                     i += 2
                     continue
-            
+
             # End of string (0x0A per TBL)
             if byte == 0x0A:
                 break
-            
+
+            # Line break / pause (0x06)
+            if byte == 0x06:
+                result.append('\n')
+                i += 1
+                continue
+
             # Control codes - output their labels
             if byte in self.charmap:
                 char = self.charmap[byte]
@@ -153,7 +164,7 @@ class CVASTextDecoder:
                     result.append(char)
                 i += 1
                 continue
-            
+
             # ASCII printable characters (0x20-0x7E)
             if 0x20 <= byte <= 0x7E:
                 result.append(chr(byte))
@@ -177,46 +188,97 @@ class CastlevaniaGBAPlugin(GamePlugin):
         return f'^GBA_({codes})$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Castlevania GBA"""
+        """Извлечение текстовых сегментов Castlevania GBA using pointer scanning"""
         logger.info("Извлечение текстовых сегментов для Castlevania: Aria of Sorrow")
 
         segments = []
 
-        for i, (start_va, end_va) in enumerate(CVAS_POINTER_TABLES):
-            start = start_va - 0x08000000
-            end = end_va - 0x08000000
+        # Known text areas in this multi-language ROM
+        text_areas = [
+            (0x0F0000, 0x100000, 'en'),  # English dialogue
+            (0x100000, 0x110000, 'fr'),  # French dialogue
+            (0x110000, 0x120000, 'de'),  # German dialogue
+        ]
 
-            if start >= len(rom.data) or end > len(rom.data):
-                continue
+        # Scan for GBA pointers (0x08XXXXXX) that point to text areas
+        for text_start, text_end, lang in text_areas:
+            found_pointers = []
 
-            pointers = find_text_pointers(
-                rom.data,
-                start=start,
-                end=end,
-                pointer_size=4,
-                address_base=0x08000000,
-                min_length=2
-            )
+            # Scan entire ROM for pointers to this text area
+            for i in range(0, len(rom.data) - 4, 4):
+                val = int.from_bytes(rom.data[i:i+4], 'little')
+                if 0x08000000 <= val <= 0x09000000:
+                    target = val - 0x08000000
+                    if text_start <= target < text_end:
+                        found_pointers.append((i, target))
 
-            if pointers:
-                segments.append({
-                    'name': f'cvas_dialogue_{i}',
-                    'start': start,
-                    'end': end,
-                    'decoder': self._decoder,
-                    'compression': None,
-                    'charmap': CHARMAP_CVAS,
-                    'terminators': CVAS_TERMINATORS,
-                    'pointer_count': len(pointers)
-                })
-                logger.info(f"Found segment: 0x{start:X}-0x{end:X}, {len(pointers)} pointers")
+            logger.info(f"Found {len(found_pointers)} pointers to {lang} text area")
 
-        # Fallback: heuristic scan
-        if not segments:
-            segments = self._heuristic_scan(rom)
+            # Extract individual strings from pointer targets
+            for _ptr_addr, target in found_pointers:
+                text = self._extract_string(rom.data, target)
+                if text and len(text.strip()) >= 2:
+                    seg_name = f'cvas_{lang}_{len(segments)}'
+                    segments.append({
+                        'name': seg_name,
+                        'start': target,
+                        'end': target + len(text),
+                        'decoder': None,
+                        'compression': None,
+                        'charmap': CHARMAP_CVAS,
+                        'terminators': CVAS_TERMINATORS,
+                        'raw_text': text,
+                    })
 
         logger.info(f"Total segments: {len(segments)}")
         return segments
+
+    def _extract_string(self, rom_data: bytes | bytearray, offset: int) -> str:
+        """Extract a single text string from ROM data"""
+        result: list[str] = []
+        i = offset
+        end = min(offset + 1000, len(rom_data))
+
+        while i < end:
+            byte = rom_data[i]
+
+            # End of string (0x0A per TBL)
+            if byte == 0x0A:
+                break
+
+            # Null byte might be padding or terminator
+            if byte == 0x00:
+                # Check if next bytes are also null (likely end of string)
+                if i + 1 < end and rom_data[i + 1] == 0x00:
+                    break
+                # Single null might be space
+                result.append(' ')
+                i += 1
+                continue
+
+            # Line break / pause (0x06)
+            if byte == 0x06:
+                result.append('\n')
+                i += 1
+                continue
+
+            # Control codes (0x01-0x0F) - skip
+            if 0x01 <= byte <= 0x0F:
+                i += 1
+                continue
+
+            # ASCII printable characters (0x20-0x7E)
+            if 0x20 <= byte <= 0x7E:
+                result.append(chr(byte))
+            else:
+                # Extended characters (accented)
+                if byte in self._decoder.charmap:
+                    result.append(self._decoder.charmap[byte])
+                else:
+                    result.append(f'[{byte:02X}]')
+            i += 1
+
+        return ''.join(result)
 
     def _heuristic_scan(self, rom: GameBoyROM) -> list[dict]:
         """Эвристический поиск текстовых блоков"""

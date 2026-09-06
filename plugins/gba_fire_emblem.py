@@ -29,9 +29,9 @@ No copyrighted dialogue or story content is included.
 
 import logging
 
+from core.compression import HuffmanHandler
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
-from core.compression import HuffmanHandler
 
 logger = logging.getLogger('gb2text.plugins.fire_emblem_gba')
 
