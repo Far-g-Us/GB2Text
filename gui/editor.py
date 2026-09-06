@@ -86,14 +86,14 @@ class TextEditorFrame(ttk.Frame):
         btn_frame = ttk.Frame(self)
         btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
 
-        ttk.Button(btn_frame, text="← Undo", command=self.undo).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="Redo →", command=self.redo).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("undo"), command=self.undo).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text=self.i18n.t("redo"), command=self.redo).pack(side="left", padx=5)
         ttk.Button(btn_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry).pack(side="left", padx=5)
         ttk.Button(btn_frame, text=self.i18n.t("next.entry"), command=self.next_entry).pack(side="left", padx=5)
         ttk.Button(btn_frame, text=self.i18n.t("save.translation"), command=self.save_changes).pack(side="left", padx=5)
 
     def _create_backup(self):
-        """Создание бэкапа ROM файла"""
+        """Создание бэкапа ROM файла (только если ещё нет бэкапа для этого ROM)"""
         if not self.rom_path or not os.path.exists(self.rom_path):
             return
 
@@ -101,9 +101,16 @@ class TextEditorFrame(ttk.Frame):
         backup_dir = os.path.join(os.path.dirname(self.rom_path), 'backups')
         os.makedirs(backup_dir, exist_ok=True)
 
+        # Проверяем, есть ли уже бэкап для этого ROM
+        rom_name = os.path.basename(self.rom_path)
+        existing_backups = [f for f in os.listdir(backup_dir) if f.endswith(rom_name)]
+        if existing_backups:
+            self.backup_path = os.path.join(backup_dir, sorted(existing_backups)[-1])
+            logger.info(f"Бэкап уже существует: {self.backup_path}")
+            return
+
         # Генерируем имя файла с timestamp
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        rom_name = os.path.basename(self.rom_path)
         backup_filename = f"{timestamp}_{rom_name}"
         self.backup_path = os.path.join(backup_dir, backup_filename)
 

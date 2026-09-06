@@ -126,7 +126,6 @@
 
 ### Качество
 - [x] 15 plugin contract тестов (все проходят)
-- [x] Критики: critic, bug-critic, security-critic, ui-critic
 - [x] Исправлены ошибки в ROADMAP (CI/CD, API docs, ссылки)
 
 ---

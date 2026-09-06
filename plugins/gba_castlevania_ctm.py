@@ -34,8 +34,6 @@ import logging
 
 from core.plugin import GameBoyROM
 from plugins.gba_castlevania import (
-    CVASTextDecoder,
-    CHARMAP_CVAS,
     CastlevaniaGBAPlugin,
 )
 

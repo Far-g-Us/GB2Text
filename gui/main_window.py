@@ -171,12 +171,8 @@ class GBTextExtractorGUI:
         self.progress = ttk.Progressbar(self.status_frame, orient="horizontal", mode="determinate", length=200)
         self.progress.pack(side="right", padx=5, pady=2)
 
-        # Добавляем кнопку отмены (но не отображаем её изначально)
-        self.cancel_button = ttk.Button(
-            self.status_frame,
-            text=self.i18n.t("cancel"),
-            command=self._cancel_extraction
-        )
+        # Кнопка отмены создаётся при начале извлечения
+        self.cancel_button = None
 
         # Настройка вкладки извлечения
         self._setup_extract_tab()
@@ -275,9 +271,9 @@ class GBTextExtractorGUI:
         ttk.Button(toolbar, text=self.i18n.t("export.json"), command=self.export_json).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("export.txt"), command=self.export_txt).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("export.csv"), command=self.export_csv).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Export TMX", command=self.export_tmx).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("export.tmx"), command=self.export_tmx).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("import.csv"), command=self.import_csv).pack(side="left", padx=2)
-        ttk.Button(toolbar, text="Import TMX", command=self.import_tmx).pack(side="left", padx=2)
+        ttk.Button(toolbar, text=self.i18n.t("import.tmx"), command=self.import_tmx).pack(side="left", padx=2)
         ttk.Button(toolbar, text=self.i18n.t("extract.text"), command=self.switch_to_edit_tab).pack(side="left", padx=2)
 
         self.text_output = scrolledtext.ScrolledText(
@@ -426,9 +422,13 @@ class GBTextExtractorGUI:
         bottom_frame = ttk.Frame(self.batch_tab, padding="10")
         bottom_frame.pack(fill="x", expand=False)
 
+        # Инициализация переменных ДО использования
+        self.batch_files = []
+        self.batch_count_var = tk.StringVar(value=self.i18n.t("batch.rom.count").format(count=0))
+
         ttk.Label(
             bottom_frame,
-            textvariable=self.batch_count_var if hasattr(self, 'batch_count_var') else tk.StringVar(value="0")
+            textvariable=self.batch_count_var
         ).pack(side="left", padx=5)
 
         ttk.Button(
@@ -442,10 +442,6 @@ class GBTextExtractorGUI:
             text=self.i18n.t("batch.export.all"),
             command=self._batch_export_all
         ).pack(side="left", padx=5)
-
-        # Инициализация списка файлов
-        self.batch_files = []
-        self.batch_count_var = tk.StringVar(value=self.i18n.t("batch.rom.count").format(count=0))
 
     def _setup_compare_tab(self):
         """Настройка вкладки сравнения ROM"""
@@ -786,7 +782,7 @@ class GBTextExtractorGUI:
 
         self.target_lang = tk.StringVar(value="ru")
         lang_combo = ttk.Combobox(translation_lang_frame, textvariable=self.target_lang, state="readonly", width=15)
-        lang_combo['values'] = ('en', 'ru', 'ja')  # 'es', 'fr', 'de'
+        lang_combo['values'] = ('en', 'ru', 'ja', 'es', 'fr', 'de', 'zh')
         lang_combo.pack(side="left")
         lang_combo.current(1)  # Русский по умолчанию
 
@@ -1010,7 +1006,7 @@ class GBTextExtractorGUI:
         tips = self.current_guide.get('tips', [])
         if tips:
             self.guide_text.insert(tk.END, f"{self.i18n.t('guide.tips')}\n", "section")
-            for i, tip in enumerate(tips, 1):
+            for _i, tip in enumerate(tips, 1):
                 self.guide_text.insert(tk.END, f"• {tip}\n")
 
         # Настройка стилей
@@ -1108,6 +1104,7 @@ class GBTextExtractorGUI:
                 self._loaded_rom_path = self.rom_path.get()
             except Exception as e:
                 logger.error(f"Ошибка загрузки ROM: {e}")
+                self.set_status(f"ROM error: {e}")
                 return
 
         # Определяем систему
@@ -1173,60 +1170,10 @@ class GBTextExtractorGUI:
             extraction_thread.daemon = True
             extraction_thread.start()
 
-            # Ожидаем завершения с обновлением прогресса
-            start_time = time.time()
-            last_update = 0
-
-            while extraction_thread.is_alive():
-                elapsed = time.time() - start_time
-
-                # Обновляем прогресс каждые 0.5 секунды
-                if elapsed - last_update > 0.5:
-                    # Показываем, что процесс идет
-                    progress = 5 + (min(90, int(elapsed) * 2))  # Постепенно увеличиваем прогресс
-                    self.set_status(
-                        f"{self.i18n.t('text.extracting')} ({int(elapsed)}s)",
-                        progress
-                    )
-                    last_update = elapsed
-
-                # Проверяем, не запрошена ли отмена
-                if self.cancel_requested:
-                    self.cancellation_token.cancel()
-
-                time.sleep(0.1)
-                self.root.update()
-
-            # Удаляем кнопку отмены
-            if hasattr(self, 'cancel_button') and self.cancel_button.winfo_exists():
-                self.cancel_button.destroy()
-
-            # Проверяем, была ли отмена
-            if self.cancel_requested:
-                self.set_status(self.i18n.t("status.ready"))
-                return
-
-            # Проверяем результат
-            if hasattr(self, 'extraction_error'):
-                raise self.extraction_error
-
-            # Очистка списка сегментов
-            self.segments_list.delete(0, tk.END)
-
-            # Заполнение списка сегментов
-            for segment_name in self.current_results.keys():
-                self.segments_list.insert(tk.END, segment_name)
-
-            # Выбираем первый сегмент
-            if self.segments_list.size() > 0:
-                self.segments_list.selection_set(0)
-                self.on_segment_select(None)
-
-            self.set_status(self.i18n.t("text.extracted"))
-            messagebox.showinfo(
-                self.i18n.t("success.title"),
-                self.i18n.t("extraction.success")
-            )
+            # Ожидаем завершения через root.after() polling (не блокируя main loop)
+            self._extraction_start_time = time.time()
+            self._extraction_thread = extraction_thread
+            self._poll_extraction()
 
         except Exception as e:
             self.set_status(self.i18n.t("status.error"))
@@ -1242,7 +1189,49 @@ class GBTextExtractorGUI:
     def _cancel_extraction(self):
         """Отмена процесса извлечения текста"""
         self.cancel_requested = True
+        self.cancellation_token.cancel()
         self.set_status(self.i18n.t("extraction.canceled"))
+
+    def _poll_extraction(self):
+        """Poll extraction thread completion via root.after() — non-blocking."""
+        if self._extraction_thread.is_alive():
+            elapsed = time.time() - self._extraction_start_time
+            progress = 5 + min(90, int(elapsed) * 2)
+            self.set_status(
+                f"{self.i18n.t('text.extracting')} ({int(elapsed)}s)",
+                progress
+            )
+            self.root.after(500, self._poll_extraction)
+        else:
+            # Thread finished — clean up and process result
+            if hasattr(self, 'cancel_button') and self.cancel_button.winfo_exists():
+                self.cancel_button.destroy()
+
+            if self.cancel_requested:
+                self.set_status(self.i18n.t("status.ready"))
+                return
+
+            if hasattr(self, 'extraction_error'):
+                self.set_status(self.i18n.t("status.error"))
+                messagebox.showerror(
+                    self.i18n.t("error.title"),
+                    self.i18n.t("extraction.error", error=str(self.extraction_error))
+                )
+                return
+
+            self.segments_list.delete(0, tk.END)
+            for segment_name in self.current_results.keys():
+                self.segments_list.insert(tk.END, segment_name)
+
+            if self.segments_list.size() > 0:
+                self.segments_list.selection_set(0)
+                self.on_segment_select(None)
+
+            self.set_status(self.i18n.t("text.extracted"))
+            messagebox.showinfo(
+                self.i18n.t("success.title"),
+                self.i18n.t("extraction.success")
+            )
 
     def on_segment_select(self, event):
         """Обработка выбора сегмента"""
@@ -1838,13 +1827,9 @@ class GBTextExtractorGUI:
         original_text = self.current_entries[self.current_entry_index]['text']
         self.root.clipboard_clear()
         self.root.clipboard_append(original_text)
-        self.root.update()  # Это нужно, чтобы буфер обмена обновился
+        self.root.update()
 
         self.set_status(self.i18n.t("text.copied"), 100)
-        messagebox.showinfo(
-            self.i18n.t("success.title"),
-            self.i18n.t("original.copied")
-        )
 
     def paste_translation(self):
         """Вставка перевода из буфера обмена"""
@@ -2034,12 +2019,14 @@ class GBTextExtractorGUI:
             self.show_search_dialog()
             return
 
-        # Начинаем поиск от текущей позиции + 1 символ
-        text_widget.index("insert")
         content = text_widget.get("1.0", "end-1c")
 
+        # Конвертируем tkinter text index в character offset
+        insert_index = text_widget.index("insert")
+        start_offset = len(content[:int(insert_index.split('.')[0]) - 1]) + int(insert_index.split('.')[1])
+
         # Ищем от текущей позиции
-        pos = content.find(search_term, text_widget.search("insert", "end"))
+        pos = content.find(search_term, start_offset)
         if pos == -1:
             # Ищем с начала
             pos = content.find(search_term)
@@ -2066,11 +2053,14 @@ class GBTextExtractorGUI:
             self.show_search_dialog()
             return
 
-        text_widget.index("insert")
         content = text_widget.get("1.0", "end-1c")
 
+        # Конвертируем tkinter text index в character offset
+        insert_index = text_widget.index("insert")
+        start_offset = len(content[:int(insert_index.split('.')[0]) - 1]) + int(insert_index.split('.')[1])
+
         # Ищем назад от текущей позиции
-        before_cursor = content[:text_widget.search("insert", "end")]
+        before_cursor = content[:start_offset]
         pos = before_cursor.rfind(search_term)
 
         if pos == -1:
@@ -2196,9 +2186,14 @@ class GBTextExtractorGUI:
         # Определяем языки
         source_lang = self.encoding_type.get()
         if source_lang == 'auto':
-            # Простая логика определения языка
-            if any(ord(c) > 127 for c in original_text):
-                source_lang = 'ja'  # Предполагаем японский для не-ASCII
+            if self.current_rom and hasattr(self, 'current_plugin') and self.current_plugin:
+                source_lang = getattr(self.current_plugin, 'source_language', 'en')
+            elif any(ord(c) > 0x3040 and ord(c) < 0x30FF for c in original_text):
+                source_lang = 'ja'
+            elif any(ord(c) > 0x4E00 and ord(c) < 0x9FFF for c in original_text):
+                source_lang = 'zh'
+            elif any(0x0400 <= ord(c) <= 0x04FF for c in original_text):
+                source_lang = 'ru'
             else:
                 source_lang = 'en'
 
@@ -2379,24 +2374,26 @@ class GBTextExtractorGUI:
         self.refresh_guide_tab()
 
         # Восстанавливаем состояние
-        if current_rom:
-            self.rom_path.set(current_rom)
-            self.update_game_info()
+        try:
+            if current_rom:
+                self.rom_path.set(current_rom)
+                self.update_game_info()
 
-        if current_results:
-            self.current_results = current_results
-            # Заполняем список сегментов
-            self.segments_list.delete(0, tk.END)
-            for segment_name in self.current_results.keys():
-                self.segments_list.insert(tk.END, segment_name)
-            if self.segments_list.size() > 0:
-                self.segments_list.selection_set(0)
-                self.on_segment_select(None)
+            if current_results:
+                self.current_results = current_results
+                self.segments_list.delete(0, tk.END)
+                for segment_name in self.current_results.keys():
+                    self.segments_list.insert(tk.END, segment_name)
+                if self.segments_list.size() > 0:
+                    self.segments_list.selection_set(0)
+                    self.on_segment_select(None)
 
-        if current_segment and current_entry_index >= 0:
-            self.current_segment = current_segment
-            self.current_entry_index = current_entry_index
-            self._display_current_entry()
+            if current_segment and current_entry_index >= 0:
+                self.current_segment = current_segment
+                self.current_entry_index = current_entry_index
+                self._display_current_entry()
+        except Exception as e:
+            logger.warning(f"Failed to restore UI state: {e}")
 
         self.set_status(self.i18n.t("status.ready"))
 
@@ -2428,7 +2425,6 @@ class GBTextExtractorGUI:
 
         # Обновляем все метки
         self._refresh_ui()
-        self._refresh_ui_labels()
 
         messagebox.showinfo(self.i18n.t("settings.saved"), self.i18n.t("settings.saved"))
 
@@ -2832,16 +2828,6 @@ class GBTextExtractorGUI:
         except (tk.TclError, RuntimeError):
             pass
 
-    def rate_current_guide(self, rating: int):
-        """Оценивает текущее руководство"""
-        if not self.current_guide or not self.current_rom:
-            return
-
-        if self.guide_manager.rate_guide(self.current_rom.get_game_id(), rating):
-            messagebox.showinfo(self.i18n.t("success.title"), self.i18n.t("guide.rated.success").format(rating=rating))
-        else:
-            messagebox.showerror(self.i18n.t("error.title"), self.i18n.t("guide.rated.error"))
-
     def _setup_guide_tab(self):
         """Настройка вкладки руководства"""
         guide_frame = ttk.Frame(self.guide_tab, padding="10")
@@ -2854,15 +2840,6 @@ class GBTextExtractorGUI:
         ttk.Button(control_frame, text=self.i18n.t("load.template"), command=self.load_guide_template).pack(side="left", padx=5)
         ttk.Button(control_frame, text=self.i18n.t("save.guide"), command=self.save_guide).pack(side="left", padx=5)
         ttk.Button(control_frame, text=self.i18n.t("apply.guide"), command=self.apply_guide).pack(side="left", padx=5)
-
-        # Панель оценки
-        rating_frame = ttk.Frame(control_frame)
-        rating_frame.pack(side="left", padx=(20, 0))
-        ttk.Label(rating_frame, text=self.i18n.t("guide.rate")).pack(side="left")
-
-        for i in range(1, 6):
-            ttk.Button(rating_frame, text="★", width=2,
-                       command=lambda r=i: self.rate_current_guide(r)).pack(side="left")
 
         # Текстовое представление руководства
         self.guide_text = scrolledtext.ScrolledText(guide_frame, wrap="word", font=("Consolas", 10))

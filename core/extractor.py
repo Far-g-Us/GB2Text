@@ -142,36 +142,42 @@ class TextExtractor:
                 return {}
 
             # Обработка сжатия если необходимо
-            data = self.rom.data[start:end]
-            if segment.get('compression'):
-                compression_type = segment.get('compression')
-                if isinstance(compression_type, str):
-                    from core.compression import get_compression_handler
-                    handler = get_compression_handler(compression_type)
-                    if handler:
-                        logger.info(f"Распаковка: {compression_type}")
-                        decompressed, _ = handler.decompress(data, 0)
-                        data = decompressed
-                    else:
-                        logger.warning(f"Неизвестный тип сжатия: {compression_type}")
-                elif hasattr(compression_type, 'decompress'):
-                    logger.info("Распаковка (объект)")
-                    try:
-                        decompressed, _ = compression_type.decompress(data, 0)
-                        data = decompressed
-                    except Exception as e:
-                        logger.warning(f"Ошибка распаковки: {e}")
+            # Если сегмент уже содержит декодированный текст (raw_text), используем его напрямую
+            raw_text = segment.get('raw_text')
+            if raw_text is not None:
+                text = raw_text
+                logger.info(f"Использован предварительно декодированный текст: {len(text)} символов")
+            else:
+                data = self.rom.data[start:end]
+                if segment.get('compression'):
+                    compression_type = segment.get('compression')
+                    if isinstance(compression_type, str):
+                        from core.compression import get_compression_handler
+                        handler = get_compression_handler(compression_type)
+                        if handler:
+                            logger.info(f"Распаковка: {compression_type}")
+                            decompressed, _ = handler.decompress(data, 0)
+                            data = decompressed
+                        else:
+                            logger.warning(f"Неизвестный тип сжатия: {compression_type}")
+                    elif hasattr(compression_type, 'decompress'):
+                        logger.info("Распаковка (объект)")
+                        try:
+                            decompressed, _ = compression_type.decompress(data, 0)
+                            data = decompressed
+                        except Exception as e:
+                            logger.warning(f"Ошибка распаковки: {e}")
 
-            # Декодирование текста
-            if not segment['decoder']:
-                logger.info("Таблица символов не предоставлена, определяем автоматически")
-                from core.scanner import auto_detect_charmap
-                charmap = auto_detect_charmap(self.rom.data, start)
-                from core.decoder import CharMapDecoder
-                segment['decoder'] = CharMapDecoder(charmap)
+                # Декодирование текста
+                if not segment['decoder']:
+                    logger.info("Таблица символов не предоставлена, определяем автоматически")
+                    from core.scanner import auto_detect_charmap
+                    charmap = auto_detect_charmap(self.rom.data, start)
+                    from core.decoder import CharMapDecoder
+                    segment['decoder'] = CharMapDecoder(charmap)
 
-            logger.info("Декодирование текста")
-            text = segment['decoder'].decode(data, 0, len(data))
+                logger.info("Декодирование текста")
+                text = segment['decoder'].decode(data, 0, len(data))
 
             # Проверка качества декодирования
             unknown_chars = text.count('[')

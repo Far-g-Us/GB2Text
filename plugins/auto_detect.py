@@ -129,7 +129,7 @@ class AutoDetectPlugin(GamePlugin):
                 block_size=64
             )
 
-            for i, seg in enumerate(detected):
+            for _i, seg in enumerate(detected):
                 # Дополнительная проверка плотности текста
                 analysis = analyze_text_segment(rom.data, seg['start'], seg['end'])
                 if analysis['readability'] > 0.7:

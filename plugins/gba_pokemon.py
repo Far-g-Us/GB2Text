@@ -42,11 +42,8 @@ logger = logging.getLogger('gb2text.plugins.pokemon_gba')
 
 # Pokémon GBA charmap (EXACT from Pret pokeemerald decomp)
 # Source: https://raw.githubusercontent.com/pret/pokeemerald/master/charmap.txt
-# This is the ACTUAL encoding used in Pokémon Emerald/Ruby/Sapphire
 CHARMAP_POKEMON_GBA: dict[int, str] = {
-    # Space and accented characters
-    0x00: ' ',
-    0x01: 'À', 0x02: 'Á', 0x03: 'Â', 0x04: 'Ç', 0x05: 'È',
+    0x00: ' ', 0x01: 'À', 0x02: 'Á', 0x03: 'Â', 0x04: 'Ç', 0x05: 'È',
     0x06: 'É', 0x07: 'Ê', 0x08: 'Ë', 0x09: 'Ì', 0x0A: 'Î',
     0x0B: 'Ï', 0x0C: 'Ò', 0x0D: 'Ó', 0x0E: 'Ô', 0x0F: 'Œ',
     0x10: 'Ù', 0x11: 'Ú', 0x12: 'Û', 0x13: 'Ñ', 0x14: 'ß',
@@ -54,64 +51,31 @@ CHARMAP_POKEMON_GBA: dict[int, str] = {
     0x1A: 'ê', 0x1B: 'ë', 0x1C: 'ì', 0x1D: 'î', 0x1E: 'ï',
     0x1F: 'ò', 0x20: 'ó', 0x21: 'ô', 0x22: 'œ', 0x23: 'ù',
     0x24: 'ú', 0x25: 'û', 0x26: 'ñ', 0x27: 'º', 0x28: 'ª',
-    0x2C: 'SUPER_ER',  # Multi-byte: 2C
-    0x2D: '&', 0x2E: '+',
-    0x34: 'LV',
-    0x35: '=', 0x36: ';', 0x51: '¿', 0x52: '¡',
-
-    # Pokemon markers (PKMN = 53 54)
-    0x53: 'PK',
-    0x54: 'MN',
-
-    # POKEBLOCK (5 bytes: 55 56 57 58 59)
+    0x2D: '&', 0x2E: '+', 0x35: '=', 0x36: ';',
+    0x51: '¿', 0x52: '¡', 0x53: 'PK', 0x54: 'MN',
     0x5A: 'Í', 0x5B: '%', 0x5C: '(', 0x5D: ')',
-    0x68: 'â', 0x6F: 'í',
-    0x77: 'UNK_SPACER',
-    0x79: '↑', 0x7A: '↓', 0x7B: '←', 0x7C: '→',
-    0x84: 'ᵉ',  # SUPER_E
-    0x85: '<', 0x86: '>',
-    0xA0: 'ʳ',  # SUPER_RE
-
-    # Numbers 0-9
+    0x68: 'â', 0x6F: 'í', 0x79: '↑', 0x7A: '↓', 0x7B: '←', 0x7C: '→',
+    0x84: 'ᵉ', 0x85: '<', 0x86: '>',
+    0xA0: 'ʳ',
     0xA1: '0', 0xA2: '1', 0xA3: '2', 0xA4: '3', 0xA5: '4',
     0xA6: '5', 0xA7: '6', 0xA8: '7', 0xA9: '8', 0xAA: '9',
-
-    # Punctuation
-    0xAB: '!', 0xAC: '?', 0xAD: '.', 0xAE: '-',
-    0xAF: '·', 0xB0: '…',
-    0xB1: '\u201c', 0xB2: '\u201d',  # Left/right double quotes
-    0xB3: '\u2018', 0xB4: '\u2019',  # Left/right single quotes
-    0xB5: '♂', 0xB6: '♀',
-    0xB7: '¥', 0xB8: ',', 0xB9: '×', 0xBA: '/',
-
-    # Uppercase A-Z
+    0xAB: '!', 0xAC: '?', 0xAD: '.', 0xAE: '-', 0xAF: '·', 0xB0: '…',
+    0xB1: '\u201c', 0xB2: '\u201d', 0xB3: '\u2018', 0xB4: '\u2019',
+    0xB5: '♂', 0xB6: '♀', 0xB7: '¥', 0xB8: ',', 0xB9: '×', 0xBA: '/',
     0xBB: 'A', 0xBC: 'B', 0xBD: 'C', 0xBE: 'D', 0xBF: 'E',
     0xC0: 'F', 0xC1: 'G', 0xC2: 'H', 0xC3: 'I', 0xC4: 'J',
     0xC5: 'K', 0xC6: 'L', 0xC7: 'M', 0xC8: 'N', 0xC9: 'O',
     0xCA: 'P', 0xCB: 'Q', 0xCC: 'R', 0xCD: 'S', 0xCE: 'T',
-    0xCF: 'U', 0xD0: 'V', 0xD1: 'W', 0xD2: 'X', 0xD3: 'Y',
-    0xD4: 'Z',
-
-    # Lowercase a-z
+    0xCF: 'U', 0xD0: 'V', 0xD1: 'W', 0xD2: 'X', 0xD3: 'Y', 0xD4: 'Z',
     0xD5: 'a', 0xD6: 'b', 0xD7: 'c', 0xD8: 'd', 0xD9: 'e',
     0xDA: 'f', 0xDB: 'g', 0xDC: 'h', 0xDD: 'i', 0xDE: 'j',
     0xDF: 'k', 0xE0: 'l', 0xE1: 'm', 0xE2: 'n', 0xE3: 'o',
     0xE4: 'p', 0xE5: 'q', 0xE6: 'r', 0xE7: 's', 0xE8: 't',
-    0xE9: 'u', 0xEA: 'v', 0xEB: 'w', 0xEC: 'x', 0xED: 'y',
-    0xEE: 'z',
-
-    # Special
+    0xE9: 'u', 0xEA: 'v', 0xEB: 'w', 0xEC: 'x', 0xED: 'y', 0xEE: 'z',
     0xEF: '▶', 0xF0: ':',
     0xF1: 'Ä', 0xF2: 'Ö', 0xF3: 'Ü', 0xF4: 'ä', 0xF5: 'ö', 0xF6: 'ü',
-
-    # Control codes
-    0xF7: '[DYNAMIC]',  # Special 0xF7 character
-    0xF8: '[BUTTON]',  # Button indicator (F8 00-F8 0C)
-    0xF9: '[SYMBOL]',  # Symbol (F9 00-F9 FE)
-    0xFA: '[SCROLL]',  # \l - scroll up window text
-    0xFB: '[PARA]',     # \p - new paragraph
-    0xFE: '[LINE]',     # \n - new line
-    0xFF: '[END]',      # End of string
+    0xF7: '[DYNAMIC]', 0xF8: '[BUTTON]', 0xF9: '[SYMBOL]',
+    0xFA: '[SCROLL]', 0xFB: '[PARA]', 0xFE: '[LINE]', 0xFF: '[END]',
 }
 
 # FC commands (0xFC prefix + subcommand)
@@ -387,7 +351,7 @@ class PokemonGBAPlugin(GamePlugin):
         return segments
 
     def _find_lz77_text_blocks(self, rom: GameBoyROM, version: str) -> list[dict]:
-        """Поиск LZ77-сжатых текстовых блоков"""
+        """Поиск LZ77-сжатых текстовых блоков и извлечение отдельных строк"""
         segments: list[dict] = []
 
         # Scan for LZ77 signatures in text banks
@@ -411,33 +375,40 @@ class PokemonGBAPlugin(GamePlugin):
                     if result is not None:
                         decompressed, consumed = result
                         if len(decompressed) >= 20:
-                            # Check if decompressed data contains text
-                            if self._has_text_content(decompressed):
-                                seg_name = f'pokemon_{version}_lz77_{len(segments)}'
-                                segments.append({
-                                    'name': seg_name,
-                                    'start': offset,
-                                    'end': offset + consumed,  # Exact compressed size
-                                    'decoder': self._decoder,
-                                    'compression': 'gba_lz77',
-                                    'charmap': CHARMAP_POKEMON_GBA,
-                                    'terminators': POKEMON_TERMINATORS,
-                                })
-                                logger.info(f"Found LZ77 text block at 0x{offset:X}: {len(decompressed)} bytes decompressed")
-                                # Skip past this block
-                                offset += consumed
-                                continue
+                            # Extract individual strings from decompressed block
+                            strings = self._extract_strings_from_block(decompressed)
+                            text_strings = [s for s in strings if len(s) >= 2]
+
+                            for _str_idx, text in enumerate(text_strings):
+                                if self._is_likely_text(text):
+                                    seg_name = f'pokemon_{version}_str_{len(segments)}'
+                                    segments.append({
+                                        'name': seg_name,
+                                        'start': offset,
+                                        'end': offset + consumed,
+                                        'decoder': None,
+                                        'compression': None,
+                                        'charmap': CHARMAP_POKEMON_GBA,
+                                        'terminators': POKEMON_TERMINATORS,
+                                        'raw_text': text,
+                                    })
+
+                            if text_strings:
+                                valid = [s for s in text_strings if self._is_likely_text(s)]
+                                if valid:
+                                    logger.info(f"Found LZ77 block at 0x{offset:X}: {len(valid)} valid strings")
+                            offset += consumed
+                            continue
                 offset += 1
 
         return segments
 
     def _find_raw_text_blocks(self, rom: GameBoyROM, version: str) -> list[dict]:
-        """Поиск несжатых текстовых блоков"""
+        """Поиск несжатых текстовых блоков и извлечение отдельных строк"""
         segments: list[dict] = []
-        min_text_length = 10
+        min_text_length = 2
 
         # Known raw text locations (from our investigation)
-        # These are uncompressed text banks in Pokemon GBA
         raw_text_locations = [
             (0x599000, 0x59A000),  # Phrase book / common phrases
             (0x5ED000, 0x5EF000),  # Menu/UI text
@@ -452,21 +423,28 @@ class PokemonGBAPlugin(GamePlugin):
             end = min(end, len(rom.data))
             block = rom.data[start:end]
 
-            # Try to decode as raw text
-            if self._has_text_content(block):
-                strings = self._extract_strings_from_block(block)
-                if strings and any(len(s) >= min_text_length for s in strings):
+            # Extract individual strings from block
+            strings = self._extract_strings_from_block(block)
+            text_strings = [s for s in strings if len(s) >= min_text_length]
+
+            for _str_idx, text in enumerate(text_strings):
+                if self._is_likely_text(text):
                     seg_name = f'pokemon_{version}_raw_{len(segments)}'
                     segments.append({
                         'name': seg_name,
                         'start': start,
                         'end': end,
-                        'decoder': self._decoder,
+                        'decoder': None,
                         'compression': None,
                         'charmap': CHARMAP_POKEMON_GBA,
                         'terminators': POKEMON_TERMINATORS,
+                        'raw_text': text,
                     })
-                    logger.info(f"Found raw text block at 0x{start:X}: {len(strings)} strings")
+
+            if text_strings:
+                valid = [s for s in text_strings if self._is_likely_text(s)]
+                if valid:
+                    logger.info(f"Found raw block at 0x{start:X}: {len(valid)} valid strings")
 
         return segments
 
@@ -488,10 +466,14 @@ class PokemonGBAPlugin(GamePlugin):
                 text_bytes += 1
             elif b == 0x00:  # Space
                 text_bytes += 1
-            # Note: 0xFF (terminator) not counted to reduce false positives
+            elif b == 0xFF:  # Terminator
+                text_bytes += 1
+            elif b in (0xFD, 0xFC, 0xF7, 0xF8, 0xF9):  # Control codes
+                text_bytes += 1
+            # Note: pointer bytes (0x08, 0x09) NOT counted
 
         ratio = text_bytes / total
-        return ratio >= 0.4
+        return ratio >= 0.5  # Higher threshold for text detection
 
     def _decompress_lz77(self, rom_data: bytearray | bytes, offset: int) -> tuple[bytes, int] | None:
         """Распаковка LZ77 блока по указанному адресу
@@ -511,35 +493,64 @@ class PokemonGBAPlugin(GamePlugin):
             return None
 
     def _extract_strings_from_block(self, data: bytes | bytearray) -> list[str]:
-        """Извлечение строк из блока данных"""
+        """Извлечение строк из блока данных, разделённых 0xFF терминаторами"""
         strings: list[str] = []
         current: list[str] = []
         for b in data:
             if b == 0xFF:
                 if current:
-                    strings.append(''.join(current))
+                    s = ''.join(current)
+                    if len(s.strip()) >= 2:
+                        strings.append(s)
                     current = []
             elif b == 0x00:
                 current.append(' ')
             elif 0xBB <= b <= 0xEE:
-                current.append(CHARMAP_POKEMON_GBA.get(b, '?'))
+                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
             elif 0x01 <= b <= 0x28:
-                current.append(CHARMAP_POKEMON_GBA.get(b, '?'))
+                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
             elif 0xAB <= b <= 0xBA:
-                current.append(CHARMAP_POKEMON_GBA.get(b, '?'))
+                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
             elif 0xF1 <= b <= 0xF6:
-                current.append(CHARMAP_POKEMON_GBA.get(b, '?'))
+                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
             elif b == 0xFD:
                 current.append('[STR]')
             elif b == 0xFC:
                 current.append('[FC]')
             elif b == 0xF7:
                 current.append('[DYN]')
+            elif b == 0xF8:
+                current.append('[BTN]')
+            elif b == 0xF9:
+                current.append('[SYM]')
             else:
                 current.append(f'[{b:02X}]')
         if current:
-            strings.append(''.join(current))
+            s = ''.join(current)
+            if len(s.strip()) >= 2:
+                strings.append(s)
         return strings
+
+    def _is_likely_text(self, text: str) -> bool:
+        """Проверка, является ли строка вероятным текстом, а не мусором из указателей"""
+        if len(text.strip()) < 2:
+            return False
+
+        # Подсчёт символов, которые являются буквенными
+        alpha_count = sum(1 for c in text if c.isalpha())
+        # Подсчёт неизвестных байтов (в формате [XX])
+        unknown_count = text.count('[')
+
+        total = len(text)
+        if total == 0:
+            return False
+
+        # Текст должен содержать минимум 30% буквенных символов
+        alpha_ratio = alpha_count / total
+        # Не более 20% неизвестных байтов
+        unknown_ratio = unknown_count / total
+
+        return alpha_ratio >= 0.3 and unknown_ratio < 0.2
 
     def _heuristic_scan(self, rom: GameBoyROM, version: str) -> list[dict]:
         """Эвристический поиск текстовых блоков Pokemon"""

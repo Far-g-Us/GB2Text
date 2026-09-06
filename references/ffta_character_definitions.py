@@ -1,0 +1,53 @@
+"""FFTA character definitions from LeonarthCG/FFTA_Engine_Hacks"""
+# Source: https://github.com/LeonarthCG/FFTA_Engine_Hacks/blob/master/Text/Text%20Character%20Definitions.event
+# Verified against our existing FFTA plugin charmap — matches exactly.
+
+FFTA_CHARMAP_EVENT = {
+    # Numbers (0x80 prefix)
+    0x80A6: '0', 0x80A7: '1', 0x80A8: '2', 0x80A9: '3', 0x80AA: '4',
+    0x80AB: '5', 0x80AC: '6', 0x80AD: '7', 0x80AE: '8', 0x80AF: '9',
+    # Uppercase (0x80 prefix)
+    0x80B0: 'A', 0x80B1: 'B', 0x80B2: 'C', 0x80B3: 'D', 0x80B4: 'E',
+    0x80B5: 'F', 0x80B6: 'G', 0x80B7: 'H', 0x80B8: 'I', 0x80B9: 'J',
+    0x80BA: 'K', 0x80BB: 'L', 0x80BC: 'M', 0x80BD: 'N', 0x80BE: 'O',
+    0x80BF: 'P', 0x80C0: 'Q', 0x80C1: 'R', 0x80C2: 'S', 0x80C3: 'T',
+    0x80C4: 'U', 0x80C5: 'V', 0x80C6: 'W', 0x80C7: 'X', 0x80C8: 'Y',
+    0x80C9: 'Z',
+    # Lowercase (0x80 prefix)
+    0x80CA: 'a', 0x80CB: 'b', 0x80CC: 'c', 0x80CD: 'd', 0x80CE: 'e',
+    0x80CF: 'f', 0x80D0: 'g', 0x80D1: 'h', 0x80D2: 'i', 0x80D3: 'j',
+    0x80D4: 'k', 0x80D5: 'l', 0x80D6: 'm', 0x80D7: 'n', 0x80D8: 'o',
+    0x80D9: 'p', 0x80DA: 'q', 0x80DB: 'r', 0x80DC: 's', 0x80DD: 't',
+    0x80DE: 'u', 0x80DF: 'v', 0x80E0: 'w', 0x80E1: 'x', 0x80E2: 'y',
+    0x80E3: 'z',
+    # Punctuation (0x80 prefix)
+    0x80E4: '.', 0x80E9: '...', 0x80EA: '?', 0x80EB: '!',
+    0x80EC: ',', 0x80ED: '·', 0x80EE: ':', 0x80EF: '_',
+    0x80F1: '/', 0x80F2: '~',
+    0x80F3: '\u2018', 0x80F4: '\u2019',  # single quotes
+    0x80F5: '\u201C', 0x80F6: '\u201D',  # double quotes
+    0x80F7: '(', 0x80F8: ')',
+    0x80FD: '+', 0x80FE: '-', 0x80FF: '\u00B1',  # plus-minus
+    # Symbols (0x81 prefix)
+    0x8100: '\u00D7',  # ×
+    0x8101: '=', 0x8102: '<', 0x8103: '>',
+    0x8104: '\u221E',  # ∞
+    0x8105: '\u2642',  # ♂
+    0x8106: '\u2640',  # ♀
+    0x8107: '%', 0x8108: '&', 0x8109: '*',
+    0x810B: '\u2500',  # ─
+    0x810D: '\u25B2',  # ▲
+    0x810E: '\u25BC',  # ▼
+    0x810F: '\u2190',  # ←
+    0x8110: '\u2192',  # →
+    0x8111: '\u25CB',  # ○
+    0x8112: '\u25B3',  # △
+    0x8113: '\u25A1',  # □
+    0x8114: '\u25A0',  # ■
+    0x8115: '\u266A',  # ♪
+    0x8116: ';',
+    # Full-width numbers (0x81 prefix)
+    0x8118: '0', 0x8119: '1', 0x811A: '2', 0x811B: '3', 0x811C: '4',
+    0x811D: '5', 0x811E: '6', 0x811F: '7', 0x8120: '8', 0x8121: '9',
+    0x8122: '-',
+}

@@ -37,21 +37,24 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.metroid_fusion')
 
-# Metroid Fusion charmap (ASCII encoding)
-# Verified: text is stored as plain ASCII in the ROM
-# Source: ROM analysis - "SAMUS DESIGN" found at 0x74B8BE as ASCII
+# Metroid Fusion charmap (from community TBL dump)
 CHARMAP_METROID_FUSION: dict[int, str] = {
-    # Control codes (0x00-0x1F)
-    0x00: '',  # Null/padding
-    0x01: '', 0x02: '', 0x03: '', 0x04: '', 0x05: '',
-    0x06: '', 0x07: '', 0x08: '', 0x09: '\t', 0x0A: '\n',
-    0x0B: '', 0x0C: '', 0x0D: '\r', 0x0E: '', 0x0F: '',
-    
-    # ASCII printable characters (0x20-0x7E) - direct mapping
-    # No need to enumerate - chr(byte) works for all ASCII
-    
-    # Special
-    0xFF: '',  # End of string
+    0x40: ' ', 0x41: '!', 0x42: '"', 0x43: '#', 0x44: '$', 0x45: '%',
+    0x46: '&', 0x47: "'", 0x48: '(', 0x49: ')', 0x4A: '*', 0x4B: '+',
+    0x4C: ',', 0x4D: '-', 0x4E: '.', 0x4F: '/',
+    0x50: '0', 0x51: '1', 0x52: '2', 0x53: '3', 0x54: '4', 0x55: '5',
+    0x56: '6', 0x57: '7', 0x58: '8', 0x59: '9', 0x5A: ':', 0x5B: ';',
+    0x5D: '=', 0x5E: '>', 0x5F: '?',
+    0x81: 'A', 0x82: 'B', 0x83: 'C', 0x84: 'D', 0x85: 'E', 0x86: 'F',
+    0x87: 'G', 0x88: 'H', 0x89: 'I', 0x8A: 'J', 0x8B: 'K', 0x8C: 'L',
+    0x8D: 'M', 0x8E: 'N', 0x8F: 'O', 0x90: 'P', 0x91: 'Q', 0x92: 'R',
+    0x93: 'S', 0x94: 'T', 0x95: 'U', 0x96: 'V', 0x97: 'W', 0x98: 'X',
+    0x99: 'Y', 0x9A: 'Z', 0x9B: '[',
+    0xC1: 'a', 0xC2: 'b', 0xC3: 'c', 0xC4: 'd', 0xC5: 'e', 0xC6: 'f',
+    0xC7: 'g', 0xC8: 'h', 0xC9: 'i', 0xCA: 'j', 0xCB: 'k', 0xCC: 'l',
+    0xCD: 'm', 0xCE: 'n', 0xCF: 'o', 0xD0: 'p', 0xD1: 'q', 0xD2: 'r',
+    0xD3: 's', 0xD4: 't', 0xD5: 'u', 0xD6: 'v', 0xD7: 'w', 0xD8: 'x',
+    0xD9: 'y', 0xDA: 'z',
 }
 
 # Known text locations in Metroid Fusion (USA)
@@ -79,11 +82,7 @@ METROID_FUSION_GAME_CODES = ['AMTE', 'AMTP', 'AMTJ']
 
 
 class MetroidFusionTextDecoder:
-    """Decoder for Metroid Fusion text
-    
-    Text is stored as plain ASCII with control codes.
-    Control codes (0x00-0x0F) are skipped during decoding.
-    """
+    """Decoder for Metroid Fusion text using TBL charmap"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -92,32 +91,24 @@ class MetroidFusionTextDecoder:
         result: list[str] = []
         i = start
         end = min(start + length, len(data))
-        found_text = False
 
         while i < end:
             byte = data[i]
-            
-            # End of string
-            if byte == 0xFF:
+
+            if byte in (0xFF, 0x53):  # End of string
                 break
-            
-            # Control codes (0x00-0x0F) - skip them
-            if byte <= 0x0F:
+
+            if byte in METROID_FUSION_CONTROL_CODES:
+                result.append(METROID_FUSION_CONTROL_CODES[byte])
                 i += 1
                 continue
-            
-            # ASCII printable characters (0x20-0x7E)
-            if 0x20 <= byte <= 0x7E:
+
+            if byte in self.charmap:
+                result.append(self.charmap[byte])
+            elif 0x20 <= byte <= 0x7E:
                 result.append(chr(byte))
-                found_text = True
-            elif byte in self.charmap:
-                char = self.charmap[byte]
-                if char:
-                    result.append(char)
-                    found_text = True
             else:
                 result.append(f'[{byte:02X}]')
-                found_text = True
             i += 1
 
         return ''.join(result)
@@ -140,7 +131,7 @@ class MetroidFusionPlugin(GamePlugin):
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         """Извлечение текстовых сегментов Metroid Fusion
-        
+
         Uses known text block locations from ROM analysis.
         Text is stored as plain ASCII in the ROM.
         """
@@ -156,7 +147,7 @@ class MetroidFusionPlugin(GamePlugin):
             # Verify there's actual text at this location
             raw = rom.data[start:min(start + 100, end)]
             has_ascii = any(0x20 <= b <= 0x7E for b in raw)
-            
+
             if has_ascii:
                 segments.append({
                     'name': f'metroid_fusion_{name}',

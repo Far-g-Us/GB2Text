@@ -126,7 +126,6 @@
 
 ### Quality
 - [x] 15 plugin contract tests (all passing)
-- [x] Critics: critic, bug-critic, security-critic, ui-critic
 - [x] Fixed roadmap inaccuracies (CI/CD, API docs, broken links)
 
 ---

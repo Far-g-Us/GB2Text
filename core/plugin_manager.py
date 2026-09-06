@@ -74,6 +74,17 @@ class PluginManager:
         self.plugins_dir = self._get_resource_path(plugins_dir)
         self.load_plugins()
 
+    @property
+    def plugins(self) -> list:
+        """Возвращает объединённый список всех плагинов (specific + generic)."""
+        return self.specific_plugins + self.generic_plugins
+
+    @plugins.setter
+    def plugins(self, value: list):
+        """Устанавливает список плагинов (заменяет specific_plugins)."""
+        self.specific_plugins = list(value)
+        self.generic_plugins = []
+
     def _get_resource_path(self, relative_path: str) -> str:
         """Получает правильный путь к ресурсу для exe и обычного режима"""
         try:
