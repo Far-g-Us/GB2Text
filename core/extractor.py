@@ -89,7 +89,7 @@ class TextExtractor:
         self._report_progress(self._t("plugin.searching"), 5)
 
         # Передаем cancellation_token в plugin_manager
-        self.plugin = self.plugin_manager.get_plugin(game_id, system, self.cancellation_token)
+        self.plugin = self.plugin_manager.get_plugin(game_id, system, self.cancellation_token, rom=self.rom)
 
         if not self.plugin:
             logger.error(f"Не поддерживаемая игра: {game_id}")
@@ -141,6 +141,40 @@ class TextExtractor:
                 logger.info("Извлечение текста отменено")
                 return {}
 
+            # Fixed-width слотовая таблица (имена/атаки): каждая запись —
+            # ячейка фиксированной ширины, а не сплошной поток терминаторов.
+            if segment.get('fixed_width'):
+                messages = self._extract_fixed_width_messages(segment)
+                logger.info(
+                    f"Извлечено {len(messages)} сообщений из сегмента '{name}' "
+                    f"(fixed_width={segment['fixed_width']})")
+                results[name] = messages
+                if len(segments_to_process) > 0:
+                    progress = 20 + int(75 * (i + 1) / len(segments_to_process))
+                else:
+                    progress = 95
+                self._report_progress(
+                    f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
+                    progress)
+                continue
+
+            # Pointer-управляемый пул диалогов (Pokemon GBA): каждая строка —
+            # отдельный target-адрес из манифеста, декодер вызывается на месте.
+            if segment.get('kind') == 'pointer_dialogues':
+                messages = self._extract_pointer_dialogues(segment)
+                logger.info(
+                    f"Извлечено {len(messages)} сообщений из сегмента '{name}' "
+                    f"(pointer_dialogues)")
+                results[name] = messages
+                if len(segments_to_process) > 0:
+                    progress = 20 + int(75 * (i + 1) / len(segments_to_process))
+                else:
+                    progress = 95
+                self._report_progress(
+                    f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
+                    progress)
+                continue
+
             # Обработка сжатия если необходимо
             # Если сегмент уже содержит декодированный текст (raw_text), используем его напрямую
             raw_text = segment.get('raw_text')
@@ -149,30 +183,14 @@ class TextExtractor:
                 logger.info(f"Использован предварительно декодированный текст: {len(text)} символов")
             else:
                 data = self.rom.data[start:end]
-                if segment.get('compression'):
-                    compression_type = segment.get('compression')
-                    if isinstance(compression_type, str):
-                        from core.compression import get_compression_handler
-                        handler = get_compression_handler(compression_type)
-                        if handler:
-                            logger.info(f"Распаковка: {compression_type}")
-                            decompressed, _ = handler.decompress(data, 0)
-                            data = decompressed
-                        else:
-                            logger.warning(f"Неизвестный тип сжатия: {compression_type}")
-                    elif hasattr(compression_type, 'decompress'):
-                        logger.info("Распаковка (объект)")
-                        try:
-                            decompressed, _ = compression_type.decompress(data, 0)
-                            data = decompressed
-                        except Exception as e:
-                            logger.warning(f"Ошибка распаковки: {e}")
+                data = self._decompress(data, segment.get('compression'))
 
                 # Декодирование текста
                 if not segment['decoder']:
                     logger.info("Таблица символов не предоставлена, определяем автоматически")
                     from core.scanner import auto_detect_charmap
-                    charmap = auto_detect_charmap(self.rom.data, start)
+                    charmap = auto_detect_charmap(
+                        self.rom.data, start, prefer_lang=segment.get('lang'))
                     from core.decoder import CharMapDecoder
                     segment['decoder'] = CharMapDecoder(charmap)
 
@@ -217,6 +235,96 @@ class TextExtractor:
         )
 
         return results
+
+    def _extract_pointer_dialogues(self, segment: dict) -> list[dict]:
+        """Декодирует каждую строку pointer-пула из манифеста по её target.
+
+        Сообщения получают 'target_addr'/'length'/'slots' для in-place
+        вставки; 'offset' продублирован для совместимости с GUI.
+        """
+        logger = logging.getLogger('gb2text.extractor')
+        decoder = segment.get('decoder')
+        if decoder is None:
+            logger.error("pointer_dialogues требует явный decoder")
+            return []
+        data = self.rom.data
+        manifest = segment.get('manifest') or []
+        messages: list[dict] = []
+        for entry in manifest:
+            addr = entry.get('target')
+            if not isinstance(addr, int) or not (0 <= addr < len(data)):
+                continue
+            try:
+                max_decode = min(segment.get('max_decode_len', 320),
+                                 entry.get('free_after', 320),
+                                 len(data) - addr)
+                text = decoder.decode(data, addr, max_decode)
+            except Exception as exc:
+                logger.warning(f"Диалог 0x{addr:X}: сбой декодирования ({exc}), пропущен")
+                continue
+            if not text.strip():
+                continue
+            messages.append({
+                'text': text,
+                'offset': addr,
+                'target_addr': addr,
+                'length': entry['free_after'],
+                'slots': entry.get('slots', []),
+            })
+        return messages
+
+    def _decompress(self, data: bytes, compression) -> bytes:
+        """Распаковывает данные сегмента, если задан тип сжатия"""
+        logger = logging.getLogger('gb2text.extractor')
+        if not compression:
+            return data
+        if isinstance(compression, str):
+            from core.compression import get_compression_handler
+            handler = get_compression_handler(compression)
+            if handler:
+                logger.info(f"Распаковка: {compression}")
+                try:
+                    decompressed, _ = handler.decompress(data, 0)
+                    assert isinstance(decompressed, bytes)
+                    return decompressed
+                except Exception as e:
+                    # Часть обработчиков требует контекст ROM (tree_base/tree_data
+                    # у Huffman), недоступный через decompress(data, 0). Падать из-за
+                    # одного несжимаемого сегмента нельзя — пропускаем с предупреждением.
+                    logger.warning(
+                        f"Распаковка '{compression}' недоступна в этом контексте: {e}")
+            else:
+                logger.warning(f"Неизвестный тип сжатия: {compression}")
+        elif hasattr(compression, 'decompress'):
+            logger.info("Распаковка (объект)")
+            try:
+                decompressed, _ = compression.decompress(data, 0)
+                assert isinstance(decompressed, bytes)
+                return decompressed
+            except Exception as e:
+                logger.warning(f"Ошибка распаковки: {e}")
+        return data
+
+    def recode_segment(self, segment: dict, decoder) -> list[dict]:
+        """
+        Перекодирует ОДИН сегмент указанным декодером и возвращает сообщения.
+
+        Используется GUI при смене кодировки/тумблера неизвестных байтов.
+        Позволяет перекодировать только текущий сегмент — переводы,
+        введённые в остальных сегментах, сохраняются.
+        """
+        logger = logging.getLogger('gb2text.extractor')
+        start = segment['start']
+        end = segment['end']
+        if start >= len(self.rom.data) or end > len(self.rom.data) or start >= end:
+            logger.error(
+                f"Сегмент с недопустимыми адресами: start=0x{start:X}, end=0x{end:X}, размер ROM={len(self.rom.data)}")
+            return []
+        if segment.get('fixed_width'):
+            return self._extract_fixed_width_messages(segment, decoder)
+        data = self._decompress(self.rom.data[start:end], segment.get('compression'))
+        text = decoder.decode(data, 0, len(data))
+        return self._split_messages(text, start)
 
     def _split_messages(self, text: str, base_offset: int) -> list[dict]:
         """Разделение на отдельные сообщения с улучшенной обработкой"""
@@ -288,10 +396,52 @@ class TextExtractor:
         logger.info(f"Разделено на {len(messages)} сообщений")
         return messages
 
+    def _extract_fixed_width_messages(self, segment: dict, decoder=None) -> list[dict]:
+        """Разбиение fixed-width слотовой таблицы на сообщения (байтовый уровень).
+
+        Сегмент должен иметь 'fixed_width' (ширина слота) и 'record_count'.
+        Каждый слот: data[start + i*W : start + (i+1)*W]. Текст слота — до
+        первого 0xFF (декодер сам останавливается на терминаторе); 0x00 внутри
+        слота — пробел, а не разделитель. Пустые слоты ('?'-паддинг)
+        пропускаются, но offset сохраняет абсолютную позицию слота,
+        чтобы инжектор мог писать на свои места.
+        """
+        width = segment['fixed_width']
+        count = segment['record_count'] if 'record_count' in segment else (
+            (segment['end'] - segment['start']) // width if width else 0)
+        start = segment['start']
+        if decoder is None:
+            decoder = segment.get('decoder')
+        data = self.rom.data
+
+        messages: list[dict] = []
+        for i in range(count):
+            slot_start = start + i * width
+            if slot_start + width > len(data):
+                break
+            slot_bytes = data[slot_start:slot_start + width]
+            if decoder is not None:
+                try:
+                    text = decoder.decode(slot_bytes, 0, len(slot_bytes))
+                except Exception as exc:
+                    logging.getLogger('gb2text.extractor').warning(
+                        f"Слот 0x{slot_start:X}: сбой декодирования ({exc}), пропущен")
+                    text = ""
+            else:
+                text = ""
+            if text.strip("-? ") == "":
+                continue
+            messages.append({
+                'offset': slot_start,
+                'text': text,
+            })
+        return messages
+
     def _apply_guide_recommendations(self):
         """Применяет рекомендации из руководства к плагину"""
         if not self.guide:
             return
+        assert self.plugin is not None
 
         # Пример применения рекомендаций
         recommendations = self.guide.get('recommendations', {})

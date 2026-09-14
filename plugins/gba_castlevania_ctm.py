@@ -1,33 +1,33 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Castlevania: Circle of the Moon (GBA)
+Plugin for Castlevania: Circle of the Moon (GBA)
 
 Game codes: AAME (USA), AAMJ (Japan), AAMP (Europe)
 
-Text encoding: ASCII with control codes
+Text encoding: ASCII + control codes
 Known facts:
 - Castlevania GBA games use ASCII encoding
 - Control codes appear before text blocks
-- Text is stored directly in ROM
+- Text is stored directly in the ROM
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -44,7 +44,9 @@ CTM_GAME_CODES = ['AAME', 'AAMJ', 'AAMP']
 
 
 class CastlevaniaCTMPlugin(CastlevaniaGBAPlugin):
-    """Плагин для Castlevania: Circle of the Moon (GBA)"""
+    """Plugin for Castlevania: Circle of the Moon (GBA)"""
+
+    _is_stub = True
 
     @property
     def game_id_pattern(self) -> str:
@@ -52,14 +54,14 @@ class CastlevaniaCTMPlugin(CastlevaniaGBAPlugin):
         return f'^GBA_({codes})$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Castlevania: Circle of the Moon"""
+        """Extract Castlevania: Circle of the Moon text segments"""
         logger.info("Извлечение текстовых сегментов для Castlevania: Circle of the Moon")
 
         segments: list[dict] = []
 
-        # TODO: Find actual text block locations for Circle of the Moon
-        # For now, use heuristic scanning
-        logger.info("Circle of the Moon: Using heuristic scanning")
+        # TODO: Find the actual text-block locations for Circle of the Moon
+        # For now use heuristic scanning
+        logger.info("Круг Луны: используется эвристическое сканирование")
 
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info(f"Всего сегментов: {len(segments)}")
         return segments

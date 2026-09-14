@@ -1,8 +1,8 @@
 {
   "game": {
-    "name": "Шаблон игры Game Boy Advance",
-    "version": "1.0.0",
-    "description": "Базовый шаблон для игр Game Boy Advance с 32-битной архитектурой"
+    "name": "Шаблон GBA игры",
+    "version": "2.0.0",
+    "description": "Шаблон для плагинов GBA игр с реальными паттернами извлечения"
   },
   "supported_platforms": ["GBA"],
   "header_pattern": {
@@ -20,29 +20,68 @@
     "supports_32mb_rom": true,
     "sram_size_offset": 240
   },
-  "charmaps": {
-    "default": {
-      "name": "Basic ASCII",
-      "codes": {
-        "32": " ",
-        "33": "!",
-        "34": "\"",
-        "39": "'",
-        "44": ",",
-        "45": "-",
-        "46": ".",
-        "48-57": "0-9",
-        "65-90": "A-Z",
-        "97-122": "a-z",
-        "255": "[END]"
+  "extraction_modes": {
+    "ascii": {
+      "description": "Простой ASCII текст (Sonic Advance, KH:CoM)",
+      "terminators": ["0x00"],
+      "min_length": 20,
+      "filter_alpha_ratio": 0.3
+    },
+    "ascii_with_control_codes": {
+      "description": "ASCII + контрольные коды (Castlevania AoS, Metroid Fusion)",
+      "terminators": ["0x0D", "0x0A", "0xFF"],
+      "control_codes": {
+        "0x06": "\\n",
+        "0x0A": "\\n",
+        "0x50": "\\n",
+        "0x53": "\\n"
       }
     },
-    "fullwidth": {
-      "name": "Fullwidth Japanese",
-      "codes": {
-        "0x81-0x9F": "First byte of 2-byte chars",
-        "0xE0-0xEF": "First byte of 2-byte chars"
-      }
+    "multi_byte": {
+      "description": "Многобайтовая кодировка (FF5/FF4 Advance, FFTA)",
+      "primary_range": ["0xC2-0xD6"],
+      "terminators": ["0x0D", "0x0A", "0xFF"],
+      "pointer_size": 4
+    },
+    "pointer_table": {
+      "description": "Таблица указателей (FF5/FF4 Advance, Castlevania AoS)",
+      "pointer_base": 134217728,
+      "pointer_size": 4,
+      "scan_range": ["0x360000-0x3B0000"]
+    },
+    "compressed": {
+      "description": "LZ77-сжатые данные (Pokemon Gen 3)",
+      "header_byte": "0x10",
+      "handler": "GBALZ77Handler",
+      "split_byte": "0xFF"
+    }
+  },
+  "charmap_patterns": {
+    "ascii_basic": {
+      "0x20": " ",
+      "0x21": "!",
+      "0x2C": ",",
+      "0x2D": "-",
+      "0x2E": ".",
+      "0x30-0x39": "0-9",
+      "0x41-0x5A": "A-Z",
+      "0x61-0x7A": "a-z",
+      "0xFF": "END"
+    },
+    "ff5_advanced": {
+      "0x20": " ",
+      "0x41-0x5A": "A-Z",
+      "0x61-0x7A": "a-z",
+      "0xC2-0xD6": "Multi-byte kanji (см. полную таблицу)",
+      "0x0D": "\\n",
+      "0xFF": "END"
+    },
+    "castlevania_control": {
+      "0x20-0x7E": "ASCII",
+      "0x06": "\\n",
+      "0x0A": "\\n",
+      "0x53": "END",
+      "0xFF": "END"
     }
   },
   "segments": {
@@ -51,60 +90,63 @@
       "start": 134217728,
       "end": 268435455,
       "pointer_size": 4,
-      "pointer_base": 134217728,
-      "encoding": "default"
+      "pointer_base": 134217728
     },
     "dialogue": {
       "name": "Тексты диалогов",
       "start": 134217728,
       "end": 150994943,
       "pointer_size": 4,
-      "pointer_base": 134217728,
-      "encoding": "default"
+      "pointer_base": 134217728
     },
     "menu": {
       "name": "Меню и интерфейс",
       "start": 134217728,
       "end": 150994943,
       "pointer_size": 4,
-      "pointer_base": 134217728,
-      "encoding": "default"
+      "pointer_base": 134217728
     },
     "system": {
       "name": "Системные сообщения",
       "start": 134217728,
       "end": 150994943,
       "pointer_size": 4,
-      "pointer_base": 134217728,
-      "encoding": "default"
-    },
-    "font_data": {
-      "name": "Данные шрифтов",
-      "start": 134217728,
-      "end": 150994943,
-      "pointer_size": 4,
-      "pointer_base": 134217728,
-      "encoding": "fullwidth"
+      "pointer_base": 134217728
     }
-  },
-  "gba_specific": {
-    "compression": ["LZ77", "Huffman", "битный Run-Length"],
-    "pointer_math": "absolute_address - base_address",
-    "arm_thumb_mode": true,
-    "overlay_support": true
   },
   "validation": {
     "max_length": 255,
-    "allowed_glyphs": "ascii_extended",
     "check_newlines": true,
     "warn_multiple_spaces": true,
     "validate_encoding": true,
-    "check_compression": true
+    "check_compression": true,
+    "min_alpha_ratio": 0.3,
+    "max_unknown_bytes": 0.2
   },
   "injection": {
     "backup_original": true,
     "verify_checksum": true,
     "rebuild_rom": true,
     "arm_patch_support": true
+  },
+  "known_games": {
+    "FF5 Advance": {
+      "game_code": "BZ5E",
+      "mode": "multi_byte",
+      "pointer_table": "0x36DD64",
+      "entries": 24036,
+      "base": "0x36DD54"
+    },
+    "Castlevania AoS": {
+      "game_code": "A0EY",
+      "mode": "ascii_with_control_codes",
+      "languages": ["EN", "FR", "DE"],
+      "pointer_scan": true
+    },
+    "Sonic Advance": {
+      "game_code": "ASTE",
+      "mode": "ascii",
+      "min_length": 20
+    }
   }
 }

@@ -1,0 +1,50 @@
+{
+  "game_id_pattern": "^GBA_BPEE$",
+  "rom_signature": [
+    {
+      "title_pattern": "^POKEMON EMER",
+      "min_size": 16777216,
+      "max_size": 33554432
+    }
+  ],
+  "segments": [
+    {
+      "name": "names",
+      "start": "0x3185C8",
+      "end": "0x31977C",
+      "charmap": {
+        "0x20": " ",
+        "0x41-0x5A": "A-Z"
+      }
+    },
+    {
+      "name": "attacks",
+      "start": "0x31977C",
+      "end": "0x31A983",
+      "charmap": {
+        "0x20": " ",
+        "0x41-0x5A": "A-Z"
+      }
+    },
+    {
+      "name": "abilities",
+      "start": "0x31B6DB",
+      "end": "0x31BAD1",
+      "charmap": {
+        "0x20": " ",
+        "0x41-0x5A": "A-Z"
+      }
+    },
+    {
+      "name": "types",
+      "start": "0x31AE38",
+      "end": "0x31AEB6",
+      "charmap": {
+        "0x20": " ",
+        "0x41-0x5A": "A-Z"
+      }
+    }
+  ],
+  "description": "REFERENCE (rom_signature + segments) for Pokemon Emerald (USA BPEE). ExcelAddr covers ONLY the USA version (BPEE); other Emerald versions live in gba_pokemon.py FIXED_TABLES with version-specific addresses. Covered: the four fixed-width name tables from FIXED_TABLES['emerald']: names 0x3185C8 (11x412), attacks 0x31977C (13x355), types 0x31AE38 (7x18), abilities 0x31B6DB (13x78) - all verified against a real ROM. Full extraction (all dialogs, pointer tables) is NOT covered by this JSON; use the gba_pokemon.py plugin for complete coverage. String terminators (0xFF) are handled by the decoder (0x00/0xFF/0xFE decode as line breaks). Hack authors: copy and adapt title_pattern to match YOUR hack ROM title.",
+  "_user_created": true
+}

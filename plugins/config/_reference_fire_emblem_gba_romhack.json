@@ -1,0 +1,22 @@
+{
+  "game_id_pattern": "^GBA_(AE7E|AE7Y|BE8E|BE8P)$",
+  "rom_signature": [
+    {
+      "title_pattern": "^FIREEMBLEM",
+      "min_size": 8388608,
+      "max_size": 33554432
+    }
+  ],
+  "segments": [
+    {
+      "name": "fe_text_region",
+      "start": "0x100000",
+      "end": "0x400000",
+      "charmap": {
+        "0x20-0x7E": "ASCII printable"
+      }
+    }
+  ],
+  "description": "REFERENCE (rom_signature + segments) for Fire Emblem GBA (FE7/FE8). Text is Huffman-compressed, so JSON cannot express it: this config DOCUMENTS the real scan range from gba_fire_emblem.py: FE text area 0x100000-0x400000 (bytes are Huffman-compressed - the ASCII charmap above only applies AFTER decompression). Huffman tree bases (from FEBuilderGBA/community docs): FE7U 0xB808AC, FE8U 0x15D48C. Full extraction requires the Python plugin FireEmblemGBAPlugin (gba_fire_emblem.py) - the JSON config is NOT usable for extraction as-is. Hack authors: copy and adapt title_pattern to match YOUR hack ROM title.",
+  "_user_created": true
+}

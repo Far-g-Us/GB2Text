@@ -1,33 +1,33 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Castlevania: Harmony of Dissonance (GBA)
+Plugin for Castlevania: Harmony of Dissonance (GBA)
 
 Game codes: ACHP (Europe), ACHJ (Japan), ACHI (USA)
 
-Text encoding: ASCII with control codes
+Text encoding: ASCII + control codes
 Known facts:
 - Castlevania GBA games use ASCII encoding
 - Control codes appear before text blocks
-- Text is stored directly in ROM
+- Text is stored directly in the ROM
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -44,7 +44,9 @@ HOD_GAME_CODES = ['ACHP', 'ACHJ', 'ACHI']
 
 
 class CastlevaniaHODPlugin(CastlevaniaGBAPlugin):
-    """Плагин для Castlevania: Harmony of Dissonance (GBA)"""
+    """Plugin for Castlevania: Harmony of Dissonance (GBA)"""
+
+    _is_stub = True
 
     @property
     def game_id_pattern(self) -> str:
@@ -52,14 +54,14 @@ class CastlevaniaHODPlugin(CastlevaniaGBAPlugin):
         return f'^GBA_({codes})$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Castlevania: Harmony of Dissonance"""
+        """Extract Castlevania: Harmony of Dissonance text segments"""
         logger.info("Извлечение текстовых сегментов для Castlevania: Harmony of Dissonance")
 
         segments: list[dict] = []
 
-        # TODO: Find actual text block locations for Harmony of Dissonance
-        # For now, use heuristic scanning
-        logger.info("Harmony of Dissonance: Using heuristic scanning")
+        # TODO: Find the actual text-block locations for Harmony of Dissonance
+        # For now use heuristic scanning
+        logger.info("Диссонанс Гармонии: используется эвристическое сканирование")
 
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info(f"Всего сегментов: {len(segments)}")
         return segments

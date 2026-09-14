@@ -1,61 +1,101 @@
 # Supported Games
 
-Games with text extraction support.
+All ROMs present in `test_roms/`, grouped by platform. The Region column shows
+the ROM revisions used to verify each plugin. Games without a dedicated plugin
+are listed with status "—".
 
 ## Status Legend
-- ✅ Full — Читаемый текст на реальном ROM
-- ⚠️ Partial — Часть текста извлекается, часть garbled
-- 🔧 Stub — Плагин есть, не работает (charmap/pointer table неизвестны)
-- ❌ Broken — Плагин есть, но результат garbled
+- ✅ Full — readable text on a real ROM
+- ⚠️ Partial — part of the text extracts, some is garbled
+- 🔧 Stub — plugin exists, not working yet (charmap/pointer table unknown)
+- ❌ Broken — plugin exists, but output is garbled
+- — No plugin — ROM present in `test_roms/`, but no dedicated plugin yet
+  (only the generic GB/GBC plugins, which need a manual config)
 
 ## GBA Games — Working / Partial
 
-| Game | Game ID | Plugin | Status | Notes |
-|------|---------|--------|--------|-------|
-| Mario & Luigi: Superstar Saga | A88E | gba_mario_luigi_ss | ✅ Full | ASCII, все сегменты читаемы |
-| Final Fantasy Tactics Advance | AFXE | gba_fft_advance | ✅ Full | Multi-byte 0x8X XX, LZSS, 4 таблицы, CRN |
-| Legend of Zelda: The Minish Cap | BZME | gba_zelda_tmc | ✅ Full | Tile-based ASCII, 2 hardcoded блока (intro + NPC dialogue) |
-| Wario Land 4 | AWAE | gba_wario_land_4 | ✅ Full | 1585 записей, DataCrystal TBL |
-| Astro Boy: Omega Factor | BTAE | gba_astro_boy | ✅ Full | Caesar cipher -1 |
-| Final Fantasy V Advance | BZ5E | gba_ff5_advance | ✅ Full | Pointer table @ 0x36DD64, 8495 entries |
-| Final Fantasy IV Advance | BZ4E | gba_ff4_advance | ✅ Full | Complete TBL: 0x00-0x7F single-byte + 0xC2XX-0xD6XX multi-byte kanji |
-| Sonic Advance | ASOE | gba_sonic_advance | ✅ Full | ASCII, credits + zone names |
-| Kingdom Hearts: Chain of Memories | B8CE | gba_kingdom_hearts_com | ✅ Full | ASCII + control codes |
-| Phoenix Wright: Ace Attorney | ASBJ | gba_phoenix_wright | ✅ Full | Fan-translated ROM, ASCII |
-| Mega Man Battle Network | AREP | gba_megaman_battle_network | ✅ Full | ASCII subset, control codes |
-| Metroid Fusion | AMTE | gba_metroid_fusion | ⚠️ Partial | Только credits (4 hardcoded блока), диалоги не найдены |
-| FF1&2: Dawn of Souls | BZSE | gba_ff12_dawn_of_souls | 🔧 Stub | TBL provided, pointer table location unknown |
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Mario & Luigi: Superstar Saga | A88E | USA | gba_mario_luigi_ss | ✅ Full | Table-based extraction + insertion: master pointer table @ 0x4EB000, 1024 entries × 5 languages (DE/FR/ES/EN/IT, slot-interleaved idx*5+slot), exact byte boundaries of self-terminating records (FF tokens, special glyphs, inline button icons 0x18/0x19/0x1E/0x1F). Per-record insertion: in-place when it fits, otherwise relocation into a free 0x00-run with a patch to its own slot only; catalog entries (e888/e1023) skipped verbatim; ROM expansion fallback. Other revisions (BTEJ/BTEP) not verified |
+| Final Fantasy Tactics Advance | AFXE | USA | gba_fft_advance | ✅ Full | Multi-byte 0x8X XX (+ single-byte with 0x01 prefix), LZSS dialogues (marker 0x32, 1787 lines), 4 pointer tables, CRN; extraction + insertion: dialogues recompressed into the original LZSS window (skip_long on overflow), tables/CRN in-place. Dialogues always encoded with encode(force_multi=True) on insert: original LZSS blocks do not use the single-prefix 0x01, so the format is preserved |
+| Legend of Zelda: The Minish Cap | BZME | USA | gba_zelda_tmc | ✅ Full | Text stored in "banks" (u32 offsets table + records terminated by 0x00; 0xFF is a control-code parameter/menu separator, not a terminator). Extraction of all banks: TMCTextDecoder with control codes (01:2 02:1 03:2 04:2 05:2 06:1 07:2 08:1 0C:1 0F:1) and [END]/[LINEBREAK]/[TAB]/[CC PP]/[MENUSEP]/[UNK] grammar. Per-record in-bank insertion: in-place when it fits, otherwise relocation into a free 0xFF-run within the bank zone (dest-base ≤ 0x4000), patching only its own table slot; 17 records with external references are protected from relocation; byte-identical round-trip (decode→encode == original) across all 70 banks, full extract→inject pipeline is identity, relocation is idempotent and re-scannable. Records with external references are skipped verbatim. Not verified on emulator/hardware |
+| Final Fantasy V Advance | BZ5E | USA | gba_ff5_advance | ✅ Full | Pointer table @ 0x36DD64, 24036 entries; 0x4000 segment limit + filter (drops records with 2+ hex tokens and with <30% clean text) removes garbage pointers into data/padding — dialogues fully readable. Insertion: encoder supports single/multi-byte chrmap, control codes (PIC/PAUSE/LINEBREAK etc.) and hex tokens; round-trip across all 6594 segments |
+| Final Fantasy IV Advance | BZ4E | USA | gba_ff4_advance | ✅ Full | Complete TBL: 0x00-0x7F single-byte + 0xC2XX-0xD6XX multi-byte kanji; pointer base 0x2E3670 (fixes the 0x624C shift that truncated lines mid-word); filter removes single glyphs from the charmap catalog and empty records; dialogues/menus intact. Insertion: encoder (single/multi-byte chrmap + control codes NAME/PIC/LINEBREAK + hex tokens), byte-identical round-trip across all 4744 segments |
+| Golden Sun | AGSE | USA/Europe | gba_golden_sun | ✅ Full | Contextual Huffman (256 trees), 10,722 lines in 42 files + ASCII credits. Extraction and insertion (recompression with the game's trees; long translations are skipped) |
+| Castlevania: Aria of Sorrow | A2CE | USA | gba_castlevania | ✅ Full | Pointer-based table extraction: table @ 0x506B38, 2895 records (en_ui 40 / en 973 / fr 1103 / de 779), exact byte boundaries, control codes and page breaks ([PAGEBREAK]) preserved. Insertion at the language-block level (encode + record repacking; in-place when it fits, otherwise relocation into a free 0x00-run with target patching; GBA header checksum is not recalculated). Story dialogues are covered by the table (verified). Open: AGBE/AGBJ not verified |
+| Metroid Fusion | AMTE | USA | gba_metroid_fusion | ✅ Full | 1239 dialogue lines via pointer tables, 4 ASCII blocks (credits/save) via MetroidFusionAsciiDecoder; byte-identical round-trip verified |
+| Wario Land 4 | AWAE | USA/Europe | gba_wario_land_4 | ✅ Full | 80 known locations (passages, levels, diary, music, shops — 6×Mini-Game Shop) with EN-only windows; charmap: 0x00-0x3F digits/upper/lower + 0xE1-0xF2 punctuation + 0xFF space; multi-language records trimmed to EN run; round-trip inject→re-extract verified. DataCrystal TBL has 15 additional romaji music-track names at 0x6D310E-0x6D3378 (JP-only, unstable record boundaries 1-15 FF, trailing binary in charmap range — excluded). 3 TBL offsets corrected against real ROM. |
+| Pokemon Emerald | BPEE | USA/Europe | gba_pokemon | ✅ Full | Fixed-width tables (names 412×11b, attacks 355×13b, abilities 78×13b, types 18×7b) + pointer-based dialogues (address-only manifest, 2089 dialogue targets); byte-level slot extraction, round-trip extract→inject→extract verified on real ROM; in-place dialogue injection with overflow report |
+| Pokemon Ruby | AXVE | USA | gba_pokemon | ✅ Full | Fixed-width tables (names 412×11b, attacks 355×13b, abilities 78×13b, types 18×7b) + pointer-based dialogues (address-only manifest, 1262 dialogue targets); round-trip verified on real ROM; in-place dialogue injection with overflow report |
+| Pokemon Sapphire | AXPE | USA | gba_pokemon | ✅ Full | Fixed-width tables (names 412×11b, attacks 355×13b, abilities 78×13b, types 18×7b) + pointer-based dialogues (address-only manifest, 1264 dialogue targets); round-trip verified on real ROM; in-place dialogue injection with overflow report |
+| Pokemon FireRed | BPRE | USA | gba_pokemon | ✅ Full | Fixed-width tables (names 412×11b, attacks 355×13b, abilities 78×13b, types 18×7b) + pointer-based dialogues (address-only manifest, 1289 dialogue targets); round-trip verified on real ROM; in-place dialogue injection with overflow report |
+| Pokemon LeafGreen | BPGE | USA | gba_pokemon | ✅ Full | Fixed-width tables (names 412×11b, attacks 355×13b, abilities 78×13b, types 18×7b) + pointer-based dialogues (address-only manifest, 1292 dialogue targets); round-trip verified on real ROM; in-place dialogue injection with overflow report |
 
 ## GBA Games — Broken / Stub
 
-| Game | Game ID | Plugin | Status | Problem |
-|------|---------|--------|--------|---------|
-| Pokemon Emerald | BPEE | gba_pokemon | ⚠️ Partial | LZ77 decompression + charmap working. Item names readable (PROTEIN, REVIVE, STARDUST etc). Pointer table extraction not yet implemented |
-| Pokemon Ruby | AXRE | gba_pokemon | ⚠️ Partial | Same as Emerald |
-| Pokemon Sapphire | AXVE | gba_pokemon | ⚠️ Partial | Same as Emerald |
-| Castlevania: Aria of Sorrow | A2CE | gba_castlevania | ✅ Full | 6543 strings (EN/FR/DE). Pointer-based extraction, ASCII + control codes |
-| FF VI Advance | BZ6E | gba_ff6_advance | 🔧 Stub | 0 сегментов, нет pointer table |
-| Fire Emblem (Europe) | AE7Y | gba_fire_emblem | 🔧 Stub | Huffman tree не реализован (USA адреса известны, EU — нет) |
-| Fire Emblem: Sacred Stones | BE8P | gba_fire_emblem | 🔧 Stub | Huffman tree не реализован |
-| Castlevania: Circle of the Moon | AAME | gba_castlevania_ctm | 🔧 Stub | 0 сегментов, charmap неизвестен |
-| Castlevania: Harmony of Dissonance | ACHP | gba_castlevania_hod | 🔧 Stub | 0 сегментов, charmap неизвестен |
-| Mega Man Battle Network | AREP | gba_megaman_battle_network | 🔧 Stub | 0 сегментов |
+| Game | Game ID | Region | Plugin | Status | Problem |
+|------|---------|--------|--------|--------|---------|
+| Astro Boy: Omega Factor | BTAE | USA | gba_astro_boy | ❌ Broken | Caesar-1 covers 1 of 6 languages; keyword scan for Spanish words (QUE/ROBOT); 22k segments of garbage |
+| Sonic Advance | ASOE | USA | gba_sonic_advance | ❌ Broken | "length prefix + ASCII" heuristic; output is garbage, "credits" decode to spaces |
+| Kingdom Hearts: Chain of Memories | B8CE | USA | gba_kingdom_hearts_com | ❌ Broken | Unreadable output (wrong encoding/offsets) |
+| Phoenix Wright: Ace Attorney | ASBJ | Japan | gba_phoenix_wright | ❌ Broken | Unreadable output (wrong encoding/layout for the T-En ROM) |
+| Mega Man Battle Network | AREP | Europe | gba_megaman_battle_network | 🔧 Stub | 0 segments (encoding/table unknown) |
+| FF VI Advance | BZ6E | USA | gba_ff6_advance | 🔧 Stub | 0 segments, no pointer table |
+| Fire Emblem (Europe) | AE7Y | Europe | gba_fire_emblem | 🔧 Stub | Huffman tree not implemented (USA addresses known, EU not) |
+| Fire Emblem: Sacred Stones | BE8P | Europe | gba_fire_emblem | 🔧 Stub | Huffman tree not implemented |
+| Castlevania: Circle of the Moon | AAME | USA | gba_castlevania_ctm | 🔧 Stub | 0 segments, charmap unknown |
+| Castlevania: Harmony of Dissonance | ACHP | Europe | gba_castlevania_hod | 🔧 Stub | 0 segments, charmap unknown |
 
-## GBA Games — Stub Plugins (charmap needed)
+## GBA Games — Stub Plugins (charmap / pointer table needed)
 
-| Game | Game ID | Plugin | Known Info |
-|------|---------|--------|------------|
-| Golden Sun | AGSE | gba_golden_sun | ⚠️ Staff credits (ASCII) extracted. Dialogue uses custom encoding — charmap needed |
-| Golden Sun: The Lost Age | AGFE | gba_golden_sun_tla | Same engine as GS1 |
-| Advance Wars | AWRE | gba_advance_wars | ASCII, menu-heavy |
-| Mega Man Battle Network 2 | AM2P | gba_megaman_battle_network_2 | Same engine as MMBN1 |
-| Mega Man Zero | AZCE | gba_megaman_zero | Custom encoding, ASCII subset |
-| Shining Force | AF5E | gba_shining_force | ASCII, RPG text |
-| CT Special Forces | AC7E | gba_ct_special_forces | ASCII |
-| Custom Robo GX | ARJJ | gba_custom_robo_gx | Japanese-only, custom encoding |
-| Metroid Zero Mission | BMXE | gba_metroid_zero_mission | Custom encoding (similar to Fusion but different offsets). TBL needed |
-| Castlevania: Aria of Sorrow | A2CE | gba_castlevania | Pointer table not found |
-| FF VI Advance | BZ6E | gba_ff6_advance | Pointer table not found |
+| Game | Game ID | Region | Plugin | Status | Known Info |
+|------|---------|--------|--------|--------|------------|
+| Golden Sun: The Lost Age | AGFE | USA/Europe | gba_golden_sun_tla | 🔧 Stub | 0 segments, same engine as GS1 |
+| Advance Wars | AWRE | USA | gba_advance_wars | 🔧 Stub | ASCII, menu-heavy |
+| Mega Man Battle Network 2 | AM2P | Europe | gba_megaman_battle_network_2 | 🔧 Stub | 0 segments, same engine as MMBN1 |
+| Mega Man Zero | AZCE | USA/Europe | gba_megaman_zero | 🔧 Stub | Custom encoding, ASCII subset |
+| Shining Force | AF5E | USA | gba_shining_force | 🔧 Stub | ASCII, RPG text |
+| CT Special Forces | AC7E | USA | gba_ct_special_forces | 🔧 Stub | ASCII |
+| Custom Robo GX | ARJJ | Japan | gba_custom_robo_gx | 🔧 Stub | Japanese-only, custom encoding |
+| Metroid Zero Mission | BMXE | USA | gba_metroid_zero_mission | 🔧 Stub | Custom encoding (similar to Fusion but different offsets). TBL needed |
+| FF I & II: Dawn of Souls | BFFE | USA | gba_ff12_dawn_of_souls | 🔧 Stub | TBL provided, pointer table location unknown |
+| Sonic Advance 2 | A2NE | USA | gba_sonic_advance | 🔧 Stub | is_stub=True: text engine differs from SA1, structure not implemented |
+| Breath of Fire | ABFE | USA | gba_breath_of_fire | 🔧 Stub | is_stub=True: pointer table candidate @ 0x117DD4, targets ~0x101238, custom charmap (not ASCII). RE as a separate task |
+| Keitai Denjuu Telefang 2 | ATPJ | Japan | gba_telefang_2 | 🔧 Stub | is_stub=True: pointer table candidate @ 0x101650, targets ~0x0FCF10, Japanese strings. RE as a separate task |
+
+## GB Games — Working / Partial
+
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Pokemon: Red Version | GB_POKEMONRED | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 fixed tables (item names @ 0x472B, monster names @ 0x1C21E fixed-width 10, move names @ 0xB0000), Gen1 charmap (from pret/pokered), terminator 0x50, `pad_byte=0x50` on insert; round-trip extract→inject→extract verified on the real ROM. SGB Enhanced (flag 0x146 = 0x03) |
+
+## GB Games — Stub / No Plugin
+
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Pokemon: Blue Version | GB_POKEMONBLUE | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet — different table addresses. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon: Green Version | GB_POKEMONGREEN | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon: Yellow Version | GBC_POKEMONYELLOW | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet. SGB Enhanced (flag 0x146 = 0x03). File is `.gb` but core detects `gbc` (CGB flag 0x80) → game_id `GBC_POKEMONYELLOW` |
+| Legend of Zelda: Link's Awakening | GB_ZELDA | USA/Europe | — | — | No dedicated plugin (generic GB route, manual config needed). Not SGB Enhanced (flag 0x146 = 0x00) |
+
+## GBC Games — No Plugin
+
+No dedicated Game Boy Color plugins yet — GBC ROMs go through the generic
+GB/GBC plugin (`GenericGBPlugin`/`GenericGBCPlugin`, game_id `GBC_*`/`GAME_*`),
+which needs a per-game config with segment offsets. SGB Enhanced = flag
+0x146 = 0x03 in the cartridge header (Super Game Boy extensions on SNES).
+
+| Game | Region | Plugin | Status | Notes |
+|------|--------|--------|--------|-------|
+| Harvest Moon GBC | USA | — | — | SGB Enhanced (flag 0x146 = 0x03) |
+| Harvest Moon 2 GBC | USA | — | — | SGB Enhanced (flag 0x146 = 0x03) |
+| Harvest Moon 3 GBC | USA | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
+| Fire Emblem: The Reincarnation of Light and Dark | Asia (T-En) | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
+| Legend of Zelda: Link's Awakening DX | USA/Europe | — | — | SGB Enhanced (flag 0x146 = 0x03) |
+| Legend of Zelda: Oracle of Seasons | USA/Australia | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
+| Resident Evil Gaiden | USA | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
+| Shin Megami Tensei Devil Children | Japan (T-En) | — | — | SGB Enhanced (flag 0x146 = 0x03) |
+| Super Mario Bros. Deluxe | USA/Europe | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
 
 ## FFTA String Tables (DataCrystal, verified)
 
@@ -70,19 +110,21 @@ Games with text extraction support.
 
 | Status | Count | Games |
 |--------|-------|-------|
-| ✅ Full | 13 | Mario&Luigi, FFTA, Zelda TMC, Wario Land 4, Astro Boy, FF5 Advance, FF4 Advance, Sonic Advance, KH:CoM, Phoenix Wright, MMBN, Castlevania AoS, Pokemon (partial) |
-| ⚠️ Partial | 4 | Metroid Fusion, Pokemon Ruby, Pokemon Sapphire, Golden Sun |
-| ❌ Broken | 0 | — |
-| 🔧 Stub (old) | 3 | FF6 Advance, Fire Emblem ×2 |
-| 🔧 Stub (new) | 9 | Advance Wars, MMBN2, Mega Man Zero, CT Special Forces, Custom Robo GX, Metroid ZM, FF1&2 Dawn of Souls, Castlevania CotM/HoD |
+| ✅ Full | 15 | FFTA, Zelda TMC, FF5 Advance, FF4 Advance, Golden Sun, Mario & Luigi SS, Castlevania AoS, Metroid Fusion, Wario Land 4, Pokemon Emerald, Pokemon Ruby, Pokemon Sapphire, Pokemon FireRed, Pokemon LeafGreen, Pokemon Red (GB) |
+| ⚠️ Partial | 0 | |
+| ❌ Broken | 4 | Astro Boy, Sonic Advance, Kingdom Hearts CoM, Phoenix Wright |
+| 🔧 Stub | 21 | FF6 Advance, Fire Emblem ×2, Mega Man Battle Network ×2, Advance Wars, Mega Man Zero, Shining Force, CT Special Forces, Custom Robo GX, Metroid ZM, FF1&2 Dawn of Souls, Castlevania CotM/HoD, Golden Sun TLA, Sonic Advance 2, Breath of Fire, Telefang 2, Pokemon Blue/Green (GB), Yellow (GBC-detected) |
+| — No plugin | 10 | Zelda Link's Awakening (GB), Harvest Moon 1/2/3, Fire Emblem T-En (Asia), Zelda Link's Awakening DX, Oracle of Seasons, Resident Evil Gaiden, SMT Devil Children, Super Mario Bros. Deluxe (GBC) |
+
+Total: 50 ROMs in test_roms (36 GBA + 9 GBC + 5 GB); 40 covered by plugins (36 GBA + 4 GB).
 
 ## How to Add a Game
 
-1. Create `plugins/gba_<game_name>.py`
+1. Create `plugins/<platform>_<game_name>.py` (`gba_`, `gb_`, `gbc_` prefix)
 2. Implement `GamePlugin` with `game_id_pattern` + `get_text_segments(rom)`
 3. Add verified charmap (DataCrystal / decomp / manual RE)
-4. Test on real ROM — output must be readable English
-5. Update this file
+4. Test on a real ROM — output must be readable English
+5. Update this file (including the Region column)
 
 ## Sources
 

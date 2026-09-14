@@ -49,7 +49,7 @@ def load_charset(name: str) -> dict[int, str]:
     return charset
 
 
-def load_charmap_txt(path: str | Path) -> dict[int, str]:
+def load_charmap_txt(path: str | Path) -> dict[int | tuple[int, ...], str]:
     """
     Загружает charmap в формате pret/pokeemerald (charmap.txt).
 
@@ -67,7 +67,7 @@ def load_charmap_txt(path: str | Path) -> dict[int, str]:
     if not path.exists():
         raise FileNotFoundError(f"Charmap file not found: {path}")
 
-    charmap: dict[int, str] = {}
+    charmap: dict[int | tuple[int, ...], str] = {}
     lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
 
     # Regex for pret format: 'CHAR' = 0xNN [0xNN ...]  or  'CHAR' = NN [NN ...]
@@ -100,8 +100,8 @@ def load_charmap_txt(path: str | Path) -> dict[int, str]:
             if len(byte_vals) == 1:
                 charmap[byte_vals[0]] = char_str
             else:
-                # Multi-byte: map first byte to string representation
-                charmap[byte_vals[0]] = char_str
+                # Multi-byte: tuple key per docstring (no callers yet)
+                charmap[tuple(byte_vals)] = char_str
             continue
 
         # Try bare identifier format: PLAYER = FD 01  (plain hex, no 0x prefix)
@@ -114,7 +114,7 @@ def load_charmap_txt(path: str | Path) -> dict[int, str]:
             if len(byte_vals) == 1:
                 charmap[byte_vals[0]] = name
             else:
-                charmap[byte_vals[0]] = f'[{name}]'
+                charmap[tuple(byte_vals)] = f'[{name}]'
             continue
 
         # Try #define format: #define _A "BYTE 0x80 0xB0;"
@@ -127,7 +127,7 @@ def load_charmap_txt(path: str | Path) -> dict[int, str]:
             if len(byte_vals) == 1:
                 charmap[byte_vals[0]] = chr(byte_vals[0]) if 0x20 <= byte_vals[0] <= 0x7E else f'[{byte_vals[0]:02X}]'
             else:
-                charmap[byte_vals[0]] = f'[{": ".join(f"{b:02X}" for b in byte_vals)}]'
+                charmap[tuple(byte_vals)] = f'[{": ".join(f"{b:02X}" for b in byte_vals)}]'
             continue
 
         # Try simple hex mapping: 0xBB = 'A'  (reverse of pret)

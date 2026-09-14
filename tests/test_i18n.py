@@ -1,6 +1,8 @@
 """Тесты для модуля i18n"""
+import json
 import os
 import sys
+from pathlib import Path
 
 # Добавляем корень проекта в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -444,3 +446,22 @@ class TestI18N:
             assert result == "test.key"
         finally:
             i18n.translations = original_translations
+
+    def test_toolbar_menu_keys_present_everywhere(self):
+        """Ключи тулбара/меню-бара есть во inline-fallback и во всех 4 JSON."""
+        new_keys = {
+            "toolbar.export", "toolbar.import", "menu.file",
+            "export.json", "export.txt", "export.csv", "export.tmx",
+            "export.xliff", "import.csv", "import.tmx", "import.xliff",
+        }
+        repo = Path(__file__).resolve().parent.parent
+        i18n = I18N(default_lang="en")
+        i18n._create_default_translations()
+        for lang in ("en", "ru", "ja", "zh"):
+            with (repo / "locales" / lang / "messages.json").open(encoding="utf-8") as f:
+                json_keys = set(json.load(f).keys())
+            missing_json = new_keys - json_keys
+            assert not missing_json, (lang, sorted(missing_json))
+            inline_keys = set(i18n.translations.get(lang, {}).keys())
+            missing_inline = new_keys - inline_keys
+            assert not missing_inline, (lang, sorted(missing_inline))

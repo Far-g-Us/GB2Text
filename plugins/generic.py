@@ -1,22 +1,23 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
+
 """
-Базовые классы и функции без привязки к коммерческим играм
+Base classes and functions not tied to any commercial game
 """
 
 from core.constants import SYSTEM_GB
@@ -26,14 +27,14 @@ from core.scanner import find_text_pointers
 
 
 class GenericGBPlugin(GamePlugin):
-    """Базовый плагин для игр Game Boy"""
+    """Base plugin for Game Boy games"""
 
     @property
     def game_id_pattern(self) -> str:
-        return r'^GAME_[0-9A-F]{2}$'
+        return r'^(GB|GAME)_[A-Z0-9]+$'
 
     def get_text_segments(self, rom) -> list:
-        # Для GB/GBC используем 16-битные указатели
+        # For GB/GBC use 16-bit pointers
         system = getattr(rom, 'system', SYSTEM_GB)
         pointer_size = get_pointer_size(system)
 
@@ -53,7 +54,7 @@ class GenericGBPlugin(GamePlugin):
                 'compression': None
             })
 
-        # Fallback: ищем текстовые блоки по паттернам из БД
+        # Fallback: search for text blocks using database patterns
         if not segments:
             from core.database import get_segment_patterns
             patterns = get_segment_patterns(system)
@@ -69,7 +70,7 @@ class GenericGBPlugin(GamePlugin):
                         'compression': None
                     })
 
-        # Последний fallback: весь банк 1
+        # Last fallback: the whole bank 1
         if not segments:
             max_addr = min(0x8000, len(rom.data))
             segments.append({
@@ -83,26 +84,26 @@ class GenericGBPlugin(GamePlugin):
         return segments
 
     def _estimate_segment_length(self, rom_data: bytes, start_addr: int) -> int:
-        """Оценивает длину текстового сегмента"""
-        # Ищем терминатор или конец сегмента
+        """Estimate the text-segment length"""
+        # Search for a terminator or the end of the segment
         for i in range(start_addr, min(start_addr + 0x1000, len(rom_data))):
-            if rom_data[i] in [0x00, 0xFF, 0xFE]:  # Распространенные терминаторы
+            if rom_data[i] in [0x00, 0xFF, 0xFE]:  # Common terminators
                 return i - start_addr + 1
-        return 0x100  # Стандартная длина, если терминатор не найден
+        return 0x100  # Standard length if no terminator is found
 
 
 class GenericGBCPlugin(GenericGBPlugin):
-    """Базовый плагин для игр Game Boy Color"""
+    """Base plugin for Game Boy Color games"""
 
     @property
     def game_id_pattern(self) -> str:
-        return r'^GAME_[0-9A-F]{2}$'
+        return r'^(GBC|GAME)_[A-Z0-9]+$'
 
     pass
 
 
 class GenericGBAPlugin(GenericGBPlugin):
-    """Базовый плагин для игр Game Boy Advance"""
+    """Base plugin for Game Boy Advance games"""
 
     @property
     def game_id_pattern(self) -> str:
@@ -111,7 +112,7 @@ class GenericGBAPlugin(GenericGBPlugin):
     def get_text_segments(self, rom) -> list:
         from core.scanner import find_text_pointers
 
-        # Для GBA используем 32-битные указатели с базовым адресом 0x08000000
+        # For GBA use 32-bit pointers with the base address 0x08000000
         pointers = find_text_pointers(
             rom.data,
             pointer_size=get_pointer_size('gba'),
@@ -120,7 +121,7 @@ class GenericGBAPlugin(GenericGBPlugin):
 
         segments = []
         for i, (_ptr_addr, text_addr) in enumerate(pointers):
-            # Определяем длину сегмента
+            # Determine the segment length
             segment_length = self._estimate_segment_length(rom.data, text_addr)
             segments.append({
                 'name': f'gba_segment_{i}',
@@ -130,7 +131,7 @@ class GenericGBAPlugin(GenericGBPlugin):
                 'compression': None
             })
 
-        # Если нет указателей, используем стандартные адреса для GBA
+        # If there are no pointers, use standard GBA addresses
         if not segments:
             start_va = 0x083D0000
             end_va = 0x08400000
@@ -147,12 +148,14 @@ class GenericGBAPlugin(GenericGBPlugin):
                     'compression': None
                 })
             else:
-                segments.append({
-                    'name': 'main_text',
-                    'start': 0x4000,
-                    'end': min(0x7FFF, len(rom.data)),
-                    'decoder': None,
-                    'compression': None
-                })
+                end = max(0x4000, min(0x7FFF, len(rom.data)))
+                if end > 0x4000:
+                    segments.append({
+                        'name': 'main_text',
+                        'start': 0x4000,
+                        'end': end,
+                        'decoder': None,
+                        'compression': None
+                    })
 
         return segments

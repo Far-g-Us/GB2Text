@@ -6,8 +6,6 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
-
 from core.decoder import CharMapDecoder
 from core.injector import TextInjector
 
@@ -95,7 +93,7 @@ class TestTextInjector:
     def test_inject_segment(self):
         """Тест внедрения сегмента"""
         rom_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "test_roms", "Pokemon - Ruby Version (USA, Europe) (Rev 2).gba")
+                                "test_roms", "Pokemon - Ruby Version (USA).gba")
         if os.path.exists(rom_path):
             injector = TextInjector(rom_path)
             # Mock plugin
@@ -133,8 +131,9 @@ class TestTextInjector:
 
         try:
             injector = TextInjector(temp_path)
-            segment = {'start': 0, 'end': 10}
-            injector._inject_message(segment, 0, b'Test', 5)
+            injector._inject_message(0, b'Test', 5)
+            assert bytes(injector.modified_data[:4]) == b'Test'
+            assert bytes(injector.modified_data[4:5]) == b'\x20'
         finally:
             os.unlink(temp_path)
 
@@ -307,6 +306,26 @@ class TestTextInjector:
         finally:
             os.unlink(temp_path)
 
+    def test_extract_original_messages_uses_plugin_terminators(self):
+        """Сегмент с объявленными терминаторами игнорирует generic-набор.
+        Для FF4/FF5 0x00 — это ПРОБЕЛ, а не разделитель."""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".gba") as f:
+            f.write(b'\x00' * 0x150 + b'La li ho\x0C' + b'\x00' * 30)
+            temp_path = f.name
+
+        try:
+            injector = TextInjector(temp_path)
+            segment = {
+                'start': 0x150, 'end': 0x158, 'terminators': [0x0C],
+                'decoder': CharMapDecoder({0x20: ' ', 0x4C: 'L', 0x41: 'A', 0x69: 'i', 0x68: 'h', 0x6F: 'o'}),
+            }
+            messages = injector._extract_original_messages(segment)
+            assert len(messages) == 1, "0x00 (пробел) не должен разрезать сообщение"
+            assert messages[0]['offset'] == 0
+            assert messages[0]['length'] == 8
+        finally:
+            os.unlink(temp_path)
+
     def test_inject_message_with_padding(self):
         """Тест внедрения сообщения с дополнением"""
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
@@ -315,9 +334,10 @@ class TestTextInjector:
 
         try:
             injector = TextInjector(temp_path)
-            segment = {'start': 100, 'end': 120}
             # Внедряем короткое сообщение в больший слот
-            injector._inject_message(segment, 0, b'Hi', 10)
+            injector._inject_message(100, b'Hi', 10)
+            assert bytes(injector.modified_data[100:102]) == b'Hi'
+            assert bytes(injector.modified_data[102:110]) == b'\x20' * 8
         finally:
             os.unlink(temp_path)
 
@@ -387,9 +407,9 @@ def _build_test_rom(segments: dict[int, bytes], size: int = 0x8000) -> str:
         end = min(offset + len(text_bytes), size)
         data[offset:end] = text_bytes[:end - offset]
 
-    # Header checksum
+    # Header checksum (канонический: 0x134-0x14C, с title)
     checksum = 0
-    for addr in range(0x0144, 0x014D):
+    for addr in range(0x0134, 0x014D):
         checksum = (checksum - data[addr] - 1) & 0xFF
     data[0x14D] = checksum
 
@@ -579,3 +599,115 @@ class TestByteLevelCorrectness:
             for p in (rom_path, output_path):
                 if os.path.exists(p):
                     os.unlink(p)
+
+
+# ─────────────────────────────────────────────────────────────
+# WS-3a: кэш get_text_segments по классу плагина
+# ─────────────────────────────────────────────────────────────
+
+class TestInjectorSegmentCache:
+    """inject_segment не должен пересканировать ROM на каждый вызов."""
+
+    def _segment(self, start=0x4000, end=0x4010, injectable=True):
+        return {
+            'name': 'test',
+            'start': start,
+            'end': end,
+            'decoder': CharMapDecoder(SIMPLE_CHARMAP),
+            'compression': None,
+            'injectable': injectable,
+        }
+
+    def _counting_plugin_class(self, segment):
+        class P:
+            def __init__(self):
+                self.calls = 0
+
+            def get_text_segments(self, rom):
+                self.calls += 1
+                return [segment]
+
+        return P
+
+    def test_multiple_injections_single_scan(self):
+        rom_path = _build_test_rom({0x4000: b'ABCD\x00'})
+        try:
+            injector = TextInjector(rom_path)
+            plugin_cls = self._counting_plugin_class(self._segment())
+            plugin = plugin_cls()
+            for _ in range(3):
+                assert injector.inject_segment('test', ['XY'], plugin)
+            assert plugin.calls == 1
+        finally:
+            os.unlink(rom_path)
+
+    def test_same_class_two_instances_scan_separately(self):
+        rom_path = _build_test_rom({0x4000: b'ABCD\x00'})
+        try:
+            injector = TextInjector(rom_path)
+            plugin_cls = self._counting_plugin_class(self._segment())
+            a, b = plugin_cls(), plugin_cls()
+            assert injector.inject_segment('test', ['XY'], a)
+            assert injector.inject_segment('test', ['XY'], b)
+            # Кэш по экземпляру (не по классу): разные экземпляры сканируют.
+            assert a.calls == 1
+            assert b.calls == 1
+        finally:
+            os.unlink(rom_path)
+
+    def test_instances_with_distinct_segments_not_contaminated(self):
+        # Регрессия: кэш по классу смешал бы сегменты двух экземпляров одного
+        # класса (ConfigurablePlugin хранит config в self), записывая перевод
+        # в чужие смещения.
+        rom_path = _build_test_rom({0x4000: b'ABCD\x00', 0x4010: b'WXYZ\x00'})
+        try:
+            injector = TextInjector(rom_path)
+            class P:
+                def __init__(self, seg):
+                    self.seg = seg
+                    self.calls = 0
+
+                def get_text_segments(self, rom):
+                    self.calls += 1
+                    return [self.seg]
+
+            seg_a = self._segment(start=0x4000, end=0x4010)
+            seg_b = self._segment(start=0x4010, end=0x4020)
+            a, b = P(seg_a), P(seg_b)
+            assert injector.inject_segment('test', ['XY'], a)
+            assert injector.inject_segment('test', ['UV'], b)
+            assert a.calls == 1
+            assert b.calls == 1
+            assert injector.modified_data[0x4000:0x4002] == bytearray(b'XY')
+            assert injector.modified_data[0x4010:0x4012] == bytearray(b'UV')
+        finally:
+            os.unlink(rom_path)
+
+    def test_two_plugin_classes_two_scans(self):
+        rom_path = _build_test_rom({0x4000: b'ABCD\x00'})
+        try:
+            injector = TextInjector(rom_path)
+            cls_a = self._counting_plugin_class(self._segment())
+            cls_b = self._counting_plugin_class(self._segment())
+            a, b = cls_a(), cls_b()
+            assert injector.inject_segment('test', ['XY'], a)
+            assert injector.inject_segment('test', ['XY'], b)
+            assert a.calls == 1
+            assert b.calls == 1
+        finally:
+            os.unlink(rom_path)
+
+    def test_extract_only_guard_reuses_cache(self):
+        rom_path = _build_test_rom({0x4000: b'ABCD\x00'})
+        try:
+            injector = TextInjector(rom_path)
+            segment = self._segment()
+            segment['injectable'] = False
+            plugin_cls = self._counting_plugin_class(segment)
+            plugin = plugin_cls()
+            assert injector.inject_segment('test', ['XY'], plugin) is False
+            assert injector.inject_segment('test', ['XY'], plugin) is False
+            assert injector.modified_data == injector.original_data
+            assert plugin.calls == 1
+        finally:
+            os.unlink(rom_path)

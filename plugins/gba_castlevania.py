@@ -1,33 +1,33 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Castlevania: Aria of Sorrow (GBA)
+Plugin for Castlevania: Aria of Sorrow (GBA)
 
-Game codes: AGBB (USA), AGBJ (Japan), AGBE (Europe)
+Game codes: A2CE (USA), AGBJ (Japan), AGBE (Europe)
 
-Text encoding: Konami custom tile-based encoding
+Text encoding: custom tile-based encoding by Konami
 Known facts:
 - Castlevania GBA games use custom text encoding
 - Pointer tables are located at specific ROM offsets
 - Text includes control codes for formatting and special characters
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -37,12 +37,12 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.castlevania_gba')
 
-# Castlevania: Aria of Sorrow charmap
+# Castlevania: Aria of Sorrow character table
 # Source: https://datacrystal.tcrf.net/wiki/Castlevania:_Aria_of_Sorrow/TBL
 CHARMAP_CVAS: dict[int, str] = {
     # Control codes
     0x06: '\n',  # [LINE]
-    0x0A: '[END]',
+    0x0A: '\n',  # end of line inside a record (NOT a record terminator)
     0x0B: '[A_BUTTON]',
     0x0C: '[B_BUTTON]',
     0x0D: '[L_BUTTON]',
@@ -50,7 +50,7 @@ CHARMAP_CVAS: dict[int, str] = {
     0x0F: '[UP]',
     0x10: '[DOWN]',
 
-    # ASCII printable characters (0x20-0x7E)
+    # Printable ASCII characters (0x20-0x7E)
     0x20: ' ', 0x21: '!', 0x22: '"', 0x23: '#', 0x24: '$', 0x25: '%',
     0x26: '&', 0x27: "'", 0x28: '(', 0x29: ')', 0x2A: '*', 0x2B: '+',
     0x2C: ',', 0x2D: '-', 0x2E: '.', 0x2F: '/',
@@ -98,40 +98,135 @@ CHARMAP_CVAS: dict[int, str] = {
     0x0708: '[JULIUS]', 0x0709: '[HAMMER]',
 }
 
-# Known pointer table locations for Castlevania: Aria of Sorrow (multi-language ROM)
-# Source: Analysis of GBA pointers (0x08XXXXXX) pointing to ASCII text
-CVAS_POINTER_TABLES = [
-    # English UI/system text
-    (0x08000000 + 0x0E0000, 0x08000000 + 0x0F0000),
-    # English dialogue (main text bank)
-    (0x08000000 + 0x0F0000, 0x08000000 + 0x100000),
-    # French dialogue
-    (0x08000000 + 0x100000, 0x08000000 + 0x110000),
-    # German dialogue
-    (0x08000000 + 0x110000, 0x08000000 + 0x120000),
+# Castlevania: Aria of Sorrow (USA) pointer table - found in Phase 0.
+# 2895 records, 4-byte little-endian, value = offset + 0x08000000.
+# Targets - start of text records: the preceding byte is always 0x00,
+# the first byte of a record is always 0x01 (page marker).
+CVAS_POINTER_TABLE = 0x506B38
+CVAS_POINTER_COUNT = 2895
+
+# Language blocks in the table: (start_index, end_index, language).
+# Consecutive blocks: translating a pointer subrange = relocating a language.
+CVAS_LANG_BLOCKS = [
+    (0, 40, 'en_ui'),   # UI/system text
+    (40, 1013, 'en'),   # English script
+    (1013, 2116, 'fr'), # French script
+    (2116, 2895, 'de'), # German script
 ]
 
-# Text terminators for Castlevania GBA
-# 0x06 = line break/pause, 0x0A = [END] per TBL
-CVAS_TERMINATORS = [0x0A]
+# Castlevania GBA text terminators.
+# A record ends with a run of 0x00 of length >= 2 (Phase 0 data: 0x00 is NEVER
+# a space; 0x0A is an in-record end of line, not a terminator).
+CVAS_TERMINATORS = [0x00]
 
 # Game codes for detection
 # USA: A2CE, Japan: AGBJ, Europe: AGBE
 CVAS_GAME_CODES = ['A2CE', 'AGBJ', 'AGBE']
 
+# Normalized translation representation: 0x06/0x0A both decode to '\n'.
+# Byte round-trip (encode(decoder(raw)) == raw) is only performed for
+# records without 0x0A; records with 0x0A are checked at the text level.
+CVAS_NEWLINE = 0x06
+
+
+def _build_reverse_charmap() -> dict[str, bytes]:
+    rev: dict[str, bytes] = {}
+    for code, rep in CHARMAP_CVAS.items():
+        if rep == '\n':
+            continue
+        if rep in rev:
+            continue
+        if code < 0x100:
+            rev[rep] = bytes([code])
+        else:
+            rev[rep] = bytes([code >> 8, code & 0xFF])
+    return rev
+
+
+CHARMAP_CVAS_REV = _build_reverse_charmap()
+
+
+class CVASTextEncoder:
+    """Reverse mapping of CVAS text back into bytes.
+
+    '\\n' is emitted as 0x06 (engine canon - 0x06 and 0x0A are equivalent).
+    0x00 is forbidden in the output stream except for the '[PAGE]' marker -> 01 00
+    (record header). The literal '[HH]'/'[HHHH]' notation (raw bytes)
+    is encoded back into bytes. Unknown characters and tokens -> ValueError.
+    """
+
+    def __init__(self, rev: dict[str, bytes]):
+        self._rev = dict(rev)
+        self._rev['[PAGE]'] = b'\x01\x00'
+        self._rev['[PAGEBREAK]'] = b'\x01'
+        self._labels = sorted(
+            (k for k in self._rev if len(k) > 1), key=len, reverse=True)
+        self._single = {k: v for k, v in self._rev.items() if len(k) == 1 and k != '\n'}
+
+    @staticmethod
+    def _raw_bytes(body: str) -> bytes:
+        if len(body) == 2:
+            value = int(body, 16)
+            if value == 0x00:
+                raise ValueError("0x00 зарезервирован под терминатор")
+            return bytes([value])
+        high = int(body[:2], 16)
+        if high == 0x00:
+            raise ValueError("0x00 первым байтом запрещён")
+        return bytes([high, int(body[2:], 16)])
+
+    def encode(self, text: str) -> bytes:
+        out = bytearray()
+        i = 0
+        n = len(text)
+        while i < n:
+            matched = False
+            for label in self._labels:
+                if text.startswith(label, i):
+                    encoded = self._rev[label]
+                    if encoded.startswith(b'\x00'):
+                        raise ValueError(f"0x00 первым байтом токена {label!r}")
+                    out.extend(encoded)
+                    i += len(label)
+                    matched = True
+                    break
+            if matched:
+                continue
+            ch = text[i]
+            if ch == '[':
+                close = text.find(']', i + 1)
+                if close != -1:
+                    body = text[i + 1:close]
+                    if (len(body) in (2, 4)) and all(c in '0123456789abcdefABCDEF' for c in body):
+                        out.extend(self._raw_bytes(body))
+                        i = close + 1
+                        continue
+            if ch == '\n':
+                out.append(CVAS_NEWLINE)
+            elif 0x20 <= ord(ch) <= 0x7E:
+                out.append(ord(ch))
+            else:
+                single = self._single.get(ch)
+                if single is None:
+                    raise ValueError(f"Не удаётся закодировать {ch!r}")
+                out.extend(single)
+            i += 1
+        return bytes(out)
+
 
 class CVASTextDecoder:
-    """Decoder for Castlevania GBA text
+    """Castlevania GBA text decoder
 
-    Text is ASCII with control codes (0x01-0x0F) that precede text blocks.
-    0x06 = line break/pause, 0x0A = [END] terminator.
-    Control codes are output as labels during decoding.
+    A text record (per the pointer table) starts with 0x01 (page marker) and
+    an optional header 0x00, then a portrait (0x03XX), a speaker (0x07XX),
+    and the text. 0x06 is a line break, 0x0A is an end of line.
+    The record terminator is a run of 0x00 of length >= 2.
     """
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
 
-    def decode(self, data: bytes, start: int, length: int) -> str:
+    def decode(self, data: bytes | bytearray, start: int, length: int) -> str:
         result: list[str] = []
         i = start
         end = min(start + length, len(data))
@@ -139,7 +234,26 @@ class CVASTextDecoder:
         while i < end:
             byte = data[i]
 
-            # Check for multi-byte codes first (0x03XX, 0x07XX)
+            # Page marker 0x01 + header 0x00 (at the start of a record),
+            # page break - a lone 0x01 inside a record.
+            if byte == 0x01:
+                result.append('[PAGE]' if i == start else '[PAGEBREAK]')
+                i += 1
+                if i < end and data[i] == 0x00:
+                    i += 1
+                continue
+
+            # Record terminator (any 0x00 - only padding follows it)
+            if byte == 0x00:
+                break
+
+            # Line break / end of line
+            if byte in (0x06, 0x0A):
+                result.append('\n')
+                i += 1
+                continue
+
+            # Multi-byte codes (0x03XX portraits, 0x07XX speakers)
             if i + 1 < end:
                 two_byte = (byte << 8) | data[i + 1]
                 if two_byte in self.charmap:
@@ -147,40 +261,34 @@ class CVASTextDecoder:
                     i += 2
                     continue
 
-            # End of string (0x0A per TBL)
-            if byte == 0x0A:
-                break
-
-            # Line break / pause (0x06)
-            if byte == 0x06:
-                result.append('\n')
-                i += 1
-                continue
-
-            # Control codes - output their labels
-            if byte in self.charmap:
-                char = self.charmap[byte]
-                if char:
-                    result.append(char)
-                i += 1
-                continue
-
-            # ASCII printable characters (0x20-0x7E)
+            # Printable ASCII, extended charmap characters, otherwise [XX]
             if 0x20 <= byte <= 0x7E:
                 result.append(chr(byte))
             else:
-                result.append(f'[{byte:02X}]')
+                char = self.charmap.get(byte)
+                result.append(char if char else f'[{byte:02X}]')
             i += 1
 
         return ''.join(result)
 
 
 class CastlevaniaGBAPlugin(GamePlugin):
-    """Плагин для Castlevania: Aria of Sorrow (GBA)"""
+    """Plugin for Castlevania: Aria of Sorrow (GBA)"""
 
     def __init__(self):
         super().__init__()
         self._decoder = CVASTextDecoder(CHARMAP_CVAS)
+        self._encoder = CVASTextEncoder(CHARMAP_CVAS_REV)
+
+    def make_text_encoder(self) -> CVASTextEncoder:
+        return self._encoder
+
+    def get_pointer_table_meta(self) -> dict | None:
+        return {
+            'table': CVAS_POINTER_TABLE,
+            'count': CVAS_POINTER_COUNT,
+            'blocks': CVAS_LANG_BLOCKS,
+        }
 
     @property
     def game_id_pattern(self) -> str:
@@ -188,139 +296,98 @@ class CastlevaniaGBAPlugin(GamePlugin):
         return f'^GBA_({codes})$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Castlevania GBA using pointer scanning"""
+        """Extract Castlevania GBA text segments via the pointer table"""
         logger.info("Извлечение текстовых сегментов для Castlevania: Aria of Sorrow")
 
-        segments = []
+        table_size = 4 * CVAS_POINTER_COUNT
+        if CVAS_POINTER_TABLE + table_size > len(rom.data):
+            logger.warning("Таблица указателей выходит за пределы ROM: %#x", CVAS_POINTER_TABLE)
+            return []
 
-        # Known text areas in this multi-language ROM
-        text_areas = [
-            (0x0F0000, 0x100000, 'en'),  # English dialogue
-            (0x100000, 0x110000, 'fr'),  # French dialogue
-            (0x110000, 0x120000, 'de'),  # German dialogue
+        targets = [
+            int.from_bytes(
+                rom.data[CVAS_POINTER_TABLE + 4 * i: CVAS_POINTER_TABLE + 4 * i + 4], 'little'
+            ) - 0x08000000
+            for i in range(CVAS_POINTER_COUNT)
         ]
 
-        # Scan for GBA pointers (0x08XXXXXX) that point to text areas
-        for text_start, text_end, lang in text_areas:
-            found_pointers = []
+        if any(not (0 <= t < len(rom.data)) for t in targets):
+            logger.warning("Некорректные цели в таблице указателей")
+            return []
 
-            # Scan entire ROM for pointers to this text area
-            for i in range(0, len(rom.data) - 4, 4):
-                val = int.from_bytes(rom.data[i:i+4], 'little')
-                if 0x08000000 <= val <= 0x09000000:
-                    target = val - 0x08000000
-                    if text_start <= target < text_end:
-                        found_pointers.append((i, target))
+        segments: list[dict] = []
+        for block_start, block_end, lang in CVAS_LANG_BLOCKS:
+            block_targets = targets[block_start:block_end]
+            if block_targets != sorted(block_targets):
+                logger.warning("Блок %s не монотонен — пропуск", lang)
+                continue
+            for idx, target in enumerate(block_targets):
+                upper = block_targets[idx + 1] if idx + 1 < len(block_targets) else (
+                    targets[block_end]
+                    if block_end < CVAS_POINTER_COUNT
+                    and targets[block_end] > block_targets[-1]
+                    else len(rom.data))
+                seg = self._make_segment(rom.data, target, upper, idx, lang)
+                if seg is not None:
+                    segments.append(seg)
 
-            logger.info(f"Found {len(found_pointers)} pointers to {lang} text area")
-
-            # Extract individual strings from pointer targets
-            for _ptr_addr, target in found_pointers:
-                text = self._extract_string(rom.data, target)
-                if text and len(text.strip()) >= 2:
-                    seg_name = f'cvas_{lang}_{len(segments)}'
-                    segments.append({
-                        'name': seg_name,
-                        'start': target,
-                        'end': target + len(text),
-                        'decoder': None,
-                        'compression': None,
-                        'charmap': CHARMAP_CVAS,
-                        'terminators': CVAS_TERMINATORS,
-                        'raw_text': text,
-                    })
-
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info("Всего сегментов: %d", len(segments))
         return segments
 
-    def _extract_string(self, rom_data: bytes | bytearray, offset: int) -> str:
-        """Extract a single text string from ROM data"""
-        result: list[str] = []
-        i = offset
-        end = min(offset + 1000, len(rom_data))
+    def _make_segment(
+        self,
+        data: bytes | bytearray,
+        target: int,
+        upper: int,
+        idx: int,
+        lang: str,
+    ) -> dict | None:
+        """Segment of a single record: from target to a run of 0x00 >= 2.
 
-        while i < end:
-            byte = rom_data[i]
+        upper is the start of the next record (or the end of the ROM): the
+        scan boundary and end. A record must start with the page marker 0x01
+        (self-validation for regions where table 0x506B38 is wrong).
+        """
+        if not (0 < target < len(data)):
+            return None
+        if data[target - 1] != 0x00 or data[target] != 0x01:
+            return None
 
-            # End of string (0x0A per TBL)
-            if byte == 0x0A:
+        end = target + 2
+        i = target + 2
+        found = False
+        while i + 1 <= upper and i + 1 < len(data):
+            if data[i] == 0x00 and data[i + 1] == 0x00:
+                end = i
+                found = True
                 break
-
-            # Null byte might be padding or terminator
-            if byte == 0x00:
-                # Check if next bytes are also null (likely end of string)
-                if i + 1 < end and rom_data[i + 1] == 0x00:
-                    break
-                # Single null might be space
-                result.append(' ')
-                i += 1
-                continue
-
-            # Line break / pause (0x06)
-            if byte == 0x06:
-                result.append('\n')
-                i += 1
-                continue
-
-            # Control codes (0x01-0x0F) - skip
-            if 0x01 <= byte <= 0x0F:
-                i += 1
-                continue
-
-            # ASCII printable characters (0x20-0x7E)
-            if 0x20 <= byte <= 0x7E:
-                result.append(chr(byte))
-            else:
-                # Extended characters (accented)
-                if byte in self._decoder.charmap:
-                    result.append(self._decoder.charmap[byte])
-                else:
-                    result.append(f'[{byte:02X}]')
             i += 1
+        if not found:
+            if upper > target + 2:
+                logger.warning("Запись без терминатора @0x%X (upper=0x%X)", target, upper)
+                end = upper
+        if end > upper:
+            end = upper
+        if end <= target:
+            return None
 
-        return ''.join(result)
-
-    def _heuristic_scan(self, rom: GameBoyROM) -> list[dict]:
-        """Эвристический поиск текстовых блоков"""
-        from core.scanner import is_text_like
-
-        segments = []
-        block_size = 16
-
-        scan_ranges = [
-            (0x1E0000, 0x2A0000),  # Dialogue banks
-            (0x380000, 0x3A0000),  # Menu/UI
-        ]
-
-        for range_start, range_end in scan_ranges:
-            if range_start >= len(rom.data):
-                continue
-
-            end = min(range_end, len(rom.data))
-            i = range_start
-
-            while i + block_size <= end:
-                if is_text_like(rom.data, i, block_size, min_printable_ratio=0.4):
-                    seg_end = min(i + 0x1000, end)
-                    segments.append({
-                        'name': f'cvas_heuristic_{len(segments)}',
-                        'start': i,
-                        'end': seg_end,
-                        'decoder': self._decoder,
-                        'compression': None,
-                        'charmap': CHARMAP_CVAS,
-                        'terminators': CVAS_TERMINATORS,
-                    })
-                    i = seg_end
-                else:
-                    i += block_size
-
-        return segments
+        raw = self._decoder.decode(data, target, end - target)
+        return {
+            'name': f'cvas_{lang}_{idx}',
+            'start': target,
+            'end': end,
+            'decoder': self._decoder,
+            'compression': None,
+            'charmap': CHARMAP_CVAS,
+            'terminators': CVAS_TERMINATORS,
+            'injectable': False,
+            'raw_text': raw,
+        }
 
     def get_terminators(self, segment_name: str) -> list[int]:
-        """Байт-терминаторы для Castlevania GBA"""
+        """Byte terminators for Castlevania GBA"""
         return CVAS_TERMINATORS
 
     def get_compression_handler(self, segment_name: str):
-        """Castlevania GBA не использует сжатие для основного текста"""
+        """Castlevania GBA does not use compression for the main text"""
         return None

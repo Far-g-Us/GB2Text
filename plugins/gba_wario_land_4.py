@@ -1,22 +1,22 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Wario Land 4 (GBA)
+Plugin for Wario Land 4 (GBA)
 
 Game codes: AWAE (USA/EUR), AWAJ (Japan)
 
@@ -24,7 +24,7 @@ Text encoding: ASCII-like (DataCrystal)
 Source: https://datacrystal.tcrf.net/wiki/Wario_Land_4/TBL
 
 NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -34,9 +34,9 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.wario_land_4')
 
-# Wario Land 4 charmap (COMPLETE from DataCrystal)
+# Wario Land 4 charmap (FULL from DataCrystal)
 # Source: https://datacrystal.tcrf.net/wiki/Wario_Land_4/TBL
-# Very simple ASCII-like encoding
+# A very simple ASCII-like encoding
 CHARMAP_WL4: dict[int, str] = {
     # Digits
     0x00: '0', 0x01: '1', 0x02: '2', 0x03: '3', 0x04: '4',
@@ -65,7 +65,15 @@ CHARMAP_WL4: dict[int, str] = {
     0xFF: ' ',
 }
 
-# Known text locations from DataCrystal
+# Known text locations from DataCrystal (80 total).
+# 3 TBL offsets corrected against real ROM: Sound Room (64C8B2, TBL says 64C8B3),
+# Hall of Hieroglyphs (65CEE1, TBL says 64CEE1), Want to play more (6F496E,
+# TBL says 6F498E). DataCrystal also lists 15 romaji music-track names at
+# 0x6D310E-0x6D3378; excluded from the plugin because those are JP-only labels
+# with unstable record boundaries (1–15 FF separators: some borders use 1-3 FF,
+# causing our heuristic to leak into adjacent records; trailing binary data with
+# bytes in the charmap range decodes as garbage) and are not translatable text.
+# The 'Gold Pyramid' name in TBL is actually stored as 'Golden Pyramid' in the ROM.
 WL4_TEXT_LOCATIONS: dict[str, int] = {
     'entry_passage': 0x64C778,
     'emerald_passage': 0x64C7AB,
@@ -73,8 +81,8 @@ WL4_TEXT_LOCATIONS: dict[str, int] = {
     'topaz_passage': 0x64C814,
     'sapphire_passage': 0x64C847,
     'gold_pyramid': 0x64C87C,
-    'sound_room': 0x64C8B3,
-    'hall_hieroglyphs': 0x64CEE1,
+    'sound_room': 0x64C8B2,
+    'hall_hieroglyphs': 0x65CEE1,
     'spoiled_rotten': 0x65CF18,
     'mini_game_shop': 0x65CF4C,
     'palm_tree_paradise': 0x65CF7E,
@@ -82,24 +90,29 @@ WL4_TEXT_LOCATIONS: dict[str, int] = {
     'mystic_lake': 0x65CFE9,
     'monsoon_jungle': 0x65D01C,
     'cractus': 0x65D053,
+    'mini_game_shop_2': 0x65D084,
     'curious_factory': 0x65D0B5,
     'toxic_landfill': 0x65D0EA,
     '40_below_fridge': 0x65D11F,
     'pinball_zone': 0x65D155,
     'cuckoo_condor': 0x65D188,
+    'mini_game_shop_3': 0x65D1BC,
     'toy_block_tower': 0x65D1EF,
     'big_board': 0x65D224,
     'doodle_woods': 0x65D259,
     'domino_row': 0x65D28E,
     'aerodent': 0x65D2C3,
+    'mini_game_shop_4': 0x65D2F4,
     'crescent_moon_village': 0x65D324,
     'arabian_night': 0x65D35C,
     'fiery_cavern': 0x65D391,
     'hotel_horror': 0x65D3C5,
     'catbat': 0x65D3FC,
+    'mini_game_shop_5': 0x65D42C,
     'golden_passage': 0x65D460,
     'golden_diva': 0x65D495,
-    # Music names
+    'mini_game_shop_6': 0x65D4C8,
+    # Music track names
     'about_that_shepherd': 0x6CB4A5,
     'things_that_never_change': 0x6CB4D7,
     'tomorrows_blood_pressure': 0x6CB50A,
@@ -123,7 +136,7 @@ WL4_TEXT_LOCATIONS: dict[str, int] = {
     'wario_roulette': 0x6F48D2,
     'need_more_coins': 0x6F4906,
     'under_construction': 0x6F493A,
-    'want_to_play_more': 0x6F498E,
+    'want_to_play_more': 0x6F496E,
     'come_back_after_saving': 0x6F49A2,
     'come_again': 0x6F49D6,
     'welcome_back': 0x6F4A0A,
@@ -147,15 +160,33 @@ WL4_TEXT_LOCATIONS: dict[str, int] = {
     'hmph': 0x73D74A,
 }
 
-# Game codes for detection
+# Game codes for game detection
 WL4_GAME_CODES = ['AWAE', 'AWAJ']
+
+# Максимальный размер окна одной записи (EN-текст). Эмпирический потолок;
+# все 80 известных локаций WL4 укладываются в него с запасом.
+WL4_MAX_WINDOW = 200
 
 
 class WL4TextDecoder:
-    """Decoder for Wario Land 4 text"""
+    """Wario Land 4 text decoder.
+
+    WL4 records are multi-language: the English run (bytes from CHARMAP_WL4)
+    is followed by other-language runs encoded outside the English table.
+    `get_text_segments` slices each record to exactly the English window, so
+    this decoder maps every byte inside the window: 0x00 = '0', 0xFF = space.
+    Anything outside the charmap (pointers, foreign text) stops the decode.
+    """
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
+        self._encode = self._build_encode()
+
+    def _build_encode(self) -> dict[str, int]:
+        rev: dict[str, int] = {}
+        for byte, char in self.charmap.items():
+            rev.setdefault(char, byte)
+        return rev
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         result: list[str] = []
@@ -164,24 +195,33 @@ class WL4TextDecoder:
 
         while i < end:
             byte = data[i]
-
-            # End of string (0x00 or 0xFF)
-            if byte in (0x00, 0xFF):
-                if byte == 0xFF:
-                    result.append(' ')
+            if byte not in self.charmap:
                 break
-
-            if byte in self.charmap:
-                result.append(self.charmap[byte])
-            else:
-                result.append(f'[{byte:02X}]')
+            result.append(self.charmap[byte])
             i += 1
 
         return ''.join(result)
 
+    def encode(self, text: str) -> bytes:
+        out = bytearray()
+        i = 0
+        n = len(text)
+        while i < n:
+            if text.startswith('...', i) and '...' in self._encode:
+                out.append(self._encode['...'])
+                i += 3
+                continue
+            char = text[i]
+            byte = self._encode.get(char)
+            if byte is None:
+                raise ValueError(f"char {char!r} is not in the WL4 charmap")
+            out.append(byte)
+            i += 1
+        return bytes(out)
+
 
 class WarioLand4Plugin(GamePlugin):
-    """Плагин для Wario Land 4 (GBA)"""
+    """Plugin for Wario Land 4 (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -195,94 +235,79 @@ class WarioLand4Plugin(GamePlugin):
     def get_pointer_size(self, rom: GameBoyROM) -> int:
         return 4
 
+    def _en_window_end(self, rom: GameBoyROM, offset: int) -> int:
+        """Конец английского текста записи: первый байт вне EN-чармапа
+        (начало иноязычного блока) либо пробежка из 4+ пробелов (0xFF)
+        в конце строки. Пробелы 1-3 подряд — обычная часть текста.
+
+        Эвристика «4+ FF = паддинг» эмпирически валидна для 80 известных
+        локаций WL4: EN-строки не содержат 4+ пробелов подряд внутри.
+        Если запись длиннее лимита — окно молча обрежется (редкий случай)."""
+        data = rom.data
+        max_len = min(len(data), offset + WL4_MAX_WINDOW)
+        i = offset
+        run = 0
+        while i < max_len:
+            byte = data[i]
+            if byte not in CHARMAP_WL4:
+                break
+            if byte == 0xFF:
+                run += 1
+                if run >= 4:
+                    break
+            else:
+                run = 0
+            i += 1
+
+        # Трейлинг-пробел (0xFF) перед иноязычным блоком — разделитель записей,
+        # а не часть текста. Обрезаем его вместе с короткими пробежками FF.
+        while i > offset and data[i - 1] == 0xFF:
+            i -= 1
+        if i - offset >= WL4_MAX_WINDOW:
+            logger.warning(
+                f"wl4 окно на 0x{offset:X} упёрлось в лимит "
+                f"{WL4_MAX_WINDOW} байт; запись могла обрезаться")
+        return i
+
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Wario Land 4"""
+        """Extract Wario Land 4 text segments"""
         logger.info("Извлечение текстовых сегментов для Wario Land 4")
 
         segments: list[dict] = []
 
-        # Add known text locations as individual segments
+        # Known text locations: each is a single record. The byte window is
+        # exactly the English text (stops before the other-language block),
+        # so it is treated as a fixed-width segment with one record.
         for name, offset in WL4_TEXT_LOCATIONS.items():
-            if offset < len(rom.data):
-                # Find end of string
-                end = offset
-                while end < len(rom.data) and end - offset < 200:
-                    if rom.data[end] in (0x00, 0xFF):
-                        end += 1
-                        break
-                    end += 1
+            if offset >= len(rom.data):
+                continue
 
-                segments.append({
-                    'name': f'wl4_{name}',
-                    'start': offset,
-                    'end': end,
-                    'decoder': self._decoder,
-                    'compression': None,
-                    'charmap': CHARMAP_WL4,
-                    'terminators': [0x00, 0xFF],
-                })
+            end = self._en_window_end(rom, offset)
+            width = end - offset
+            if width <= 0:
+                logger.debug(
+                    f"wl4_{name}: пустое окно на 0x{offset:X}, пропущен")
+                continue
 
-        # Also scan for text blocks
-        segments.extend(self._scan_for_text(rom))
+            segments.append({
+                'name': f'wl4_{name}',
+                'start': offset,
+                'end': end,
+                'fixed_width': width,
+                'record_count': 1,
+                'max_length': width,
+                'decoder': self._decoder,
+                'compression': None,
+                'charmap': CHARMAP_WL4,
+                'pad_byte': 0xFF,
+                'terminators': [],
+            })
 
         logger.info(f"Total segments: {len(segments)}")
         return segments
 
-    def _scan_for_text(self, rom: GameBoyROM) -> list[dict]:
-        """Scan for WL4 text blocks"""
-        segments: list[dict] = []
-
-        # Scan ranges (ROM is 8MB)
-        scan_ranges = [
-            (0x600000, 0x800000),  # Text area
-        ]
-
-        for range_start, range_end in scan_ranges:
-            if range_start >= len(rom.data):
-                continue
-
-            end = min(range_end, len(rom.data))
-            offset = range_start
-
-            while offset < end - 10:
-                # WL4 text: 0x0A-0x23 (A-Z), 0x24-0x3D (a-z)
-                chunk = rom.data[offset:offset + 20]
-                letter_count = sum(1 for b in chunk if 0x0A <= b <= 0x3D)
-
-                if letter_count > 10:
-                    block_start = offset
-                    block_end = min(offset + 0x100, end)
-
-                    # Check if already covered
-                    is_new = True
-                    for seg in segments:
-                        if seg['start'] <= block_start < seg['end']:
-                            is_new = False
-                            break
-
-                    if is_new:
-                        # Find actual end of text
-                        while block_end < end and rom.data[block_end] not in (0x00, 0xFF):
-                            block_end += 1
-                        block_end += 1
-
-                        segments.append({
-                            'name': f'wl4_scan_{len(segments)}',
-                            'start': block_start,
-                            'end': block_end,
-                            'decoder': self._decoder,
-                            'compression': None,
-                            'charmap': CHARMAP_WL4,
-                            'terminators': [0x00, 0xFF],
-                        })
-                        offset = block_end
-                        continue
-                offset += 1
-
-        return segments
-
     def get_terminators(self, segment_name: str) -> list[int]:
-        return [0x00, 0xFF]
+        return []
 
     def get_compression_handler(self, segment_name: str):
         return None

@@ -8,8 +8,10 @@ env/
 build/
 dist/
 settings/
-htmlcov/*
+htmlcov/
 test_roms/
+scripts_roms/
+tools/
 
 .pytest_cache/
 .mypy_cache/
@@ -18,7 +20,9 @@ nonexistent_dir/
 nonexistent_plugins_dir/
 
 .opencode/
+.claude/
 opencode.json
+.secrets/
 
 # Диагностические каталоги
 diagnostics_*

@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Phoenix Wright: Ace Attorney (GBA) — fan translation
+Plugin for Phoenix Wright: Ace Attorney (GBA) - fan translation
 
 Game codes: ASBJ (Japan, fan translation ROM)
 
-Text encoding: ASCII (fan-translated)
-Source: ROM analysis
+Text encoding: ASCII (fan translation)
+Source: ROM reverse engineering
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -34,10 +34,10 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.phoenix_wright')
 
-# Phoenix Wright fan translation uses ASCII
+# The Phoenix Wright fan translation uses ASCII
 CHARMAP_PW: dict[int, str] = {i: chr(i) for i in range(0x20, 0x7F)}
 
-# Control codes for Phoenix Wright
+# Phoenix Wright control codes
 PW_CONTROL_CODES: dict[int, str] = {
     0x01: '[LINE]',
     0x02: '[PAUSE]',
@@ -64,7 +64,7 @@ PW_GAME_CODES = ['ASBJ']
 
 
 class PhoenixWrightTextDecoder:
-    """Decoder for Phoenix Wright fan translation text"""
+    """Text decoder for the Phoenix Wright fan translation"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -97,7 +97,7 @@ class PhoenixWrightTextDecoder:
 
 
 class PhoenixWrightPlugin(GamePlugin):
-    """Плагин для Phoenix Wright: Ace Attorney (GBA)"""
+    """Plugin for Phoenix Wright: Ace Attorney (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -112,16 +112,16 @@ class PhoenixWrightPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Phoenix Wright"""
+        """Extract Phoenix Wright text segments"""
         logger.info("Извлечение текстовых сегментов для Phoenix Wright")
 
         segments: list[dict] = []
 
-        # Scan for ASCII text blocks
+        # Scan ASCII text blocks
         scan_ranges = [
             (0x080000, 0x100000),  # Code area
             (0x200000, 0x300000),  # Data area
-            (0x400000, 0x500000),  # More data
+            (0x400000, 0x500000),  # Additional data
         ]
 
         for range_start, range_end in scan_ranges:
@@ -132,7 +132,7 @@ class PhoenixWrightPlugin(GamePlugin):
             i = range_start
 
             while i + 10 < end:
-                # Look for ASCII strings (minimum 10 chars)
+                # Search for ASCII strings (minimum 10 characters)
                 length = 0
                 while i + length < end and length < 200:
                     b = rom.data[i + length]
@@ -143,7 +143,7 @@ class PhoenixWrightPlugin(GamePlugin):
                     else:
                         break
 
-                if length >= 20:  # Found a text string (minimum 20 chars)
+                if length >= 20:  # A text string was found (minimum 20 characters)
                     segments.append({
                         'name': f'pw_text_{len(segments)}',
                         'start': i,
@@ -157,7 +157,7 @@ class PhoenixWrightPlugin(GamePlugin):
                 else:
                     i += 1
 
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info(f"Всего сегментов: {len(segments)}")
         return segments
 
     def get_terminators(self, segment_name: str) -> list[int]:

@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Fire Emblem GBA (FE7/FE8)
+Plugin for Fire Emblem GBA (FE7/FE8)
 
 Game codes: BE7E/BE7J (FE7), BE8E/BE8J (FE8)
 
-Text encoding: Standard ASCII + FE control codes + Huffman compression
+Text encoding: standard ASCII + FE control codes + Huffman compression
 Source: FEBuilderGBA source code (laqieer/FEBuilderGBA)
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -73,12 +73,12 @@ FE_CONTROL_CODES: dict[int, str] = {
     0x94: '[CloseQuote]',
 }
 
-# Font tile indices (0xA0-0xFF) — FE7U/FE8U
-# 0x80-0x9F are control codes (see FE_CONTROL_CODES above)
-# 0xA0-0xFF are font tile indices — game-specific glyphs
-# For US/EU ROMs, these map to accented Latin chars
-# For JP ROMs, these map to different glyphs
-# Mapping below is approximate — actual depends on ROM font
+# Font tile indices (0xA0-0xFF) - FE7U/FE8U
+# 0x80-0x9F - control codes (see FE_CONTROL_CODES above)
+# 0xA0-0xFF - game-specific font tile indices
+# For US/EU ROMs these indices map to Latin characters with diacritics
+# For JP ROMs these indices map to different glyphs
+# The mapping below is approximate - it depends on the ROM font
 FE_FONT_TILES: dict[int, str] = {
     0xA0: 'â', 0xA1: 'ã', 0xA2: 'ä', 0xA3: 'æ', 0xA4: 'ç',
     0xA5: 'è', 0xA6: 'é', 0xA7: 'ê', 0xA8: 'ë', 0xA9: 'ì',
@@ -86,7 +86,7 @@ FE_FONT_TILES: dict[int, str] = {
     0xAF: 'ò', 0xB0: 'ó', 0xB1: 'ô', 0xB2: 'õ', 0xB3: 'ö',
     0xB4: '÷', 0xB5: 'ø', 0xB6: 'ù', 0xB7: 'ú', 0xB8: 'û',
     0xB9: 'ü', 0xBA: 'ý', 0xBB: 'þ', 0xBC: 'ÿ',
-    # 0xBD-0xFF: game-specific symbols (not mapped yet)
+    # 0xBD-0xFF: game-specific characters (not mapped yet)
 }
 
 # Game codes for detection
@@ -98,7 +98,7 @@ FE_GAME_CODES = FE7_GAME_CODES + FE8_GAME_CODES
 
 
 class FETextDecoder:
-    """Decoder for Fire Emblem GBA text"""
+    """Fire Emblem GBA text decoder"""
 
     def __init__(self):
         self.charmap: dict[int, str] = {}
@@ -121,11 +121,11 @@ class FETextDecoder:
         while i < end:
             byte = data[i]
 
-            # End of string
+            # End of line
             if byte == 0x00:
                 break
 
-            # Handle LoadFace (0x10 + 2 params)
+            # Handle LoadFace (0x10 + 2 parameters)
             if byte == 0x10 and i + 2 < end:
                 result.append('[LoadFace]')
                 i += 3
@@ -147,7 +147,7 @@ class FETextDecoder:
 
 
 class FireEmblemGBAPlugin(GamePlugin):
-    """Плагин для Fire Emblem GBA (FE7/FE8)"""
+    """Plugin for Fire Emblem GBA (FE7/FE8)"""
 
     def __init__(self):
         super().__init__()
@@ -162,15 +162,15 @@ class FireEmblemGBAPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Fire Emblem GBA"""
+        """Extract Fire Emblem GBA text segments"""
         logger.info("Извлечение текстовых сегментов для Fire Emblem GBA")
 
         segments: list[dict] = []
 
         # FE GBA uses Huffman compression
         # Known Huffman tree locations (from FEBuilderGBA/community docs):
-        # FE7U: tree at 0xB808AC, text blocks follow
-        # FE8U: tree at 0x15D48C, text blocks follow
+        # FE7U: tree at 0xB808AC, then text blocks
+        # FE8U: tree at 0x15D48C, then text blocks
 
         game_id = rom.get_game_id()
         if 'BE7E' in game_id or 'AE7Y' in game_id:  # FE7 US/EU
@@ -183,18 +183,18 @@ class FireEmblemGBAPlugin(GamePlugin):
             tree_base = 0xB808AC  # Default to FE7
             logger.info(f"Unknown FE game, defaulting to FE7 tree at 0x{tree_base:X}")
 
-        # Scan for text blocks using Huffman decoding
+        # Scan text blocks using Huffman decoding
         segments.extend(self._scan_huffman_text(rom, tree_base))
 
         logger.info(f"Total segments: {len(segments)}")
         return segments
 
     def _scan_huffman_text(self, rom: GameBoyROM, tree_base: int) -> list[dict]:
-        """Scan for Huffman-compressed text blocks in FE ROM"""
+        """Scan Huffman-compressed text blocks in an FE ROM"""
         segments: list[dict] = []
         huffman = HuffmanHandler()
 
-        # FE GBA text is typically in these ranges
+        # FE GBA text is usually located in these ranges
         scan_ranges = [
             (0x100000, 0x400000),  # Text area (FE7/FE8)
         ]
@@ -213,15 +213,15 @@ class FireEmblemGBAPlugin(GamePlugin):
                         rom.data, offset, tree_base, tree_base
                     )
 
-                    # Check if decoded text is valid
+                    # Verify the decoded text looks correct
                     if len(decoded) > 5:
                         # Check for ASCII characters
                         ascii_count = sum(1 for b in decoded if 0x20 <= b <= 0x7E)
                         if ascii_count > len(decoded) * 0.5:
-                            # Valid text block found
+                            # Found a valid text block
                             block_end = offset + len(decoded)
 
-                            # Check if already covered
+                            # Check whether this block is already covered
                             is_new = True
                             for seg in segments:
                                 if seg['start'] <= offset < seg['end']:
@@ -254,7 +254,7 @@ class FireEmblemGBAPlugin(GamePlugin):
     def get_compression_handler(self, segment_name: str):
         # FE uses Huffman compression
         handler = HuffmanHandler()
-        # Set tree pointers based on game
-        # These are default values - should be set from segment data
+        # Set the tree pointers depending on the game
+        # These are defaults - must be set from the segment data
         handler.set_tree_pointers(0xB808AC, 0xB808AC)  # FE7 default
         return handler

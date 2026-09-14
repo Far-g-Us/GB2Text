@@ -258,9 +258,9 @@ class TestTextExtractor:
             os.unlink(temp_path)
 
     def test_extract_with_pointer_size(self):
-        """Тест извлечения с указанием pointer_size"""
+        """Тест извлечения с указанием pointer_size (детерминированно, без random)"""
         if GBA_ROMS:
-            rom_path = random.choice(GBA_ROMS)
+            rom_path = sorted(GBA_ROMS)[0]
             pm = PluginManager()
             extractor = TextExtractor(rom_path, pm, GuideManager())
             result = extractor.extract()
@@ -446,7 +446,7 @@ class TestTextExtractor:
     def test_extract_with_no_segments(self):
         """Тест извлечения когда плагин возвращает пустой список сегментов"""
         class MockPluginManager(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -468,7 +468,7 @@ class TestTextExtractor:
     def test_extract_with_invalid_segment_addresses(self):
         """Тест извлечения с невалидными адресами сегмента"""
         class MockPluginManager(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -492,7 +492,7 @@ class TestTextExtractor:
     def test_extract_with_auto_detect_charmap(self):
         """Тест извлечения с автоматическим определением таблицы символов"""
         class MockPluginManager(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -524,7 +524,7 @@ class TestTextExtractor:
     def test_extract_with_plugin_not_found(self):
         """Тест извлечения когда плагин не найден"""
         class MockPluginManagerNoPlugin(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 return None  # No plugin
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
@@ -544,7 +544,7 @@ class TestTextExtractor:
     def test_extract_with_max_segments_limit(self):
         """Тест извлечения с ограничением количества сегментов"""
         class MockPluginManagerManySegments(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -576,7 +576,7 @@ class TestTextExtractor:
     def test_extract_with_compression_segment(self):
         """Тест извлечения сегмента со сжатием"""
         class MockPluginManagerWithCompression(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -601,7 +601,7 @@ class TestTextExtractor:
     def test_extract_with_auto_decoder(self):
         """Тест извлечения с автоматическим определением декодера"""
         class MockPluginManagerAutoDecoder(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -628,7 +628,7 @@ class TestTextExtractor:
     def test_extract_with_low_quality_segment(self):
         """Тест извлечения сегмента с низким качеством"""
         class MockPluginManagerLowQuality(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -655,7 +655,7 @@ class TestTextExtractor:
     def test_extract_with_invalid_segment_addresses(self):
         """Тест извлечения с невалидными адресами сегмента"""
         class MockPluginManagerInvalidAddr(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):
@@ -683,7 +683,7 @@ class TestTextExtractor:
                 return b'Decompressed data', len(data)
 
         class MockPluginManagerWithCompObj(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token):
+            def get_plugin(self, game_id, system, cancellation_token, rom=None):
                 class MockPlugin:
                     system = "gba"
                     def get_text_segments(self, rom):

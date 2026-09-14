@@ -1,39 +1,39 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Final Fantasy Tactics Advance (GBA)
+Plugin for Final Fantasy Tactics Advance (GBA)
 
 Game codes: AFXE (USA), AGBJ (Japan), AGBE (Europe)
 
-Text encoding: Custom Square Enix tile-based encoding
+Text encoding: Square Enix custom tile-based encoding
 Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_Tactics_Advance/Strings
 
 String format:
   0x00 = End of string / Padding
-  0x01 = Signal start of single-byte section
-  0x32 0xXX 0xYYYYYYYY = Start of LZSS compressed string (Y = decompressed size)
-  0x40 0xXX = Control character (various sub-types)
-  0x8X 0xXX = Printed character (two-byte sequences)
+  0x01 = Single-byte section start signal
+  0x32 0xXX 0xYYYYYYYY = Start of an LZSS-compressed string (Y = size after decompression)
+  0x40 0xXX = Control character (various subtypes)
+  0x8X 0xXX = Printable character (two-byte sequences)
 
-LZSS format: bit-packed commands (see core/compression.py FFTA_LZSSHandler)
+LZSS format: bit commands (see core/compression.py FFTA_LZSSHandler)
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+NOTE: this plugin contains ONLY factual technical information.
+Author dialogs and story content are not included.
 """
 
 import logging
@@ -46,7 +46,7 @@ from core.rom import GameBoyROM
 logger = logging.getLogger('gb2text.plugins.fft_advance')
 
 # ═══════════════════════════════════════════════════════════════════
-# Character Map — EXACT from DataCrystal
+# Character table - exactly per DataCrystal
 # Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_Tactics_Advance/Strings
 # ═══════════════════════════════════════════════════════════════════
 
@@ -90,7 +90,7 @@ CHARMAP_FFTA_MULTI: dict[int, str] = {
     0x809C: 'レ', 0x809D: 'ロ', 0x809E: 'ヮ', 0x809F: 'ワ', 0x80A0: 'ヲ',
     0x80A1: 'ン', 0x80A2: 'ヴ', 0x80A3: '、', 0x80A4: '。', 0x80A5: 'ー',
 
-    # Numbers (0x80 0xA6-0xAF)
+    # Digits (0x80 0xA6-0xAF)
     0x80A6: '0', 0x80A7: '1', 0x80A8: '2', 0x80A9: '3', 0x80AA: '4',
     0x80AB: '5', 0x80AC: '6', 0x80AD: '7', 0x80AE: '8', 0x80AF: '9',
 
@@ -116,30 +116,30 @@ CHARMAP_FFTA_MULTI: dict[int, str] = {
     0x80E9: '…', 0x80EA: '?', 0x80EB: '!', 0x80EC: ',', 0x80ED: '·',
     0x80EE: ':', 0x80EF: '_',
 
-    # More symbols (0x80 0xF0-0xFF, 0x81 0x00-0x22)
+    # Miscellaneous (0x80 0xF0-0xFF, 0x81 0x00-0x22)
     0x80F0: '々', 0x80F1: '/', 0x80F2: '~', 0x80F3: '\'', 0x80F4: '\'',
     0x80F5: '"', 0x80F6: '"', 0x80F7: '(', 0x80F8: ')', 0x80F9: '{',
     0x80FA: '}', 0x80FB: '【', 0x80FC: '】', 0x80FD: '+', 0x80FE: '-',
     0x80FF: '±', 0x8100: '×', 0x8101: '=', 0x8102: '<', 0x8103: '>',
     0x8104: '∞', 0x8105: '♂', 0x8106: '♀', 0x8107: '%', 0x8108: '&',
     0x8109: '*', 0x810A: '※', 0x810B: '─', 0x810C: '│', 0x810D: '▲',
-    0x810E: '▼', 0x810F: '◀', 0x8110: '▶', 0x8111: '○', 0x8112: '△',
+    0x810E: '▼', 0x810F: '←', 0x8110: '→', 0x8111: '○', 0x8112: '△',
     0x8113: '□', 0x8114: '■', 0x8115: '♪', 0x8116: ';', 0x8117: '◎',
     0x8118: '０', 0x8119: '１', 0x811A: '２', 0x811B: '３', 0x811C: '４',
     0x811D: '５', 0x811E: '６', 0x811F: '７', 0x8120: '８', 0x8121: '９',
     0x8122: '－',
 }
 
-# Single-byte mode: byte values shifted by +1 from multi-byte second byte
-# Example: 0x80CC ('c') → single-byte 0xCD
-# To decode single-byte X: look up multi-byte code 0x8000 | (X - 1)
+# Single-byte mode: byte values are shifted +1 from the multi-byte second byte
+# Example: 0x80CC ('c') -> single-byte 0xCD
+# To decode a single-byte X: look up code 0x8000 | (X - 1)
 
 # ═══════════════════════════════════════════════════════════════════
-# Control Codes — EXACT from DataCrystal
+# Control codes - exactly per DataCrystal
 # Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_Tactics_Advance/Strings
 # ═══════════════════════════════════════════════════════════════════
 
-# 0x40 XX control characters (DataCrystal exact list)
+# Control characters 0x40 XX (the exact DataCrystal list)
 FFTA_CTRL_40: dict[int, str] = {
     0x02: '[40_02]', 0x03: '[40_03]', 0x04: '[40_04]', 0x05: '[40_05]',
     0x06: '[40_06]', 0x07: '[40_07]', 0x08: '[40_08]', 0x09: '[40_09]',
@@ -155,29 +155,29 @@ FFTA_CTRL_40: dict[int, str] = {
     0x33: '[40_33]', 0x34: '[40_34]', 0x35: '[40_35]', 0x36: '[40_36]',
     0x37: '[40_37]', 0x38: '[40_38]', 0x39: '[40_39]', 0x3A: '[40_3A]',
     0x3B: '[40_3B]',
-    0x3E: '[SPACE]',  # Space width marker
+    0x3E: '[SPACE]',  # space-width marker
     0x40: '[40_40]', 0x41: '[40_41]', 0x42: '[40_42]', 0x43: '[40_43]',
     0x44: '[40_44]', 0x45: '[40_45]', 0x46: '[40_46]', 0x47: '[40_47]',
     0x48: '[40_48]', 0x49: '[40_49]', 0x4A: '[40_4A]', 0x4B: '[40_4B]',
     0x4C: '[40_4C]', 0x4D: '[40_4D]', 0x4E: '[40_4E]', 0x4F: '[40_4F]',
     0x50: '[40_50]',
-    0x53: '[CHOICE]',  # Dialog choice (followed by 2 strings)
+    0x53: '[CHOICE]',  # dialogue choice (followed by 2 strings)
     0x54: '[40_54]', 0x55: '[40_55]', 0x56: '[40_56]', 0x57: '[40_57]',
     0x58: '[40_58]', 0x59: '[40_59]', 0x5A: '[40_5A]', 0x5B: '[40_5B]',
     0x5C: '[40_5C]', 0x5D: '[40_5D]', 0x5E: '[40_5E]', 0x5F: '[40_5F]',
-    0x60: '[40_60]', 0x61: '[WAIT]',  # Wait for button press
+    0x60: '[40_60]', 0x61: '[WAIT]',  # wait for a button press
     0x62: '[40_62]',
-    0x63: '[CLEAR]',  # Clear dialog box
+    0x63: '[CLEAR]',  # clear the dialogue box
     0x64: '[40_64]', 0x65: '[40_65]', 0x66: '[40_66]', 0x67: '[40_67]',
     0x68: '[40_68]', 0x69: '[40_69]', 0x6A: '[40_6A]', 0x6B: '[40_6B]',
     0x6C: '[40_6C]', 0x6D: '[40_6D]',
     0x6E: '[NEWLINE]',
     0x6F: '[40_6F]',
-    0x70: '[NEXT_PAGE]',  # Next page icon
+    0x70: '[NEXT_PAGE]',  # next-page icon
     0x71: '[40_71]',
     0x72: '[CRN]',  # CRN lookup (character name)
     0x73: ' ',  # Space
-    0x74: '[DELAY]',  # Delay XX/10 seconds
+    0x74: '[DELAY]',  # pause XX/10 seconds
     0x75: '[40_75]', 0x76: '[40_76]',
     0x77: '[40_77]', 0x78: '[40_78]', 0x79: '[40_79]', 0x7A: '[40_7A]',
     0x7B: '[40_7B]', 0x7C: '[40_7C]', 0x7D: '[40_7D]', 0x7E: '[40_7E]',
@@ -192,7 +192,7 @@ FFTA_CHAR_NAMES: dict[int, str] = {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# CRN Lookup Table — EXACT from DataCrystal
+# CRN lookup table - exactly per DataCrystal
 # Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_Tactics_Advance/CRN_data
 # ═══════════════════════════════════════════════════════════════════
 
@@ -265,15 +265,15 @@ FFTA_CRN_NAMES: dict[int, str] = {
 }
 
 # ═══════════════════════════════════════════════════════════════════
-# Pointer Tables — EXACT from DataCrystal
+# Pointer tables - exactly per DataCrystal
 # Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_Tactics_Advance/String_tables
 # ═══════════════════════════════════════════════════════════════════
 
-# GBA address base
+# GBA base address
 GBA_BASE = 0x08000000
 
 FFTA_STRING_TABLES = [
-    # (pointer_table_offset, text_start_offset, entry_count, name)
+    # (pointer table offset, text start, record count, name)
     (0x005567F0, 0x005541B4, 767, 'Universal'),
     (0x00526680, 0x0052336C, 753, 'Item/Location Names'),
     (0x0055A64C, 0x00558008, 512, 'Mission Names'),
@@ -281,7 +281,7 @@ FFTA_STRING_TABLES = [
 ]
 
 # CRN data (character name strings)
-FFTA_CRN_OFFSET = 0x55128C  # CRN data starts here (ROM offset, GBA base stripped)
+FFTA_CRN_OFFSET = 0x55128C  # CRN data starts here (ROM offset, without the GBA base)
 FFTA_CRN_POINTERS = 0x5516D0  # CRN pointer table (ROM offset)
 
 # Game codes for detection
@@ -296,29 +296,240 @@ FFTA_TERMINATORS = [0x00]
 # ═══════════════════════════════════════════════════════════════════
 
 class FFTATextDecoder:
-    """Decoder adapter — wraps _decode_ffta_text for the extractor API."""
+    """Decoder adapter - wraps _decode_ffta_text for the extractor API.
+
+    encode() restores the byte representation of the text. For a whole
+    string one of two modes is selected:
+    - single-byte (prefix 0x01), if every character is representable in one
+      byte (second byte of the 0x80XX code in the 0x8F..0xFE range) and the
+      text contains no special tokens ({name}, [CHOICE], [DELAY:n],
+      [SPACE_W:n]) or hex markers of unknown bytes; control codes - a single byte;
+    - multi-byte (0x80XX / 0x40 XX) in all other cases.
+    encode(force_multi=True) forces the multi-byte mode -
+    used for LZSS dialogues: in the original ROM the decompressed dialogues
+    do not use the single prefix (0x01), so on injection this format is
+    preserved to avoid diverging from the engine.
+    Special tokens: {name} -> 0x40 0x25 idx, {CRN name} -> 0x40 0x72 idx,
+    [DELAY:n] -> 0x40 0x74 n, [SPACE_W:n] -> 0x40 0x3E n,
+    [CHOICE] -> 0x40 0x53 0x00 0x00 (the 2 choice-parameter bytes are discarded
+    by the decoder, so they are lost on re-encoding - a known limitation).
+    Unknown bytes ([XX], [XX_YY]) are copied raw.
+    The {CRN_XX} and {[XX]} notation feeds an index manually (CRN table /
+    character name): byte 0x40 0x72 XX / 0x40 0x25 XX is written as-is, and
+    the decoder resolves it to a name when reading (e.g. {CRN_30} -> {Chocobo},
+    {[00]} -> {Marche}) - the text does not match the original; this is an
+    expected round-trip asymmetry.
+    """
+
+    _FFTA_NAME_UNKNOWN_CRN = re.compile(r'^CRN_([0-9A-Fa-f]{2})$')
+    _FFTA_NAME_UNKNOWN_CHAR = re.compile(r'^\[([0-9A-Fa-f]{2})\]$')
+    _FFTA_SPECIAL_CTRL_NONRAW = frozenset({0x25, 0x3E, 0x53, 0x72, 0x74})
+    # Control bytes that the 0x40 XX decoder turns into a NAMED token
+    # ([NEWLINE], [WAIT], etc.) rather than '[40_XX]' - such 'raw' markers
+    # are impossible in extracted text and must be rejected.
+    _FFTA_CTRL_RAW_FAIL = {
+        ctrl for ctrl, tok in FFTA_CTRL_40.items()
+        if tok != f'[40_{ctrl:02X}]'
+    } | _FFTA_SPECIAL_CTRL_NONRAW
+    _FFTA_TOKEN_RE = re.compile(
+        r'(\{([^{}]*)\})'
+        r'|\[(DELAY|SPACE_W):(\d+)\]'
+        r'|(\[CHOICE\])'
+        r'|\[([0-9A-Fa-f]{2}(?:_[0-9A-Fa-f]{2})?)\]'
+        r'|\[([A-Za-z0-9_]+)\]'
+        r'|(.)'
+    )
+
+    def __init__(self):
+        self.rev_multi: dict[str, int] = {}
+        for code, ch in CHARMAP_FFTA_MULTI.items():
+            if ch not in self.rev_multi:
+                self.rev_multi[ch] = code
+        self.rev_ctrl: dict[str, int] = {}
+        for code, token in FFTA_CTRL_40.items():
+            if code in self._FFTA_SPECIAL_CTRL_NONRAW:
+                continue
+            if token.startswith('[') and token.endswith(']'):
+                self.rev_ctrl.setdefault(token[1:-1], code)
+            else:
+                self.rev_ctrl.setdefault(token, code)
+        self.rev_char_names: dict[str, int] = {
+            name: idx for idx, name in FFTA_CHAR_NAMES.items()
+        }
+        self.rev_crn_names: dict[str, int] = {}
+        for idx, name in FFTA_CRN_NAMES.items():
+            self.rev_crn_names.setdefault(name, idx)
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         text, _ = _decode_ffta_text(data, start, length)
         return text
 
-    def encode(self, text: str) -> bytes:
-        raise NotImplementedError("FFTA encoding not yet implemented")
+    def encode(self, text: str, force_multi: bool = False) -> bytes:
+        return _encode_ffta_text(
+            text, self.rev_multi, self.rev_ctrl,
+            self.rev_char_names, self.rev_crn_names, force_multi
+        )
+
+
+def _encode_ffta_text(text: str, rev_multi: dict[str, int],
+                      rev_ctrl: dict[str, int],
+                      rev_char_names: dict[str, int],
+                      rev_crn_names: dict[str, int],
+                      force_multi: bool = False) -> bytes:
+    """Encodes FFTA text (inverse of _decode_ffta_text).
+
+    Returns the string bytes WITHOUT the 0x00 terminator.
+    """
+    tokens = _tokenize_ffta_text(text, rev_multi, rev_ctrl,
+                                 rev_char_names, rev_crn_names)
+    if not force_multi:
+        for n, first, _second in tokens:
+            if n == 'char':
+                code = first
+                # Single-byte only works for 0x80XX codes whose second byte is
+                # in 0x8F..0xFE (the single byte lands in 0x90..0xFF, outside the
+                # 0x80..0x8F prefix range). The high byte must be 0x80: 0x81XX codes
+                # cannot be expressed in single-byte form (the decoder reads it as 0x8000|(X-1)).
+                if (code >> 8) != 0x80 or not (0x8F <= (code & 0xFF) <= 0xFE):
+                    force_multi = True
+            elif n == 'ctrl':
+                if first == 0x40:
+                    force_multi = True
+            else:
+                force_multi = True
+    if force_multi:
+        out = bytearray()
+        for n, first, second in tokens:
+            if n == 'char':
+                out.append((first >> 8) & 0xFF)
+                out.append(first & 0xFF)
+            elif n == 'ctrl':
+                out.append(0x40)
+                out.append(first)
+            elif n == 'raw':
+                out.extend(first)
+            else:
+                out.append(0x40)
+                out.append(second[0])
+                out.extend(second[1])
+    else:
+        out = bytearray()
+        out.append(0x01)
+        for n, first, _second in tokens:
+            if n == 'char':
+                out.append((first & 0xFF) + 1)
+            elif n == 'ctrl':
+                out.append(first)
+            else:
+                raise ValueError(f"Недопустимый токен в однобайтовом режиме: {n}")
+    return bytes(out)
+
+
+def _tokenize_ffta_text(text: str, rev_multi: dict[str, int],
+                        rev_ctrl: dict[str, int],
+                        rev_char_names: dict[str, int],
+                        rev_crn_names: dict[str, int]) -> list[tuple]:
+    """Parses text into tokens: ('char', code, None) | ('ctrl', byte, None)
+    | ('raw', bytes, None) | ('ref', None, (ctrl_byte, arg_bytes)).
+    """
+    token_re = FFTATextDecoder._FFTA_TOKEN_RE
+    tokens: list[tuple] = []
+    for match in token_re.finditer(text):
+        full, inner, kind, value, choice, hexval, named, char = match.groups()
+
+        if full is not None:
+            key = inner
+            if key in rev_char_names:
+                tokens.append(('ref', None, (0x25, bytes([rev_char_names[key]]))))
+            elif key in rev_crn_names:
+                tokens.append(('ref', None, (0x72, bytes([rev_crn_names[key]]))))
+            elif FFTATextDecoder._FFTA_NAME_UNKNOWN_CRN.fullmatch(key):
+                tokens.append(('ref', None, (0x72, bytes([int(key[4:], 16)]))))
+            elif FFTATextDecoder._FFTA_NAME_UNKNOWN_CHAR.fullmatch(key):
+                tokens.append(('ref', None, (0x25, bytes([int(key[1:3], 16)]))))
+            else:
+                for ch in full:
+                    code = rev_multi.get(ch)
+                    if code is None:
+                        raise ValueError(
+                            f"Character not in charmap: {ch!r} (в {full!r})")
+                    tokens.append(('char', code, None))
+            continue
+
+        if kind is not None:
+            b = int(value)
+            if b > 0xFF:
+                raise ValueError(f"{kind}: значение {value} вне диапазона байта")
+            if kind == 'DELAY':
+                tokens.append(('ref', None, (0x74, bytes([b]))))
+            else:
+                tokens.append(('ref', None, (0x3E, bytes([b]))))
+            continue
+
+        if choice is not None:
+            tokens.append(('raw', b'\x40\x53\x00\x00', None))
+            continue
+
+        if hexval is not None:
+            if '_' in hexval:
+                first, second = hexval.split('_', 1)
+            else:
+                first, second = hexval, None
+            raw = bytes([int(first, 16)])
+            if second is not None:
+                raw += bytes([int(second, 16)])
+            if (len(raw) == 1 and raw[0] in (0x00, 0x01)) or (
+                len(raw) == 1 and 0x80 <= raw[0] <= 0x8F
+            ):
+                raise ValueError(
+                    f"Маркер [{hexval}] неустраним: байт 0x{raw[0]:02X} "
+                    f"нельзя вставить в поток (терминатор/переключатель/"
+                    f"LZSS-префикс/однобайтовый режим)")
+            if len(raw) == 1 and raw[0] == 0x40:
+                raise ValueError(
+                    f"Маркер [{hexval}] неустраним: одиночный 0x40 читается "
+                    f"как префикс управляющего кода")
+            if len(raw) == 2 and raw[0] == 0x40:
+                ctrl = raw[1]
+                if ctrl in FFTATextDecoder._FFTA_CTRL_RAW_FAIL:
+                    raise ValueError(
+                        f"Маркер [40_{ctrl:02X}] неустраним: байт 0x40 0x{ctrl:02X} "
+                        f"декодер интерпретирует как спец-токен")
+            tokens.append(('raw', raw, None))
+            continue
+
+        if named is not None:
+            ctrl_code = rev_ctrl.get(named)
+            if ctrl_code is None:
+                raise ValueError(f"Unknown control token: [{named}]")
+            tokens.append(('ctrl', ctrl_code, None))
+            continue
+
+        code = rev_ctrl.get(char)
+        if code is not None:
+            tokens.append(('ctrl', code, None))
+            continue
+        code = rev_multi.get(char)
+        if code is None:
+            raise ValueError(f"Character not in charmap: {char!r}")
+        tokens.append(('char', code, None))
+
+    return tokens
 
 def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
-    """Decode FFTA text using the exact DataCrystal charmap.
+    """Decodes FFTA text using the exact DataCrystal character table.
 
-    Returns (decoded_text, bytes_consumed).
+    Returns (decoded_text, consumed_bytes).
 
     FFTA uses two encoding modes:
     1. Multi-byte (default): 0x8X XX sequences
-    2. Single-byte (starts with 0x01): bytes shifted by -1 from multi-byte table
+    2. Single-byte (starts with 0x01): bytes are shifted -1 from the multi-byte table
 
     Control codes:
     - 0x00 = End of string
     - 0x01 = Switch to single-byte mode
-    - 0x40 XX = Control character (various sub-types)
-    - 0x32 0xXX 0xYYYYYYYY = LZSS compressed block start
+    - 0x40 XX = Control character (various subtypes)
+    - 0x32 0xXX 0xYYYYYYYY = Start of an LZSS-compressed block
     """
     result: list[str] = []
     i = start
@@ -359,17 +570,17 @@ def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
                 result.append(f'{{{crn_name}}}')
                 continue
 
-            # Delay (0x40 0x74 XX)
+            # Pause (0x40 0x74 XX)
             if ctrl == 0x74 and i < end:
                 delay = data[i]
                 i += 1
                 result.append(f'[DELAY:{delay}]')
                 continue
 
-            # Choice (0x40 0x53 XX YY) — complex, just mark it
+            # Choice (0x40 0x53 XX YY) - complex, just mark it
             if ctrl == 0x53:
                 result.append('[CHOICE]')
-                # Skip 2 bytes (choice params)
+                # Skip 2 bytes (choice parameters)
                 if i + 1 < end:
                     i += 2
                 continue
@@ -381,7 +592,7 @@ def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
                 result.append(f'[SPACE_W:{width}]')
                 continue
 
-            # Lookup in table
+            # Look up in the table
             ctrl_str = FFTA_CTRL_40.get(ctrl, f'[40_{ctrl:02X}]')
             result.append(ctrl_str)
             continue
@@ -398,7 +609,7 @@ def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
         # Single-byte mode
         if single_byte_mode:
             # Single-byte = multi-byte shifted by 1
-            # byte X → multi-byte code 0x8000 | (X - 1)
+            # byte X -> code 0x8000 | (X - 1)
             if byte >= 0x80:
                 char_code = 0x8000 | (byte - 1)
                 char = CHARMAP_FFTA_MULTI.get(char_code, f'[{byte:02X}]')
@@ -412,7 +623,7 @@ def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
             i += 1
             continue
 
-        # Unknown byte in multi-byte mode (should not happen in valid text)
+        # Unknown byte in multi-byte mode (must not occur in valid text)
         result.append(f'[{byte:02X}]')
         i += 1
 
@@ -420,7 +631,7 @@ def _decode_ffta_text(data: bytes, start: int, length: int) -> tuple[str, int]:
 
 
 class FFTAdvancePlugin(GamePlugin):
-    """Плагин для Final Fantasy Tactics Advance (GBA)"""
+    """Plugin for Final Fantasy Tactics Advance (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -432,9 +643,12 @@ class FFTAdvancePlugin(GamePlugin):
         return f'^GBA_({codes})$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов FFTA
+        """Extract FFTA text segments
 
-        Uses 4 pointer tables from DataCrystal plus CRN data.
+        Uses the 4 DataCrystal pointer tables, CRN data and
+        LZSS dialogues (0x32 0x00 marker). LZSS dialogues are inserted
+        in-place: the text is re-encoded with FFTATextDecoder.encode() and
+        recompressed into the original LZSS window.
         """
         logger.info("Извлечение текстовых сегментов для Final Fantasy Tactics Advance")
 
@@ -442,7 +656,7 @@ class FFTAdvancePlugin(GamePlugin):
 
         # ─── 1. Pointer table strings (4 tables) ────────────────
         for tbl_offset, text_start, count, name in FFTA_STRING_TABLES:
-            tbl_addr = tbl_offset  # ROM offset (no GBA base needed for ROM data)
+            tbl_addr = tbl_offset  # ROM offset (no GBA base for ROM data)
             if tbl_addr + count * 4 > len(rom.data):
                 logger.warning(f"String table '{name}' at 0x{tbl_offset:X} exceeds ROM size")
                 continue
@@ -458,17 +672,111 @@ class FFTAdvancePlugin(GamePlugin):
         segments.extend(crn_segments)
         logger.info(f"CRN data: {len(crn_segments)} character names")
 
+        # ─── 3. LZSS dialogue strings (0x32 0x00 blocks) ────────
+        lzss_segments = self._scan_lzss_dialogues(rom.data)
+        segments.extend(lzss_segments)
+        logger.info(f"LZSS dialogues: {len(lzss_segments)} segments")
+
         logger.info(f"Total segments: {len(segments)}")
         return segments
 
-    def _read_pointer_table(self, data: bytes, tbl_offset: int,
+    @staticmethod
+    def _lzss_region(offset: int) -> str:
+        """Dialogue region name of an LZSS block (for segment names)."""
+        if 0x490000 <= offset < 0x4A0000:
+            return 'D0'
+        if 0x4B0000 <= offset < 0x4C0000:
+            return 'D1'
+        return 'D_mega'
+
+    @staticmethod
+    def _lzss_is_noise(out: bytes) -> bool:
+        """A block is considered noise if the share of 0x00/0xFF bytes is large.
+
+        Empirics on the USA ROM: all 1790 text blocks have a share of 0.0,
+        all 25 noise blocks - >= 0.73. A 0.5 threshold gives 0 FP/0 FN
+        across the whole array.
+        """
+        if not out:
+            return True
+        noise = sum(1 for b in out if b in (0x00, 0xFF))
+        return noise / len(out) >= 0.5
+
+    def _scan_lzss_dialogues(self, data: bytes | bytearray) -> list[dict]:
+        """Scan LZSS dialogues: 0x32 0x00 marker + 4-byte BE output size.
+
+        Only dialogue regions are scanned (USA ROM empirics), disjoint from
+        the pointer tables and CRN: 0x49-0x4A, 0x4B-0x4C, 0x9C-0xA2.
+        Decompression is FFTA_LZSSHandler (the production decoder); the
+        reference is used as an oracle in tests. Noise blocks (0x00|0xFF share
+        >= 0.5) do not become segments. The size < 0x8000 limit is deliberately
+        stricter than the decompressor's (0x100000): FFTA text blocks are under
+        32KB, and large candidates are certainly graphic noise. Injection: the
+        text is re-encoded with FFTATextDecoder and recompressed (in-place into
+        the original LZSS window).
+        """
+        data = bytes(data)
+        segments: list[dict] = []
+        region_counters: dict[str, int] = {}
+        regions = [
+            (0x490000, 0x4A0000),  # D0: shopkeepers/allies
+            (0x4B0000, 0x4C0000),  # D1: dialogues
+            (0x9C0000, 0xA20000),  # D_mega: main dialogue array
+        ]
+        dz = self._lzss
+
+        for lo, hi in regions:
+            pos = lo
+            while pos + 6 <= hi:
+                idx = data.find(b'\x32\x00', pos, hi)
+                if idx == -1 or idx + 6 > hi:
+                    break
+                size = int.from_bytes(data[idx + 2:idx + 6], 'big')
+                if 0 < size < 0x8000:
+                    out, consumed = dz.decompress(data, idx + 2)
+                    if out and not self._lzss_is_noise(out):
+                        text, _ = _decode_ffta_text(out, 0, len(out))
+                        if text and not re.fullmatch(r'(\[[^\[\]]+\])*', text):
+                            # Nested marker inside an already accepted block - skip
+                            if segments and idx < segments[-1]['end']:
+                                pos = idx + 1
+                                continue
+                            region = self._lzss_region(idx)
+                            region_counters[region] = region_counters.get(region, 0) + 1
+                            end = idx + 2 + consumed
+                            decoder = FFTATextDecoder()
+                            segments.append({
+                                'name': f'ffta_dialogue_lzss_{region}_{region_counters[region]}',
+                                'start': idx,
+                                'end': end,
+                                'text': text,
+                                'raw_text': text,
+                                'decoder': decoder,
+                                'compression': 'FFTA_LZSS',
+                                'charmap': CHARMAP_FFTA_MULTI,
+                                'terminators': FFTA_TERMINATORS,
+                                'injectable': True,
+                                'pad_byte': 0x00,
+                                'encoder': (
+                                    lambda t, d=decoder, lz=self._lzss:
+                                        b'\x32\x00' + lz.compress(
+                                            d.encode(t, force_multi=True)
+                                        )
+                                ),
+                            })
+                pos = idx + 1
+
+        return segments
+
+    def _read_pointer_table(self, data: bytes | bytearray, tbl_offset: int,
                             text_start: int, count: int,
                             table_name: str) -> list[dict]:
         """Read a pointer table and extract strings.
 
-        Each pointer is 4 bytes, pointing to text_start + offset.
+        Each pointer is 4 bytes and points at text_start + offset.
         The pointer value is the ROM offset of the string.
         """
+        data = bytes(data)
         segments: list[dict] = []
 
         for i in range(count):
@@ -476,17 +784,17 @@ class FFTAdvancePlugin(GamePlugin):
             if ptr_addr + 4 > len(data):
                 break
 
-            # Read pointer (4 bytes little-endian)
+            # Read the pointer (4 bytes little-endian)
             ptr_value = int.from_bytes(data[ptr_addr:ptr_addr + 4], 'little')
 
-            # FFTA pointers include GBA base — subtract it
+            # FFTA pointers include the GBA base - subtract it
             string_offset = ptr_value - GBA_BASE if ptr_value >= GBA_BASE else ptr_value
 
-            # Validate: offset should be within ROM
+            # Check: the offset must be within the ROM
             if string_offset < 0 or string_offset >= len(data):
                 continue
 
-            # Find string length (up to next pointer or max 512 bytes)
+            # Find the string length (up to the next pointer or at most 512 bytes)
             next_ptr = tbl_offset + (i + 1) * 4
             if next_ptr + 4 <= len(data):
                 next_val_raw = int.from_bytes(data[next_ptr:next_ptr + 4], 'little')
@@ -503,7 +811,7 @@ class FFTAdvancePlugin(GamePlugin):
             # Decode the string
             text, bytes_consumed = _decode_ffta_text(data, string_offset, max_len)
 
-            # Filter out segments with only unknown byte markers
+            # Filter out segments that are only unknown-byte markers
             if not text or re.fullmatch(r'(\[[A-F0-9]{2}(_[A-F0-9]{2})?\])*', text):
                 continue
 
@@ -516,27 +824,27 @@ class FFTAdvancePlugin(GamePlugin):
                 'compression': None,
                 'charmap': CHARMAP_FFTA_MULTI,
                 'terminators': FFTA_TERMINATORS,
+                'pad_byte': 0x00,
             })
 
         return segments
 
-    def _read_crn_data(self, data: bytes) -> list[dict]:
-        """Read CRN (character name) data.
+    def _read_crn_data(self, data: bytes | bytearray) -> list[dict]:
+        """Read CRN data (character names).
 
-        CRN strings start at FFTA_CRN_OFFSET, each prefixed with 0x01.
+        CRN strings start at FFTA_CRN_OFFSET, each with a 0x01 prefix.
         """
+        data = bytes(data)
         segments: list[dict] = []
 
         offset = FFTA_CRN_OFFSET
+        name_counts: dict[str, int] = {}
         for idx in range(107):  # 107 CRN names
             if offset >= len(data):
                 break
 
-            # Each CRN string starts with 0x01 (single-byte mode marker)
-            if data[offset] == 0x01:
-                offset += 1
-
-            # Find end of string (0x00)
+            # A CRN string starts with 0x01 (single-byte mode marker);
+            # the prefix is NOT separated from the body - the decoder needs the whole segment
             str_start = offset
             while offset < len(data) and data[offset] != 0x00:
                 offset += 1
@@ -545,9 +853,16 @@ class FFTAdvancePlugin(GamePlugin):
             if str_len > 0:
                 text, bytes_consumed = _decode_ffta_text(data, str_start, str_len)
                 crn_name = FFTA_CRN_NAMES.get(idx, f'CRN_{idx:02X}')
+                # FFTA_CRN_NAMES has duplicate names (Chocobo, Dyce, etc.) -
+                # a suffix with a sequence number makes the segment names unique
+                # (required by TextInjector, which looks up segments by name)
+                base_name = f'CRN_{crn_name}'
+                name_counts[base_name] = name_counts.get(base_name, 0) + 1
+                if name_counts[base_name] > 1:
+                    base_name = f'{base_name}_{name_counts[base_name]}'
 
                 segments.append({
-                    'name': f'CRN_{crn_name}',
+                    'name': base_name,
                     'start': str_start,
                     'end': str_start + bytes_consumed,
                     'text': text,
@@ -555,18 +870,19 @@ class FFTAdvancePlugin(GamePlugin):
                     'compression': None,
                     'charmap': CHARMAP_FFTA_MULTI,
                     'terminators': FFTA_TERMINATORS,
+                    'pad_byte': 0x00,
                 })
 
-            offset += 1  # Skip 0x00 terminator
+            offset += 1  # Skip the 0x00 terminator
 
         return segments
 
     def get_terminators(self, segment_name: str) -> list[int]:
-        """Байт-терминаторы для FFTA"""
+        """Byte terminators for FFTA"""
         return FFTA_TERMINATORS
 
     def get_compression_handler(self, segment_name: str):
-        """FFTA LZSS compression handler"""
+        """FFTA compression handler (LZSS)"""
         if 'lzss' in segment_name.lower():
             return self._lzss
         return None

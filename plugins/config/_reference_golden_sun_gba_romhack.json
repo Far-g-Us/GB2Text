@@ -1,0 +1,30 @@
+{
+  "game_id_pattern": "^GBA_AGSE$",
+  "rom_signature": [
+    {
+      "title_pattern": "^Golden_Sun",
+      "min_size": 8388608,
+      "max_size": 33554432
+    }
+  ],
+  "segments": [
+    {
+      "name": "gs_huffman_trees",
+      "start": "0x37464",
+      "end": "0x38334",
+      "charmap": {
+        "0x20-0x7E": "ASCII printable"
+      }
+    },
+    {
+      "name": "gs_string_ptr_table",
+      "start": "0x736B8",
+      "end": "0x73808",
+      "charmap": {
+        "0x20-0x7E": "ASCII printable"
+      }
+    }
+  ],
+  "description": "REFERENCE (rom_signature + segments) for Golden Sun GBA (AGSE, GS1 ONLY). Contextual Huffman compression recovered via goldensun-decomp. JSON cannot express Huffman, so this config DOCUMENTS the real fixed-range areas from gba_golden_sun.py (GS1): contextual Huffman section 0x37464-0x38334 (256 trees + offset table) and the string-file pointer table 0x736B8-0x73808 (42 files x 8 bytes). Full extraction (decompressed dialog strings) requires the Python plugin GoldenSunPlugin (gba_golden_sun.py) - the JSON config is NOT usable for extraction as-is. Golden Sun: The Lost Age (AGFE) uses different addresses - use gba_golden_sun_tla.py for it. Hack authors: copy and adapt title_pattern to match YOUR hack ROM title.",
+  "_user_created": true
+}

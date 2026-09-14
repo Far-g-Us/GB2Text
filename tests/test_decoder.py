@@ -9,7 +9,7 @@ import pytest
 # Добавляем корень проекта в путь
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.decoder import CharMapDecoder
+from core.decoder import DEFAULT_VERBOSE_UNKNOWN, CharMapDecoder
 
 
 class TestDecoder:
@@ -81,6 +81,53 @@ class TestDecoder:
         data = b'ABC'
         result = decoder.decode(data, 0, len(data))
         assert result == ''  # Все символы неизвестны
+
+    def test_verbose_unknown_marks_unknown_bytes(self):
+        """Тест показа неизвестных байтов как {{XX}}"""
+        charmap = {
+            0x41: 'A',
+        }
+        decoder = CharMapDecoder(charmap, verbose_unknown=True)
+
+        data = b'\x41\x4F'
+        result = decoder.decode(data, 0, len(data))
+        assert result == 'A{{4F}}'
+
+    def test_verbose_unknown_off_by_default(self):
+        """Тест: по умолчанию неизвестные байты заменяются похожими символами"""
+        charmap = {
+            0x41: 'A',
+        }
+        decoder = CharMapDecoder(charmap)
+
+        data = b'\x42'  # 'B' неизвестен
+        result = decoder.decode(data, 0, len(data))
+        assert '{{42}}' not in result
+
+    def test_default_verbose_unknown_module_flag(self):
+        """Тест: module-level флаг применяется к новым декодерам"""
+        old = DEFAULT_VERBOSE_UNKNOWN
+        try:
+            import core.decoder as decoder_module
+            decoder_module.DEFAULT_VERBOSE_UNKNOWN = True
+            decoder = CharMapDecoder({0x41: 'A'})
+            assert decoder.verbose_unknown is True
+            result = decoder.decode(b'\x01', 0, 1)
+            assert result == '{{01}}'
+        finally:
+            decoder_module.DEFAULT_VERBOSE_UNKNOWN = old
+        assert CharMapDecoder({0x41: 'A'}).verbose_unknown is False
+
+    def test_explicit_verbose_overrides_module_flag(self):
+        """Тест: явный параметр перекрывает module-level флаг"""
+        old = DEFAULT_VERBOSE_UNKNOWN
+        try:
+            import core.decoder as decoder_module
+            decoder_module.DEFAULT_VERBOSE_UNKNOWN = True
+            decoder = CharMapDecoder({0x41: 'A'}, verbose_unknown=False)
+            assert decoder.verbose_unknown is False
+        finally:
+            decoder_module.DEFAULT_VERBOSE_UNKNOWN = old
 
 
 if __name__ == '__main__':

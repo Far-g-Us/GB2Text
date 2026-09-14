@@ -67,9 +67,9 @@ def _build_gb_rom(
             end = min(offset + len(text_bytes), size)
             data[offset:end] = text_bytes[:end - offset]
 
-    # Header checksum
+    # Header checksum (канонический: 0x134-0x14C, с title)
     checksum = 0
-    for addr in range(0x0144, 0x014D):
+    for addr in range(0x0134, 0x014D):
         checksum = (checksum - data[addr] - 1) & 0xFF
     data[0x14D] = checksum
 
@@ -114,7 +114,7 @@ def _mock_plugin_manager(plugin):
     """Создаёт PluginManager, который всегда возвращает нужный плагин."""
 
     class _PM:
-        def get_plugin(self, game_id, system=None, cancellation_token=None):
+        def get_plugin(self, game_id, system=None, cancellation_token=None, rom=None):
             return plugin
 
     return _PM()
@@ -209,7 +209,7 @@ class TestChecksumPreservation:
     """Глобальный и header checksum должны быть валидны после inject."""
 
     def test_header_checksum_valid_after_inject(self):
-        """validate_header() должен вернуть True после inject."""
+        """validate_header() должен вернуть True после inject изменённого текста."""
         rom_data = _build_gb_rom({0x4000: b'ABC'})
         rom_path = _make_temp_rom(rom_data)
 
@@ -218,35 +218,73 @@ class TestChecksumPreservation:
             assert rom_before.validate_header(), "Header checksum невалиден ДО inject"
 
             injector = TextInjector(rom_path)
-            injector.inject_segment('main_text', ['ABC'], _simple_plugin())
+            # Вставляем ДРУГОЙ текст — байты сегмента реально меняются
+            ok = injector.inject_segment('main_text', ['ZZ'], _simple_plugin())
+            assert ok
             output_path = rom_path + ".out.gbc"
             injector.save(output_path)
 
             rom_after = GameBoyROM(output_path)
             assert rom_after.validate_header(), "Header checksum невалиден ПОСЛЕ inject"
+            assert b'ZZ' in rom_after.data[0x4000:0x4010]
         finally:
             for p in (rom_path, output_path):
                 if os.path.exists(p):
                     os.unlink(p)
 
     def test_global_checksum_matches_after_inject(self):
-        """calculate_checksum() должен совпадать с хранимым значением."""
+        """calculate_global_checksum() должен совпадать с хранимым после inject."""
         rom_data = _build_gb_rom({0x4000: b'XYZ'})
         rom_path = _make_temp_rom(rom_data)
 
         try:
             injector = TextInjector(rom_path)
-            injector.inject_segment('main_text', ['XYZ'], _simple_plugin())
+            # Вставляем текст, который РЕАЛЬНО меняет байты сегмента
+            ok = injector.inject_segment('main_text', ['AB'], _simple_plugin())
+            assert ok
             output_path = rom_path + ".out.gbc"
             injector.save(output_path)
 
             rom_after = GameBoyROM(output_path)
-            calculated = rom_after.calculate_checksum()
+            calculated = rom_after.calculate_global_checksum()
             stored = (rom_after.data[0x14E] << 8) | rom_after.data[0x14F]
             assert calculated == stored, (
                 f"Global checksum mismatch: calculated=0x{calculated:04X}, "
                 f"stored=0x{stored:04X}"
             )
+            # Проверяем, что это не ложный тест: сегмент действительно изменился
+            segment_bytes = bytes(rom_after.data[0x4000:0x4010])
+            assert b'AB' in segment_bytes and b'XYZ' not in segment_bytes
+        finally:
+            for p in (rom_path, output_path):
+                if os.path.exists(p):
+                    os.unlink(p)
+
+    def test_global_checksum_differs_from_original_after_change(self):
+        """После изменения байтов global checksum обязан пересчитаться.
+
+        Без пересчёта in-place инъекция оставила бы устаревшее значение,
+        и calculated != stored — тест ловит именно эту регрессию.
+        """
+        rom_data = _build_gb_rom({0x4000: b'ABCD'})
+        rom_path = _make_temp_rom(rom_data)
+        rom_before = GameBoyROM(rom_path)
+        original_stored = (rom_before.data[0x14E] << 8) | rom_before.data[0x14F]
+
+        try:
+            injector = TextInjector(rom_path)
+            ok = injector.inject_segment('main_text', ['AB'], _simple_plugin())
+            assert ok
+            output_path = rom_path + ".out.gbc"
+            injector.save(output_path)
+
+            rom_after = GameBoyROM(output_path)
+            new_stored = (rom_after.data[0x14E] << 8) | rom_after.data[0x14F]
+            assert new_stored != original_stored, (
+                "Global checksum не изменился после замены текста — пересчёт не работает"
+            )
+            calculated = rom_after.calculate_global_checksum()
+            assert calculated == new_stored
         finally:
             for p in (rom_path, output_path):
                 if os.path.exists(p):
@@ -531,7 +569,7 @@ def _build_gba_rom(text_segments: dict[int, bytes] | None = None, size: int = 0x
     """Строит минимальный валидный GBA ROM (32-bit header)."""
     data = bytearray(size)
 
-    # GBA заголовок: заглушка (0xC0-0xBF =ilibrium check, 0xA0-0xAB = game title)
+    # GBA заголовок: 0xA0-0xAB = game title, 0x0BD = complement check
     # Nintendo logo в GBA начинается с 0x04
     data[0] = 0x2E  # байт входа (ARM branch)
     data[1] = 0x00
@@ -542,16 +580,14 @@ def _build_gba_rom(text_segments: dict[int, bytes] | None = None, size: int = 0x
     title = b'TESTROM'
     data[0xA0:0xA0 + len(title)] = title
 
-    # GBA header checksum at 0xBD
-    checksum = 0
-    for addr in range(0xA0, 0xBD):
-        checksum = (checksum - data[addr]) & 0xFF
-    data[0xBD] = checksum
-
     if text_segments:
         for offset, text_bytes in text_segments.items():
             end = min(offset + len(text_bytes), size)
             data[offset:end] = text_bytes[:end - offset]
+
+    # GBA header checksum at 0xBD: (0 - sum(0xA0..0xBC) - 0x19) & 0xFF
+    # Считается ПОСЛЕ записи сегментов, чтобы не зависеть от их содержимого.
+    data[0xBD] = (0 - sum(data[0xA0:0xBD]) - 0x19) & 0xFF
 
     return bytes(data)
 
@@ -612,7 +648,7 @@ class TestGBARoundtrip:
                     os.unlink(p)
 
     def test_gba_checksum_valid_after_inject(self):
-        """GBA ROM: header checksum валиден после inject."""
+        """GBA ROM: header checksum валиден до и после inject, complement пересчитан."""
         rom_data = _build_gba_rom({0x8000: b'ABC'})
         rom_path = _make_temp_rom(rom_data, suffix=".gba")
 
@@ -631,15 +667,18 @@ class TestGBARoundtrip:
                         'compression': None,
                     }]
 
+            rom_before = GameBoyROM(rom_path)
+            assert rom_before.validate_header(), "GBA header checksum невалиден ДО inject"
+
             injector = TextInjector(rom_path)
-            injector.inject_segment('gba_text', ['ABC'], _GBAPlugin())
+            ok = injector.inject_segment('gba_text', ['ZZZ'], _GBAPlugin())
+            assert ok
             output_path = rom_path + ".out.gba"
             injector.save(output_path)
 
-            # GBA checksum: простая валидация (не GB-style)
-            result = bytearray(open(output_path, 'rb').read())
-            # Проверяем что файл записался
-            assert len(result) == 0x10000
+            rom_after = GameBoyROM(output_path)
+            assert rom_after.validate_header(), "GBA header checksum невалиден ПОСЛЕ inject"
+            assert bytes(rom_after.data[0x8000:0x8003]) == b'ZZZ'
         finally:
             for p in (rom_path, output_path):
                 if os.path.exists(p):

@@ -21,6 +21,7 @@ GB Text Extraction Framework
 
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,11 @@ class GuideManager:
     """Менеджер пользовательских руководств"""
 
     def __init__(self, guides_dir: str = "guides"):
-        self.guides_dir = Path(guides_dir)
+        if getattr(sys, "frozen", False):
+            base = Path(sys.executable).parent
+        else:
+            base = Path(__file__).resolve().parent.parent
+        self.guides_dir = base / guides_dir
         self.guides_dir.mkdir(parents=True, exist_ok=True)
 
     def get_guide(self, game_id: str) -> dict[str, Any] | None:
@@ -40,7 +45,7 @@ class GuideManager:
         guide_path = self.guides_dir / f"{game_id}.json"
         if guide_path.exists():
             try:
-                with open(guide_path) as f:
+                with open(guide_path, encoding='utf-8') as f:
                     return json.load(f)
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"Ошибка чтения руководства для {game_id}: {e}")
@@ -80,24 +85,3 @@ class GuideManager:
                 "Совет 2: Еще один полезный совет"
             ]
         }
-
-    def rate_guide(self, game_id: str, rating: int) -> bool:
-        """Оценивает руководство (1-5)"""
-        if not 1 <= rating <= 5:
-            return False
-
-        rating_file = self.guides_dir / f"{game_id}.rating"
-        with open(rating_file, 'w') as f:
-            f.write(str(rating))
-        return True
-
-    def get_guide_rating(self, game_id: str) -> int | None:
-        """Получает оценку руководства"""
-        rating_file = self.guides_dir / f"{game_id}.rating"
-        if rating_file.exists():
-            try:
-                with open(rating_file) as f:
-                    return int(f.read().strip())
-            except (OSError, ValueError):
-                pass
-        return None

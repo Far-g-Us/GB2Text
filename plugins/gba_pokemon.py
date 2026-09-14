@@ -1,46 +1,48 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Pokémon Emerald/Ruby/Sapphire (GBA)
+Plugin for Pokémon Ruby/Sapphire/Emerald/FireRed/LeafGreen (GBA)
 
-Game codes: AXPE (Emerald USA), AXSE (Emerald Spain), BPEE (Emerald Europe)
-             AXRE (Ruby USA), AXRS (Ruby USA v1.1), AXRI (Ruby Italy)
-             AXVE (Sapphire USA), AXVS (Sapphire Spain), AXVI (Sapphire Italy)
+Game codes (USA/Europe): BPEE/BPEP (Emerald), AXVE/AXVP (Ruby),
+AXPE/AXPP (Sapphire), BPRE (FireRed), BPGE (LeafGreen).
+Japan-only game codes (BPEJ, AXVJ, AXPJ) are detected but stubbed:
+their text layout differs, extracting would produce garbage.
 
-Text encoding: Custom (0x00-0xFF maps to game-specific tile indices)
-Known facts:
-- Pokémon games use a custom text encoding with control codes
-- Pointer tables are located at known offsets in ROM banks
-- Text is terminated by specific byte sequences
+Text encoding: custom (0x00-0xFF maps to game-specific tile indices).
+Text in Gen3 is NOT compressed (LZ77 is used only for graphics).
+The name/move lists live in fixed-width slot tables:
+  text + 0xFF (EOS) + 0x00 padding to the slot width.
+Addresses verified by decoding real ROMs (Bulbasaur/Pound etc.).
 
 NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
+import re
 
-from core.gba_support import GBALZ77Handler
+from core.dialogue_manifest import entries_for_rom
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.pokemon_gba')
 
-# Pokémon GBA charmap (EXACT from Pret pokeemerald decomp)
+# ── Charmap (an exact copy from the Pret pokeemerald decomp) ─────────────────
 # Source: https://raw.githubusercontent.com/pret/pokeemerald/master/charmap.txt
 CHARMAP_POKEMON_GBA: dict[int, str] = {
     0x00: ' ', 0x01: 'À', 0x02: 'Á', 0x03: 'Â', 0x04: 'Ç', 0x05: 'È',
@@ -78,6 +80,15 @@ CHARMAP_POKEMON_GBA: dict[int, str] = {
     0xFA: '[SCROLL]', 0xFB: '[PARA]', 0xFE: '[LINE]', 0xFF: '[END]',
 }
 
+# FireRed/LeafGreen glyphs that differ from RSE (per the FRLG TBL docs):
+# - 0xB5/0xB6 are gender markers spelled |m| / |w| in Western releases,
+#   and some punctuation occupies different codes.
+CHARMAP_FIRERED: dict[int, str] = {
+    **CHARMAP_POKEMON_GBA,
+    0xB1: '«', 0xB2: '»', 0xB3: '<', 0xB4: "'",
+    0xB5: '|m|', 0xB6: '|w|', 0xB7: '$', 0xB9: '*',
+}
+
 # FC commands (0xFC prefix + subcommand)
 FC_COMMANDS: dict[int, str] = {
     0x00: 'NAME_END', 0x01: 'COLOR', 0x02: 'HIGHLIGHT',
@@ -92,7 +103,7 @@ FC_COMMANDS: dict[int, str] = {
     0x17: 'PAUSE_MUSIC', 0x18: 'RESUME_MUSIC',
 }
 
-# FD subcommands (string placeholders)
+# FD subcommands (string substitution templates)
 FD_SUBCOMMANDS: dict[int, str] = {
     0x00: 'B_BUFF1', 0x01: 'PLAYER', 0x02: 'STR_VAR_1',
     0x03: 'STR_VAR_2', 0x04: 'STR_VAR_3', 0x05: 'KUN',
@@ -118,7 +129,6 @@ F9_SYMBOLS: dict[int, str] = {
     0x0F: '⑥', 0x10: '⑦', 0x11: '⑧', 0x12: '⑨',
     0x13: '(', 0x14: ')',
     0x15: '⊙', 0x16: '△', 0x17: '✕',
-    # Emojis (F9 D0-FE)
     0xD0: '_', 0xD1: '|', 0xD2: '-', 0xD3: '~',
     0xD4: '(', 0xD5: ')', 0xD6: '⊂', 0xD7: '>',
     0xD8: '●', 0xD9: '●', 0xDA: '@', 0xDB: ';',
@@ -150,109 +160,185 @@ COLOR_CONSTANTS: dict[int, str] = {
     0x0D: 'DYNAMIC4', 0x0E: 'DYNAMIC5', 0x0F: 'DYNAMIC6',
 }
 
-# Known pointer table locations for Pokémon GBA games
-# These are addresses where pointer tables to text strings are located
-# Source: Public ROM hacking documentation (GBATEK, PokeCommunity)
-POKEMON_POINTER_TABLES = {
-    'emerald': [
-        # Main dialogue banks (approximate offsets)
-        (0x08000000 + 0x1C0000, 0x08000000 + 0x1E0000),  # Dialogue 1
-        (0x08000000 + 0x250000, 0x08000000 + 0x270000),  # Dialogue 2
-        (0x08000000 + 0x3D0000, 0x08000000 + 0x3F0000),  # Menu/UI text
-    ],
-    'ruby': [
-        (0x08000000 + 0x1A0000, 0x08000000 + 0x1C0000),
-        (0x08000000 + 0x230000, 0x08000000 + 0x250000),
-    ],
-    'sapphire': [
-        (0x08000000 + 0x1A0000, 0x08000000 + 0x1C0000),
-        (0x08000000 + 0x230000, 0x08000000 + 0x250000),
-    ],
-}
-
 # Text terminators for Pokémon GBA
-# 0xFF = [END] (main terminator)
-# 0x00 = space (NOT a terminator, but used as padding)
+# 0xFF = [END] (primary terminator)
+# 0x00 = space (NOT a terminator, used as padding inside a slot)
 POKEMON_TERMINATORS = [0xFF]
 
-# Control code prefixes that need special handling
-POKEMON_CONTROL_PREFIXES = [0xFD, 0xFC, 0xF7]
+# Токены управления для round-trip кодера (зеркалят вывод декодера).
+_POKE_TOKEN_RE = re.compile(
+    r'\[SCROLL\]|\[PARA\]|\[END\]|\[DYN\]'
+    r'|\[CHS:([0-9A-Fa-f]{2})_([0-9A-Fa-f]{2})_([0-9A-Fa-f]{2})\]'
+    r'|\[(FONT):([A-Z0-9_]+)\]'
+    r'|\[(COLOR|HIGHLIGHT|SHADOW):([A-Z0-9_]+)\]'
+    r'|\[BTN_([0-9A-Fa-f]{2})\]'
+    r'|\[SYM_([0-9A-Fa-f]{2})\]'
+    r'|\[(A|B|L|R|START|SELECT|↑|↓|←|→|↕|↔)\]'
+    r'|\[([A-Z0-9_]+)\]'
+    r'|\{([A-Z0-9_]+)\}'
+)
 
-# Game codes for detection
-# USA: BPEE (Emerald), AXRE (Ruby), AXVE (Sapphire)
-# Europe: BPEP (Emerald), AXRP (Ruby), AXVP (Sapphire)
-# Japan: BPEJ (Emerald), AXRJ (Ruby), AXVJ (Sapphire)
-POKEMON_GAME_CODES = {
-    'BPEE': 'emerald', 'BPEP': 'emerald', 'BPEJ': 'emerald',
-    'AXRE': 'ruby', 'AXRP': 'ruby', 'AXRJ': 'ruby',
-    'AXVE': 'sapphire', 'AXVP': 'sapphire', 'AXVJ': 'sapphire',
+# ── Game code → canonical version ───────────────────────────────────────────
+# USA & Europe share the same text layout; Japan does not.
+POKEMON_GAME_CODES: dict[str, str] = {
+    'BPEE': 'emerald', 'BPEP': 'emerald',
+    'AXVE': 'ruby', 'AXVP': 'ruby',
+    'AXPE': 'sapphire', 'AXPP': 'sapphire',
+    'BPRE': 'firered', 'BPGE': 'leafgreen',
+}
+POKEMON_STUB_CODES = {'BPEJ', 'AXVJ', 'AXPJ'}
+
+# ── Fixed-width name/move tables (verified against real ROMs) ───────────────
+# Slot layout: text + 0xFF (EOS) + 0x00 padding up to `width`.
+FIXED_TABLES: dict[str, list[dict]] = {
+    'emerald': [
+        {'name': 'names', 'addr': 0x3185C8, 'width': 11, 'count': 412},
+        {'name': 'attacks', 'addr': 0x31977C, 'width': 13, 'count': 355},
+        {'name': 'abilities', 'addr': 0x31B6DB, 'width': 13, 'count': 78},
+        {'name': 'types', 'addr': 0x31AE38, 'width': 7, 'count': 18},
+    ],
+    'ruby': [
+        {'name': 'names', 'addr': 0x1F716C, 'width': 11, 'count': 412},
+        {'name': 'attacks', 'addr': 0x1F8320, 'width': 13, 'count': 355},
+        {'name': 'abilities', 'addr': 0x1FA248, 'width': 13, 'count': 78},
+        {'name': 'types', 'addr': 0x1F9870, 'width': 7, 'count': 18},
+    ],
+    'sapphire': [
+        {'name': 'names', 'addr': 0x1F70FC, 'width': 11, 'count': 412},
+        {'name': 'attacks', 'addr': 0x1F82B0, 'width': 13, 'count': 355},
+        {'name': 'abilities', 'addr': 0x1FA1D8, 'width': 13, 'count': 78},
+        {'name': 'types', 'addr': 0x1F9800, 'width': 7, 'count': 18},
+    ],
+    'firered': [
+        {'name': 'names', 'addr': 0x245EE0, 'width': 11, 'count': 412},
+        {'name': 'attacks', 'addr': 0x247094, 'width': 13, 'count': 355},
+        {'name': 'abilities', 'addr': 0x24FC40, 'width': 13, 'count': 78},
+        {'name': 'types', 'addr': 0x24F1A0, 'width': 7, 'count': 18},
+    ],
+    'leafgreen': [
+        {'name': 'names', 'addr': 0x245EBC, 'width': 11, 'count': 412},
+        {'name': 'attacks', 'addr': 0x247070, 'width': 13, 'count': 355},
+        {'name': 'abilities', 'addr': 0x24FC1C, 'width': 13, 'count': 78},
+        {'name': 'types', 'addr': 0x24F17C, 'width': 7, 'count': 18},
+    ],
 }
 
 
 class PokemonTextDecoder:
-    """Декодер текста Pokemon, совместимый с интерфейсом экстрактора"""
+    """Pokemon text decoder compatible with the extractor interface (stream mode)."""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
 
     def decode(self, data: bytes, start: int, length: int) -> str:
-        """Декодирование данных с использованием charmap Pokemon"""
         return _decode_pokemon_text_static(data[start:start + length], self.charmap)
+
+    def encode(self, text: str) -> bytes:
+        return _encode_pokemon_text(text, self.charmap)
+
+
+class PokemonFixedTextDecoder:
+    """Decoder for fixed-width slot text (names, moves, abilities, types).
+
+    One slot = one record of `width` bytes. The record stops at the first
+    0xFF (EOS); 0x00 inside is a space, NOT a terminator. Blank slots
+    (all '?' padding) are skipped by the extractor, not by this decoder.
+    """
+
+    def __init__(self, charmap: dict[int, str]):
+        self.charmap = charmap
+        self.logger = logging.getLogger('gb2text.plugins.pokemon_gba.fixed')
+        self._reverse: dict[str, int] = {}
+        for byte, char in charmap.items():
+            if byte == 0xFF:
+                continue
+            if len(char) >= 1 and char not in self._reverse:
+                self._reverse[char] = byte
+        self._tokens = sorted(self._reverse, key=len, reverse=True)
+
+    def decode(self, data: bytes, start: int, length: int) -> str:
+        result: list[str] = []
+        end = min(start + length, len(data))
+        i = start
+        while i < end:
+            byte = data[i]
+            if byte == 0xFF:
+                break
+            char = self.charmap.get(byte)
+            if char is not None:
+                result.append(char)
+            else:
+                result.append(f'[{byte:02X}]')
+            i += 1
+        return ''.join(result)
+
+    def encode(self, text: str) -> bytes:
+        result: list[int] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            matched = False
+            for token in self._tokens:
+                if text.startswith(token, i):
+                    result.append(self._reverse[token])
+                    i += len(token)
+                    matched = True
+                    break
+            if matched:
+                continue
+            byte = self._reverse.get(text[i])
+            if byte is None:
+                upper = self._reverse.get(text[i].upper())
+                if upper is not None:
+                    byte = upper
+            if byte is None:
+                byte = self._reverse.get(' ', 0x00)
+                self.logger.warning(
+                    f"Символ '{text[i]}' не найден в таблице, заменён пробелом")
+            result.append(byte)
+            i += 1
+        return bytes(result)
 
 
 def _decode_pokemon_text_static(data: bytes, charmap: dict[int, str]) -> str:
-    """Decode Pokemon GBA text using the exact Pret pokeemerald charmap"""
+    """Decode Pokemon GBA text using the exact charmap from Pret pokeemerald."""
     result: list[str] = []
     i = 0
     while i < len(data):
         byte = data[i]
 
-        # FE = new line
         if byte == 0xFE:
             result.append('\n')
             i += 1
             continue
-
-        # FF = end of string
         if byte == 0xFF:
             break
-
-        # FA = scroll up window text
         if byte == 0xFA:
-            result.append('\n')
+            result.append('[SCROLL]')
             i += 1
             continue
-
-        # FB = new paragraph
         if byte == 0xFB:
-            result.append('\n\n')
+            result.append('[PARA]')
             i += 1
             continue
-
-        # F8 = button indicator (2 bytes: F8 XX)
         if byte == 0xF8:
             if i + 1 < len(data):
-                btn = data[i + 1]
-                btn_name = F8_BUTTONS.get(btn, f'BTN_{btn:02X}')
+                sym = data[i + 1]
+                btn_name = F8_BUTTONS.get(sym, f'BTN_{sym:02X}')
                 if btn_name:
                     result.append(f'[{btn_name}]')
                 i += 2
             else:
                 i += 1
             continue
-
-        # F9 = symbol (2 bytes: F9 XX)
         if byte == 0xF9:
             if i + 1 < len(data):
                 sym = data[i + 1]
-                sym_char = F9_SYMBOLS.get(sym, f'[SYM_{sym:02X}]')
-                result.append(sym_char)
+                result.append(F9_SYMBOLS.get(sym, f'[SYM_{sym:02X}]'))
                 i += 2
             else:
                 i += 1
             continue
-
-        # FD = string placeholder (2 bytes: FD XX)
         if byte == 0xFD:
             if i + 1 < len(data):
                 subcmd = data[i + 1]
@@ -262,31 +348,22 @@ def _decode_pokemon_text_static(data: bytes, charmap: dict[int, str]) -> str:
             else:
                 i += 1
             continue
-
-        # FC = command prefix (variable length)
         if byte == 0xFC:
             if i + 1 < len(data):
                 subcmd = data[i + 1]
                 cmd_name = FC_COMMANDS.get(subcmd, f'FC_{subcmd:02X}')
-
-                # FC 06 (FONT) takes an extra byte
                 if subcmd == 0x06 and i + 2 < len(data):
                     font_id = data[i + 2]
-                    font_name = FONT_CONSTANTS.get(font_id, f'FONT_{font_id:02X}')
-                    result.append(f'[{font_name}]')
+                    result.append(
+                        f'[FONT:{FONT_CONSTANTS.get(font_id, f"FONT_{font_id:02X}")}]')
                     i += 3
-                # FC 01/02/03 (COLOR/HIGHLIGHT/SHADOW) take an extra byte
                 elif subcmd in (0x01, 0x02, 0x03) and i + 2 < len(data):
                     color_id = data[i + 2]
-                    color_name = COLOR_CONSTANTS.get(color_id, f'COLOR_{color_id:02X}')
-                    result.append(f'[{cmd_name}:{color_name}]')
+                    result.append(
+                        f'[{cmd_name}:{COLOR_CONSTANTS.get(color_id, f"COLOR_{color_id:02X}")}]')
                     i += 3
-                # FC 04 (COLOR_HIGHLIGHT_SHADOW) takes 3 extra bytes
                 elif subcmd == 0x04 and i + 4 < len(data):
-                    c = data[i + 2]
-                    h = data[i + 3]
-                    s = data[i + 4]
-                    result.append(f'[CHS:{c:02X}_{h:02X}_{s:02X}]')
+                    result.append(f'[CHS:{data[i+2]:02X}_{data[i+3]:02X}_{data[i+4]:02X}]')
                     i += 5
                 else:
                     result.append(f'[{cmd_name}]')
@@ -294,350 +371,226 @@ def _decode_pokemon_text_static(data: bytes, charmap: dict[int, str]) -> str:
             else:
                 i += 1
             continue
-
-        # F7 = dynamic character
         if byte == 0xF7:
             result.append('[DYN]')
             i += 1
             continue
 
-        # Regular character from charmap
-        if byte in charmap:
-            char = charmap[byte]
-            # Skip special markers that shouldn't appear in output
-            if char not in ('SUPER_ER', 'UNK_SPACER', 'PK', 'MN', 'LV'):
+        char = charmap.get(byte)
+        if char is not None:
+            if char not in ('SUPER_ER', 'UNK_SPACER'):
                 result.append(char)
             i += 1
             continue
 
-        # Unknown byte - show as hex
         result.append(f'[{byte:02X}]')
         i += 1
 
     return ''.join(result)
 
 
+def _build_f9_glyphs(charmap: dict[int, str]) -> list[tuple[str, int]]:
+    """Много-байтные F9-глифы, недостижимые через charmap (longest-first)."""
+    charmap_rev = {v for v in charmap.values() if len(v) == 1}
+    glyphs: dict[str, int] = {}
+    for code, val in F9_SYMBOLS.items():
+        if not val:
+            continue
+        if len(val) == 1 and val in charmap_rev:
+            continue
+        if all(ch in charmap_rev for ch in val):
+            continue
+        glyphs.setdefault(val, code)
+    return sorted(glyphs.items(), key=lambda kv: len(kv[0]), reverse=True)
+
+
+def _encode_pokemon_text(text: str, charmap: dict[int, str]) -> bytes:
+    """Encode a Pokemon string back to raw bytes (round-trip compatible).
+
+    Грамматика токенов строго соответствует выводу _decode_pokemon_text_static:
+    [SCROLL]/[PARA]/[END]/[DYN], [CHS:a_b_c], [FONT:X]/[COLOR:X]/
+    [HIGHLIGHT:X]/[SHADOW:X], [BTN_XX]/[SYM_XX], [A]..[↔], [cmd_name],
+    {PLAYER}/{VAR_XX}. Простые символы — через charmap.
+    """
+    reverse = {v: k for k, v in charmap.items() if len(v) == 1}
+    multi_tokens = sorted(
+        ((v, k) for k, v in charmap.items()
+         if len(v) >= 2 and not v.startswith('[') and not v.startswith('{')),
+        key=lambda kv: len(kv[0]), reverse=True)
+    f9_glyphs = _build_f9_glyphs(charmap)
+    fc_rev: dict[str, int] = {}
+    for code, name in FC_COMMANDS.items():
+        fc_rev.setdefault(name, code)
+    fd_rev = {name: code for code, name in FD_SUBCOMMANDS.items()}
+    f8_rev = {name: code for code, name in F8_BUTTONS.items() if name}
+    font_rev = {name: code for code, name in FONT_CONSTANTS.items()}
+    color_rev = {name: code for code, name in COLOR_CONSTANTS.items()}
+
+    def _hex_named(name: str, prefix: str) -> int | None:
+        if name.startswith(prefix + '_') and len(name) == len(prefix) + 3:
+            try:
+                return int(name[len(prefix) + 1:], 16)
+            except ValueError:
+                return None
+        return None
+
+    def _token_bytes(m: re.Match) -> list[int]:
+        fixed = {'[SCROLL]': 0xFA, '[PARA]': 0xFB, '[END]': 0xFF, '[DYN]': 0xF7}
+        if m.group(0) in fixed:
+            return [fixed[m.group(0)]]
+        if m.group(1) is not None:
+            return [0xFC, 0x04,
+                    int(m.group(1), 16), int(m.group(2), 16), int(m.group(3), 16)]
+        if m.group(4) is not None:
+            font = font_rev.get(m.group(5)) or _hex_named(m.group(5), 'FONT')
+            if font is None:
+                font = 0x01
+                logger.warning(f'Неизвестный шрифт {m.group(5)!r}, использован NORMAL')
+            return [0xFC, 0x06, font]
+        if m.group(6) is not None:
+            sub = {'COLOR': 0x01, 'HIGHLIGHT': 0x02, 'SHADOW': 0x03}[m.group(6)]
+            color = color_rev.get(m.group(7)) or _hex_named(m.group(7), 'COLOR')
+            if color is None:
+                color = 0x00
+                logger.warning(f'Неизвестный цвет {m.group(7)!r}, использован TRANSPARENT')
+            return [0xFC, sub, color]
+        if m.group(8) is not None:
+            return [0xF8, int(m.group(8), 16)]
+        if m.group(9) is not None:
+            return [0xF9, int(m.group(9), 16)]
+        if m.group(10) is not None:
+            return [0xF8, f8_rev[m.group(10)]]
+        if m.group(11) is not None:
+            name = m.group(11)
+            code = fc_rev.get(name) or _hex_named(name, 'FC')
+            if code is None:
+                logger.warning(f'Неизвестная FC-команда {name!r}, пропущена')
+                return []
+            return [0xFC, code]
+        name = m.group(12)
+        code = fd_rev.get(name) or _hex_named(name, 'VAR')
+        if code is None:
+            logger.warning(f'Неизвестный FD-плейсхолдер {name!r}, пропущен')
+            return []
+        return [0xFD, code]
+
+    out: list[int] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        if text[i] == '\n':
+            out.append(0xFE)
+            i += 1
+            continue
+        m = _POKE_TOKEN_RE.match(text, i)
+        if m:
+            out.extend(_token_bytes(m))
+            i = m.end()
+            continue
+        for val, code in multi_tokens:
+            if text.startswith(val, i):
+                out.append(code)
+                i += len(val)
+                break
+        else:
+            for val, code in f9_glyphs:
+                if text.startswith(val, i):
+                    out.extend((0xF9, code))
+                    i += len(val)
+                    break
+            else:
+                ch = text[i]
+                byte = reverse.get(ch)
+                if byte is None:
+                    byte = reverse.get(ch.upper(), 0x00)
+                    if byte == 0x00 and ch != ' ':
+                        logger.warning(
+                            f"Символ {ch!r} не найден в таблице, заменён пробелом")
+                out.append(byte)
+                i += 1
+    return bytes(out)
+
+
 class PokemonGBAPlugin(GamePlugin):
-    """Плагин для Pokémon GBA игр (Emerald/Ruby/Sapphire)"""
+    """Plugin for Pokémon GBA games (Emerald/Ruby/Sapphire/FireRed/LeafGreen)."""
 
     def __init__(self):
         super().__init__()
-        self._lz77_handler = GBALZ77Handler()
         self._decoder = PokemonTextDecoder(CHARMAP_POKEMON_GBA)
+        self._game_code = ''
 
     @property
     def game_id_pattern(self) -> str:
-        # Match specific Pokémon game codes
-        codes = '|'.join(POKEMON_GAME_CODES.keys())
-        return f'^GBA_({codes})$'
+        code_re = '|'.join([*POKEMON_GAME_CODES, *POKEMON_STUB_CODES])
+        return f'^GBA_({code_re})$'
+
+    def _charmap_for(self, version: str) -> dict[int, str]:
+        return CHARMAP_FIRERED if version in ('firered', 'leafgreen') else CHARMAP_POKEMON_GBA
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Pokémon GBA"""
+        """Extract Pokémon GBA fixed-width tables and dialogue pool segments."""
         logger.info("Извлечение текстовых сегментов для Pokémon GBA")
 
-        # Определяем версию игры по game_code
         game_code = rom.header.get('game_code', '')
-        version = POKEMON_GAME_CODES.get(game_code, 'emerald')
+        self._game_code = game_code
+        self._is_stub = game_code in POKEMON_STUB_CODES
+        version = POKEMON_GAME_CODES.get(game_code, '')
 
-        segments = []
+        if self._is_stub or not version:
+            logger.info(
+                f"Pokemon {game_code}: структура текста не реализована "
+                f"или региональная версия не поддерживается, возвращаю пустой список"
+            )
+            return []
 
-        # Search for LZ77 compressed text blocks
-        segments.extend(self._find_lz77_text_blocks(rom, version))
-
-        # Also search for raw text blocks (uncompressed)
-        segments.extend(self._find_raw_text_blocks(rom, version))
-
-        logger.info(f"Total segments: {len(segments)}")
-        return segments
-
-    def _find_lz77_text_blocks(self, rom: GameBoyROM, version: str) -> list[dict]:
-        """Поиск LZ77-сжатых текстовых блоков и извлечение отдельных строк"""
         segments: list[dict] = []
+        charmap = self._charmap_for(version)
 
-        # Scan for LZ77 signatures in text banks
-        scan_ranges = [
-            (0x580000, 0x600000),  # Known text bank area
-            (0x1A0000, 0x270000),  # Additional text banks
-        ]
-
-        for range_start, range_end in scan_ranges:
-            if range_start >= len(rom.data):
+        for table in FIXED_TABLES.get(version, []):
+            addr = table['addr']
+            width = table['width']
+            count = table['count']
+            if addr + width * count > len(rom.data):
+                logger.warning(
+                    f"Таблица {table['name']} (0x{addr:X}) выходит за пределы ROM, пропущена")
                 continue
 
-            end = min(range_end, len(rom.data))
-            offset = range_start
+            segments.append({
+                'name': f'pokemon_{version}_{table["name"]}',
+                'start': addr,
+                'end': addr + width * count,
+                'decoder': PokemonFixedTextDecoder(charmap),
+                'compression': None,
+                'charmap': charmap,
+                'terminators': POKEMON_TERMINATORS,
+                'fixed_width': width,
+                'record_count': count,
+                'max_length': width - 1,
+                'pad_byte': 0xFF,
+            })
 
-            while offset < end - 4:
-                # Look for LZ77 signature (0x10)
-                if rom.data[offset] == 0x10:
-                    # Try to decompress
-                    result = self._decompress_lz77(rom.data, offset)
-                    if result is not None:
-                        decompressed, consumed = result
-                        if len(decompressed) >= 20:
-                            # Extract individual strings from decompressed block
-                            strings = self._extract_strings_from_block(decompressed)
-                            text_strings = [s for s in strings if len(s) >= 2]
+        manifest = entries_for_rom(rom)
+        if manifest:
+            last = manifest[-1]
+            segments.append({
+                'name': f'pokemon_{version}_dialogues',
+                'kind': 'pointer_dialogues',
+                'start': manifest[0]['target'],
+                'end': last['target'] + last['free_after'],
+                'decoder': PokemonTextDecoder(charmap),
+                'compression': None,
+                'charmap': charmap,
+                'terminators': POKEMON_TERMINATORS,
+                'manifest': manifest,
+            })
 
-                            for _str_idx, text in enumerate(text_strings):
-                                if self._is_likely_text(text):
-                                    seg_name = f'pokemon_{version}_str_{len(segments)}'
-                                    segments.append({
-                                        'name': seg_name,
-                                        'start': offset,
-                                        'end': offset + consumed,
-                                        'decoder': None,
-                                        'compression': None,
-                                        'charmap': CHARMAP_POKEMON_GBA,
-                                        'terminators': POKEMON_TERMINATORS,
-                                        'raw_text': text,
-                                    })
-
-                            if text_strings:
-                                valid = [s for s in text_strings if self._is_likely_text(s)]
-                                if valid:
-                                    logger.info(f"Found LZ77 block at 0x{offset:X}: {len(valid)} valid strings")
-                            offset += consumed
-                            continue
-                offset += 1
-
+        logger.info(f"Найдено {len(segments)} текстовых сегментов")
         return segments
-
-    def _find_raw_text_blocks(self, rom: GameBoyROM, version: str) -> list[dict]:
-        """Поиск несжатых текстовых блоков и извлечение отдельных строк"""
-        segments: list[dict] = []
-        min_text_length = 2
-
-        # Known raw text locations (from our investigation)
-        raw_text_locations = [
-            (0x599000, 0x59A000),  # Phrase book / common phrases
-            (0x5ED000, 0x5EF000),  # Menu/UI text
-            (0x280000, 0x2C0000),  # Dialogue bank (high text density)
-            (0x560000, 0x580000),  # Pokedex descriptions
-        ]
-
-        for start, end in raw_text_locations:
-            if start >= len(rom.data):
-                continue
-
-            end = min(end, len(rom.data))
-            block = rom.data[start:end]
-
-            # Extract individual strings from block
-            strings = self._extract_strings_from_block(block)
-            text_strings = [s for s in strings if len(s) >= min_text_length]
-
-            for _str_idx, text in enumerate(text_strings):
-                if self._is_likely_text(text):
-                    seg_name = f'pokemon_{version}_raw_{len(segments)}'
-                    segments.append({
-                        'name': seg_name,
-                        'start': start,
-                        'end': end,
-                        'decoder': None,
-                        'compression': None,
-                        'charmap': CHARMAP_POKEMON_GBA,
-                        'terminators': POKEMON_TERMINATORS,
-                        'raw_text': text,
-                    })
-
-            if text_strings:
-                valid = [s for s in text_strings if self._is_likely_text(s)]
-                if valid:
-                    logger.info(f"Found raw block at 0x{start:X}: {len(valid)} valid strings")
-
-        return segments
-
-    def _has_text_content(self, data: bytes | bytearray) -> bool:
-        """Проверка, содержит ли данные текст"""
-        if len(data) < 20:
-            return False
-
-        text_bytes = 0
-        total = min(len(data), 200)
-
-        for b in data[:total]:
-            # Count bytes that are likely text
-            if 0xBB <= b <= 0xEE:  # A-Z, a-z
-                text_bytes += 1
-            elif 0x01 <= b <= 0x28:  # Accented characters
-                text_bytes += 1
-            elif 0xAB <= b <= 0xBA:  # Numbers, punctuation
-                text_bytes += 1
-            elif b == 0x00:  # Space
-                text_bytes += 1
-            elif b == 0xFF:  # Terminator
-                text_bytes += 1
-            elif b in (0xFD, 0xFC, 0xF7, 0xF8, 0xF9):  # Control codes
-                text_bytes += 1
-            # Note: pointer bytes (0x08, 0x09) NOT counted
-
-        ratio = text_bytes / total
-        return ratio >= 0.5  # Higher threshold for text detection
-
-    def _decompress_lz77(self, rom_data: bytearray | bytes, offset: int) -> tuple[bytes, int] | None:
-        """Распаковка LZ77 блока по указанному адресу
-
-        Returns:
-            Tuple of (decompressed_data, consumed_bytes) or None on failure
-        """
-        try:
-            if offset >= len(rom_data):
-                return None
-            if rom_data[offset] != 0x10:
-                return None
-            decompressed, consumed = self._lz77_handler.decompress(rom_data, offset)
-            return decompressed, consumed
-        except Exception as e:
-            logger.debug(f"LZ77 decompression failed at 0x{offset:X}: {e}")
-            return None
-
-    def _extract_strings_from_block(self, data: bytes | bytearray) -> list[str]:
-        """Извлечение строк из блока данных, разделённых 0xFF терминаторами"""
-        strings: list[str] = []
-        current: list[str] = []
-        for b in data:
-            if b == 0xFF:
-                if current:
-                    s = ''.join(current)
-                    if len(s.strip()) >= 2:
-                        strings.append(s)
-                    current = []
-            elif b == 0x00:
-                current.append(' ')
-            elif 0xBB <= b <= 0xEE:
-                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
-            elif 0x01 <= b <= 0x28:
-                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
-            elif 0xAB <= b <= 0xBA:
-                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
-            elif 0xF1 <= b <= 0xF6:
-                current.append(CHARMAP_POKEMON_GBA.get(b, f'[{b:02X}]'))
-            elif b == 0xFD:
-                current.append('[STR]')
-            elif b == 0xFC:
-                current.append('[FC]')
-            elif b == 0xF7:
-                current.append('[DYN]')
-            elif b == 0xF8:
-                current.append('[BTN]')
-            elif b == 0xF9:
-                current.append('[SYM]')
-            else:
-                current.append(f'[{b:02X}]')
-        if current:
-            s = ''.join(current)
-            if len(s.strip()) >= 2:
-                strings.append(s)
-        return strings
-
-    def _is_likely_text(self, text: str) -> bool:
-        """Проверка, является ли строка вероятным текстом, а не мусором из указателей"""
-        if len(text.strip()) < 2:
-            return False
-
-        # Подсчёт символов, которые являются буквенными
-        alpha_count = sum(1 for c in text if c.isalpha())
-        # Подсчёт неизвестных байтов (в формате [XX])
-        unknown_count = text.count('[')
-
-        total = len(text)
-        if total == 0:
-            return False
-
-        # Текст должен содержать минимум 30% буквенных символов
-        alpha_ratio = alpha_count / total
-        # Не более 20% неизвестных байтов
-        unknown_ratio = unknown_count / total
-
-        return alpha_ratio >= 0.3 and unknown_ratio < 0.2
-
-    def _heuristic_scan(self, rom: GameBoyROM, version: str) -> list[dict]:
-        """Эвристический поиск текстовых блоков Pokemon"""
-        segments: list[dict] = []
-        block_size = 16
-
-        # Scan known dialogue banks for Pokemon GBA
-        scan_ranges = [
-            (0x1A0000, 0x270000),  # Dialogue banks
-            (0x3D0000, 0x3F0000),  # Menu/UI
-        ]
-
-        for range_start, range_end in scan_ranges:
-            if range_start >= len(rom.data):
-                continue
-
-            end = min(range_end, len(rom.data))
-            i = range_start
-
-            while i + block_size <= end:
-                if self._is_pokemon_text(rom.data, i, block_size):
-                    seg_end = min(i + 0x1000, end)
-                    segments.append({
-                        'name': f'pokemon_{version}_heuristic_{len(segments)}',
-                        'start': i,
-                        'end': seg_end,
-                        'decoder': self._decode_pokemon_text,
-                        'compression': None,
-                        'charmap': CHARMAP_POKEMON_GBA,
-                        'terminators': POKEMON_TERMINATORS,
-                    })
-                    i = seg_end
-                else:
-                    i += block_size
-
-        return segments
-
-    def _is_pokemon_text(self, data: bytes, offset: int, size: int) -> bool:
-        """Проверка, является ли блок данных текстом Pokemon"""
-        if offset + size > len(data):
-            return False
-
-        chunk = data[offset:offset + size]
-
-        # Count valid Pokemon text bytes
-        valid_count = 0
-        total = 0
-        has_terminator = False
-
-        for b in chunk:
-            total += 1
-            # Valid: space (0x00), accented (0x01-0x28), symbols, letters (0xBB-0xEE)
-            if b == 0x00:  # space
-                valid_count += 1
-            elif 0x01 <= b <= 0x28:  # accented characters
-                valid_count += 1
-            elif 0x2C <= b <= 0x36:  # symbols
-                valid_count += 1
-            elif 0x51 <= b <= 0x5D:  # more symbols
-                valid_count += 1
-            elif 0x68 <= b <= 0x7C:  # arrows, spacers
-                valid_count += 1
-            elif 0x84 <= b <= 0x86:  # superscripts
-                valid_count += 1
-            elif 0xA0 <= b <= 0xBA:  # numbers, punctuation
-                valid_count += 1
-            elif 0xBB <= b <= 0xEE:  # A-Z, a-z
-                valid_count += 1
-            elif 0xF1 <= b <= 0xF6:  # German umlauts
-                valid_count += 1
-            elif b == 0xFF:  # terminator
-                has_terminator = True
-                valid_count += 1
-            elif b in (0xFD, 0xFC, 0xF7):  # control codes
-                valid_count += 1
-
-        if total == 0:
-            return False
-
-        ratio = valid_count / total
-        # Need at least 50% valid bytes and preferably a terminator
-        return ratio >= 0.5 and (has_terminator or ratio >= 0.7)
 
     def get_terminators(self, segment_name: str) -> list[int]:
-        """Байт-терминаторы для Pokémon GBA"""
+        """Byte terminators for Pokémon GBA"""
         return POKEMON_TERMINATORS
 
     def get_compression_handler(self, segment_name: str):
-        """Pokémon GBA не использует сжатие для основного текста"""
+        """Pokémon GBA does not use compression for the main text"""
         return None

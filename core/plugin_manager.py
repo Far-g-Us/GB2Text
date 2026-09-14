@@ -20,6 +20,7 @@ GB Text Extraction Framework
 """
 
 import importlib
+import importlib.metadata as importlib_metadata
 import json
 import logging
 import os
@@ -36,6 +37,66 @@ from plugins.auto_detect import AutoDetectPlugin
 from plugins.generic import GenericGBAPlugin, GenericGBCPlugin, GenericGBPlugin
 
 logger = logging.getLogger('gb2text.plugin_manager')
+
+# Группа entry points для регистрации сторонних плагинов через setuptools:
+# [project.entry-points."gb2text.plugins"]
+# my_game_plugin = "my_package.plugins:MyGamePluginClass"
+ENTRY_POINT_GROUP = "gb2text.plugins"
+
+# Имя env-переменной для CSV-allowlist плагинов.
+ALLOWLIST_ENV = "GB2TEXT_PLUGIN_ALLOWLIST"
+# Файл allowlist рядом с настройками (dict {"plugins": [...]} или список).
+ALLOWLIST_FILE = Path("settings") / "plugin_allowlist.json"
+
+
+def resolve_plugin_allowlist(allowlist: set[str] | None = None) -> set[str] | None:
+    """Union allowlist из env, файла settings/plugin_allowlist.json и аргумента.
+
+    Имена — это module_name файла .py в plugins/ (без расширения), stem
+    конфиг-JSON (plugins/config/*.json) и name entry point'а группы
+    gb2text.plugins. AutoDetect создаётся напрямую и не гейтится; все модули
+    из plugins/ (включая generic.py) гейтятся, если allowlist задан.
+
+    Если ни один источник не задан — возвращает None: грузятся все плагины
+    (обратная совместимость). Пустой результат означает «не грузить ничего»,
+    но только когда источник был задан явно.
+    """
+    names: set[str] = set()
+    env_raw = os.environ.get(ALLOWLIST_ENV, "").strip()
+    if env_raw:
+        names.update(n.strip() for n in env_raw.split(",") if n.strip())
+        if not names:
+            logger.warning(
+                "GB2TEXT_PLUGIN_ALLOWLIST содержит только разделители — "
+                "ни один плагин не будет загружен"
+            )
+
+    have_file = False
+    try:
+        if ALLOWLIST_FILE.exists():
+            with open(ALLOWLIST_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            have_file = True
+            if isinstance(data, list):
+                names.update(n for n in data if isinstance(n, str) and n.strip())
+            elif isinstance(data, dict):
+                names.update(
+                    n for n in data.get("plugins", [])
+                    if isinstance(n, str) and n.strip()
+                )
+            else:
+                logger.warning(
+                    "plugin_allowlist.json: ожидался список или {'plugins': [...]}"
+                )
+    except (OSError, ValueError) as e:
+        logger.warning(f"Ошибка чтения plugin_allowlist.json: {e!s}")
+
+    if allowlist is not None:
+        names.update(allowlist)
+
+    if not names and not env_raw and not have_file and allowlist is None:
+        return None
+    return names
 
 
 class CancellationToken:
@@ -59,17 +120,16 @@ class CancellationToken:
 class PluginManager:
     """Менеджер динамической загрузки плагинов"""
 
-    def __init__(self, plugins_dir: str = "plugins"):
-        # Generic плагины (fallback) — проверяются ПОСЛЕ специфичных
-        self.generic_plugins = [
-            GenericGBPlugin(),
-            GenericGBCPlugin(),
-            GenericGBAPlugin(),
-        ]
+    def __init__(self, plugins_dir: str = "plugins", allowlist: set[str] | None = None):
+        # Generic плагины (fallback) — регистрируются при load_plugins() ниже
+        self.generic_plugins = []
         # Специфичные плагины — проверяются ПЕРВЫМИ
         self.specific_plugins = []
         # AutoDetect — последний fallback
         self.auto_detect = AutoDetectPlugin()
+        # Allowlist плагинов: None = грузим все, set = только перечисленные.
+        # Union из env GB2TEXT_PLUGIN_ALLOWLIST + settings/plugin_allowlist.json.
+        self.allowlist = resolve_plugin_allowlist(allowlist)
 
         self.plugins_dir = self._get_resource_path(plugins_dir)
         self.load_plugins()
@@ -111,18 +171,31 @@ class PluginManager:
         # Загружаем конфигурационные плагины
         self._load_config_plugins()
 
+        # Внешние плагины через entry_points — грузим ПОСЛЕДНИМИ,
+        # чтобы встроенные/локальные плагины выигрывали при равной специфичности.
+        self._load_entry_point_plugins()
+
     def _load_python_plugins(self) -> None:
-        """Загружает Python-плагины из директории"""
+        """Загружает Python-плагины из директории.
+
+        Плагины вне allowlist не импортируются вообще: код модуля не
+        исполняется, пока имя не явно одобрено (gate ДО import_module).
+        """
         plugins_module_path = self.plugins_dir
+        allowlist = self.allowlist
         if os.path.exists(plugins_module_path):
             try:
                 for _, module_name, _ in pkgutil.iter_modules([plugins_module_path]):
+                    if allowlist is not None and module_name not in allowlist:
+                        logger.debug("Плагин %s пропущен: не в allowlist", module_name)
+                        continue
                     try:
                         module = importlib.import_module(f"plugins.{module_name}")
                         for attribute_name in dir(module):
                             attribute = getattr(module, attribute_name)
                             if (
                                     isinstance(attribute, type) and
+                                    getattr(attribute, '__module__', None) == module.__name__ and
                                     issubclass(attribute, GamePlugin) and
                                     attribute != GamePlugin
                             ):
@@ -159,12 +232,15 @@ class PluginManager:
             # Пропускаем шаблоны и скрытые файлы
             if json_file.name.startswith('_') or json_file.name.startswith('.'):
                 continue
+            if self.allowlist is not None and json_file.stem not in self.allowlist:
+                logger.debug("Конфигурация %s пропущена: не в allowlist", json_file.name)
+                continue
             if loaded_configs >= max_configs:
                 logger.warning(f"Достигнуто максимальное количество конфигураций ({max_configs}). Остальные пропущены.")
                 break
 
             try:
-                with open(json_file) as f:
+                with open(json_file, encoding='utf-8') as f:
                     config = json.load(f)
 
                 # Проверяем структуру конфигурации
@@ -174,12 +250,31 @@ class PluginManager:
 
                 # Проверяем на дубликаты
                 is_duplicate = False
-                all_plugins = self.specific_plugins + self.generic_plugins
-                for plugin in all_plugins:
-                    if hasattr(plugin, 'game_id_pattern') and plugin.game_id_pattern == config.get('game_id_pattern', ''):
+                config_pattern = config.get('game_id_pattern', '')
+                has_signature = bool(config.get('rom_signature'))
+                same_pattern = [
+                    p for p in (self.specific_plugins + self.generic_plugins)
+                    if getattr(p, 'game_id_pattern', None) == config_pattern
+                ]
+                if has_signature:
+                    # Конфиг с сигнатурой — легитимный вариант этой же игры
+                    # (ROM-хак с тем же game_code). НЕ дубликат.
+                    if any(isinstance(p, ConfigurablePlugin) and p.config.get('rom_signature')
+                           for p in same_pattern):
+                        logger.warning(
+                            f"Конфигурация {json_file.name}: несколько плагинов с "
+                            f"game_id_pattern='{config_pattern}' — приоритет по порядку загрузки")
+                else:
+                    # Сигнатурные плагины (ROM-хаки) не считаются дубликатами
+                    # для обычного конфига той же игры — порядок загрузки не должен
+                    # решать, переживёт vanilla-конфиг или нет.
+                    is_duplicate = any(
+                        not (isinstance(p, ConfigurablePlugin)
+                             and p.config.get('rom_signature'))
+                        for p in same_pattern
+                    )
+                    if is_duplicate:
                         logger.info(f"Пропущен дубликат конфигурации: {json_file.name}")
-                        is_duplicate = True
-                        break
 
                 if not is_duplicate:
                     self.specific_plugins.append(ConfigurablePlugin(config))
@@ -190,12 +285,69 @@ class PluginManager:
 
         logger.info(f"Загружено {loaded_configs} конфигураций")
 
+    def _load_entry_point_plugins(self) -> int:
+        """Загружает плагины, зарегистрированные через setuptools entry_points.
+
+        Позволяет сторонним пакетам подключать плагины простой установкой в
+        окружение (pip install my-game-plugin), без копирования файлов в
+        plugins/. В exe-сборке PyInstaller entry_points недоступны — метод
+        корректно возвращает 0.
+
+        Returns:
+            Количество загруженных плагинов.
+        """
+        try:
+            eps = importlib_metadata.entry_points()
+        except Exception as e:
+            logger.warning(f"Не удалось получить entry_points: {e}")
+            return 0
+
+        if hasattr(eps, 'select'):
+            # Python < 3.12: EntryPoints.select(group=...)
+            group_eps = eps.select(group=ENTRY_POINT_GROUP)
+        else:
+            # Python >= 3.12: dict-like {group: EntryPoints}
+            try:
+                group_eps = eps.get(ENTRY_POINT_GROUP, ())
+            except AttributeError:
+                group_eps = ()
+
+        loaded = 0
+        for ep in group_eps:
+            if self.allowlist is not None and ep.name not in self.allowlist:
+                logger.debug("Entry point %s пропущен: не в allowlist", ep.name)
+                continue
+            try:
+                obj = ep.load()
+                cls = obj if isinstance(obj, type) else type(obj)
+                if issubclass(cls, GamePlugin):
+                    instance = cls() if isinstance(obj, type) else obj
+                    if self._is_generic_plugin(cls):
+                        self.generic_plugins.append(instance)
+                    else:
+                        self.specific_plugins.append(instance)
+                    logger.info(f"Загружен entry point плагин: {ep.name} -> {cls.__name__}")
+                    loaded += 1
+                else:
+                    logger.warning(f"Entry point {ep.name} не является GamePlugin, пропущен")
+            except Exception as e:
+                logger.error(f"Ошибка загрузки entry point плагина {ep.name}: {e}")
+
+        if loaded:
+            logger.info(f"Загружено {loaded} плагинов из entry points")
+        return loaded
+
     def _is_valid_config(self, config: dict) -> bool:
         """Проверяет, что конфигурация имеет правильную структуру"""
         if 'game_id_pattern' not in config:
             return False
 
-        segments = config.get('segments', [])
+        if not isinstance(config.get('segments'), list):
+            # Без segments плагин не сможет извлечь текст (KeyError в
+            # get_text_segments) — такой конфиг бесполезен.
+            return False
+
+        segments = config['segments']
         for seg in segments:
             if 'name' not in seg or 'start' not in seg or 'end' not in seg:
                 return False
@@ -212,6 +364,31 @@ class PluginManager:
 
             if not (start_valid and end_valid):
                 return False
+
+        # rom_signature: необязательное поле для хак-вариантов (ROM с тем же game_id)
+        signature = config.get('rom_signature')
+        if signature is not None:
+            entries = signature if isinstance(signature, list) else [signature]
+            if not entries or not all(isinstance(e, dict) for e in entries):
+                return False
+            known_fields = {'title_pattern', 'min_size', 'max_size'}
+            for entry in entries:
+                if not known_fields.intersection(entry):
+                    return False
+                if not set(entry).issubset(known_fields):
+                    return False
+                if 'title_pattern' in entry:
+                    try:
+                        re.compile(entry['title_pattern'])
+                    except (re.error, TypeError):
+                        return False
+                for field in ('min_size', 'max_size'):
+                    if field in entry and (not isinstance(entry[field], int)
+                                           or entry[field] < 0):
+                        return False
+                if ('min_size' in entry and 'max_size' in entry
+                        and entry['min_size'] > entry['max_size']):
+                    return False
 
         return True
 
@@ -253,7 +430,7 @@ class PluginManager:
                 }
             ]
         }
-        with open(path, 'w') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(example, f, indent=2)
 
     def _is_generic_charmap(self, charmap: dict) -> bool:
@@ -264,38 +441,85 @@ class PluginManager:
                 return False
         return True
 
+    @staticmethod
+    def _plugin_gate_level(plugin: GamePlugin) -> int:
+        """Специфичность плагина: 0 = без сигнатуры, 1 = с сигнатурой-гейтом.
+
+        Плагин «с гейтом» претендует только на ROM, реально подходящий под его
+        сигнатуру (validate_rom возвращает False для остальных). Такой плагин
+        выигрывает выбор у плагина без гейта при совпадении game_id_pattern —
+        это позволяет хак-варианту игры (тот же game_code) перебить ванильный.
+        """
+        if isinstance(plugin, ConfigurablePlugin):
+            return 1 if plugin.config.get('rom_signature') else 0
+        return 1 if type(plugin).validate_rom is not GamePlugin.validate_rom else 0
+
     def get_plugin(self, game_id: str, system: str | None = None,
-                   cancellation_token: CancellationToken | None = None) -> GamePlugin | None:
-        """Находит подходящий плагин для игры с поддержкой отмены"""
+                   cancellation_token: CancellationToken | None = None,
+                   rom: GameBoyROM | None = None) -> GamePlugin | None:
+        """Находит подходящий плагин для игры с поддержкой отмены.
+
+        rom is None — обратная совместимость: первый regex-match по game_id,
+        сигнатуры не применяются.
+        rom передан — кандидат должен совпасть по regex И (если у плагина есть
+        гейт) вернуть True из validate_rom(rom); из кандидатов выбирается
+        более специфичный (с гейтом), при равенстве — первый по порядку.
+        """
         logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
 
-        # 1. Сначала проверяем специфичные плагины (game-specific)
-        for plugin in self.specific_plugins:
+        all_plugins = self.specific_plugins + self.generic_plugins
+
+        if rom is None:
+            # Режим обратной совместимости: первый regex-match
+            for plugin in all_plugins:
+                if cancellation_token and cancellation_token.is_cancellation_requested():
+                    logger.info("Операция отменена пользователем")
+                    return None
+
+                try:
+                    if re.match(plugin.game_id_pattern, game_id):
+                        logger.info(f"Найден плагин: {plugin.__class__.__name__}")
+                        return plugin
+                except re.error as e:
+                    logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
+
+            logger.info("Используем AutoDetectPlugin по умолчанию")
+            return self.auto_detect
+
+        # Режим с ROM: селекция по (specificity, порядок загрузки)
+        best: GamePlugin | None = None
+        best_level = -1
+        for plugin in all_plugins:
             if cancellation_token and cancellation_token.is_cancellation_requested():
                 logger.info("Операция отменена пользователем")
                 return None
 
             try:
-                if re.match(plugin.game_id_pattern, game_id):
-                    logger.info(f"Найден специфичный плагин: {plugin.__class__.__name__}")
-                    return plugin
+                if not re.match(plugin.game_id_pattern, game_id):
+                    continue
             except re.error as e:
                 logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
+                continue
 
-        # 2. Потом проверяем generic плагины
-        for plugin in self.generic_plugins:
-            if cancellation_token and cancellation_token.is_cancellation_requested():
-                logger.info("Операция отменена пользователем")
-                return None
+            level = self._plugin_gate_level(plugin)
+            if level:
+                try:
+                    if not plugin.validate_rom(rom):
+                        logger.debug(f"Плагин {plugin.__class__.__name__} отклонил ROM по сигнатуре")
+                        continue
+                except Exception as e:
+                    logger.warning(f"Ошибка validate_rom плагина {plugin.__class__.__name__}: {e!s}")
+                    continue
 
-            try:
-                if re.match(plugin.game_id_pattern, game_id):
-                    logger.info(f"Найден generic плагин: {plugin.__class__.__name__}")
-                    return plugin
-            except re.error as e:
-                logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
+            if level > best_level:
+                best = plugin
+                best_level = level
 
-        # 3. Последний fallback — AutoDetect
+        if best is not None:
+            logger.info(f"Найден специфичный плагин: {best.__class__.__name__}")
+            return best
+
+        # Последний fallback — AutoDetect
         logger.info("Используем AutoDetectPlugin по умолчанию")
         return self.auto_detect
 
@@ -309,6 +533,87 @@ class ConfigurablePlugin(GamePlugin):
     @property
     def game_id_pattern(self) -> str:
         return self.config['game_id_pattern']
+
+    def validate_rom(self, rom: GameBoyROM) -> bool:
+        """Проверяет ROM по rom_signature конфигурации (если задана).
+
+        Без сигнатуры конфиг претендует на любой ROM с подходящим game_id —
+        поведение как раньше. С сигнатурой плагин становится «гейтом» и
+        принимает только ROM, подходящий хотя бы под одну сигнатуру из списка.
+        """
+        sig = self.config.get('rom_signature')
+        if not sig:
+            return True
+        entries = sig if isinstance(sig, list) else [sig]
+        for entry in entries:
+            if self._signature_matches(entry, rom):
+                return True
+        return False
+
+    @staticmethod
+    def _normalize_charmap(charmap: dict) -> dict[int, str]:
+        """Нормализует charmap из JSON-конфига в dict[int, str] для CharMapDecoder.
+
+        Ключи: '0x20' или диапазоны '0x41-0x5A' (либо уже int). Значения:
+        'A' (литерал), 'A-Z'/'0-9' (диапазоны символов), 'ASCII printable'
+        (байт → chr(byte)) или 'a,b' (явный список).
+        """
+        if charmap and all(isinstance(k, int) for k in charmap):
+            # Уже нормализованный (dict[int, str]); сохраняем как есть.
+            return dict(charmap)
+
+        expanded: dict[int, str] = {}
+        for key, value in charmap.items():
+            m = re.fullmatch(r'0x([0-9A-Fa-f]{1,2})(?:-0x([0-9A-Fa-f]{1,2}))?', str(key))
+            if not m:
+                raise ValueError(f"Некорректный ключ charmap: {key!r}")
+            start_b = int(m.group(1), 16)
+            end_b = int(m.group(2), 16) if m.group(2) else start_b
+            if end_b < start_b:
+                raise ValueError(f"Инвертированный диапазон charmap: {key!r}")
+
+            value_str = str(value)
+            if value_str == "ASCII printable":
+                chars = [chr(b) for b in range(start_b, end_b + 1)]
+            else:
+                vm = re.fullmatch(r'([ -~])-([ -~])', value_str)
+                if vm and ord(vm.group(2)) >= ord(vm.group(1)):
+                    chars = [chr(ord(vm.group(1)) + i)
+                             for i in range(ord(vm.group(2)) - ord(vm.group(1)) + 1)]
+                    if len(chars) != end_b - start_b + 1:
+                        raise ValueError(
+                            f"Длина значения {value_str!r} не совпадает с диапазоном {key!r}")
+                elif "," in value_str:
+                    chars = value_str.split(",")
+                    if len(chars) != end_b - start_b + 1:
+                        raise ValueError(
+                            f"Количество значений не совпадает с диапазоном {key!r}")
+                else:
+                    chars = [value_str] * (end_b - start_b + 1)
+
+            for byte, char in zip(range(start_b, end_b + 1), chars, strict=True):
+                expanded[byte] = char
+        return expanded
+
+    @staticmethod
+    def _signature_matches(entry: dict, rom: GameBoyROM) -> bool:
+        """Проверяет одну сигнатуру: AND всех заданных полей.
+
+        title_pattern матчится через re.match (префикс) — чтобы хак не
+        перехватывал чужие ROM, используй ЯВНЫЕ якоря, например
+        "^POKEMON HACK$".
+        """
+        if 'title_pattern' in entry:
+            try:
+                if not re.match(entry['title_pattern'], rom.header.get('title', '')):
+                    return False
+            except re.error:
+                return False
+        if 'min_size' in entry and len(rom.data) < entry['min_size']:
+            return False
+        if 'max_size' in entry and len(rom.data) > entry['max_size']:
+            return False
+        return True
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         logger.info("Определение текстовых сегментов...")
@@ -349,17 +654,18 @@ class ConfigurablePlugin(GamePlugin):
             if not charmap:
                 logger.info("Таблица символов не предоставлена, пытаемся загрузить из locales или определить автоматически")
                 # Пробуем загрузить из locales
-                lang = seg.get('language', 'en')
+                lang = seg.get('lang')
                 try:
                     from core.charset import load_charset
-                    charmap = load_charset(lang)
+                    charmap = load_charset(lang) if lang else {}
                     if charmap:
                         logger.info(f"Загружена таблица символов из locales/{lang}")
                 except (FileNotFoundError, ImportError):
                     # Fallback к автоопределению
                     try:
                         from core.scanner import auto_detect_charmap
-                        charmap = auto_detect_charmap(rom.data, start_addr)
+                        charmap = auto_detect_charmap(rom.data, start_addr,
+                                                      prefer_lang=lang)
                         logger.info(f"Автоопределена таблица символов с {len(charmap)} символами")
                         logger.debug(f"Таблица символов: {charmap}")
                     except Exception as e:
@@ -369,8 +675,14 @@ class ConfigurablePlugin(GamePlugin):
             decoder = None
             if charmap:
                 logger.info("Создание декодера с таблицей символов")
-                from core.decoder import CharMapDecoder
-                decoder = CharMapDecoder(charmap)
+                try:
+                    from core.decoder import CharMapDecoder
+                    decoder = CharMapDecoder(self._normalize_charmap(charmap))
+                except ValueError as e:
+                    logger.error(
+                        f"Некорректная таблица символов сегмента {seg['name']}: {e}"
+                    )
+                    decoder = None
 
             compression = None
             if seg.get('compression'):
@@ -399,10 +711,11 @@ class ConfigurablePlugin(GamePlugin):
 
         return segments
 
-def get_safe_plugin_manager(plugins_dir: str = "plugins") -> PluginManager:
+def get_safe_plugin_manager(plugins_dir: str = "plugins",
+                            allowlist: set[str] | None = None) -> PluginManager:
     """Безопасно создает менеджер плагинов с обработкой ошибок"""
     try:
-        return PluginManager(plugins_dir)
+        return PluginManager(plugins_dir, allowlist=allowlist)
     except Exception as e:
         logger.error(f"Ошибка создания менеджера плагинов: {e}")
         # Возвращаем базовый менеджер плагинов без дополнительных плагинов
@@ -414,4 +727,6 @@ def get_safe_plugin_manager(plugins_dir: str = "plugins") -> PluginManager:
             AutoDetectPlugin()
         ]
         manager.plugins_dir = plugins_dir
+        manager.auto_detect = AutoDetectPlugin()
+        manager.allowlist = resolve_plugin_allowlist(allowlist)
         return manager

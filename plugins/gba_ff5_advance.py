@@ -1,48 +1,61 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Final Fantasy V Advance (GBA)
+Plugin for Final Fantasy V Advance (GBA)
 
 Game codes: BZ5E (USA), BZ5J (Japan), BZ5P (Europe)
 
-Text pointer table at 0x36DD64, 24036 entries, relative offsets from 0x36DD54.
-Each entry's end is the start of the next entry (variable-length text).
-0x0D is end-of-string marker.
+Text pointer table at 0x36DD64, 24036 records, relative offsets from 0x36DD54.
+Each record ends where the next one begins (variable-length text).
+0x0D is the end-of-line marker.
 
 Source: https://www.ff6hacking.com/ff5wiki/index.php?title=FFVA_ROM_map
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
+import re
 
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.ff5_advance')
 
-# Text pointer table constants (from FF5 Hacking Wiki ROM map)
+_UNKNOWN_TOKEN_RE = re.compile(r'\[[0-9A-F]{2,6}\]')
+
+
+def _strip_unknown_tokens(text: str) -> str:
+    """Removes hex tokens of unknown bytes ('[B7]', '[C28E]', etc.)."""
+    return _UNKNOWN_TOKEN_RE.sub('', text)
+
+# Text pointer table constants (from the FF5 Hacking Wiki ROM map)
 FF5_TEXT_POINTER_TABLE = 0x36DD64
 FF5_TEXT_POINTER_BASE = 0x36DD54
 FF5_TEXT_POINTER_COUNT = 24036
 
-# FF5 Advance charmap — BZ5E (USA)
+# Maximum reasonable text record length (characters, not bytes of an oversized scan).
+# Giant segments (0x100000+ bytes) are pointers running into ROM graphics/padding
+# (areas 0x73XXXX-0x77XXXX etc.) where the 0x0D terminator is absent for hundreds of KiB.
+FF5_MAX_SEGMENT_LEN = 0x4000
+
+# FF5 Advance character table - BZ5E (USA)
 # Source: FF5 Hacking Wiki / DataCrystal
 CHARMAP_FF5: dict[int, str] = {
     # Single-byte (0x00-0x77)
@@ -62,7 +75,7 @@ CHARMAP_FF5: dict[int, str] = {
     0x50: ')', 0x51: '=', 0x52: '\u30FB', 0x53: '\u2025', 0x54: '\u3002',
     0x55: '\u30FC', 0x5B: '\u2191', 0x5C: '\u2192', 0x5D: '\u2193',
     0x5E: '\u2190', 0x6C: '\u266A',
-    # Multi-byte kanji — BZ5E (0xC2XX-0xD2XX)
+    # Multi-byte kanji - BZ5E (0xC2XX-0xD2XX)
     0xC280: '\u30D7', 0xC281: '\u3050', 0xC282: '\u3079', 0xC283: '\u30E5',
     0xC284: '\u3056', 0xC285: '\u9B54', 0xC286: '3', 0xC287: '\u69D8',
     0xC288: '\u30DD', 0xC289: '\u30AD', 0xC28A: '4', 0xC28B: '\u30A3',
@@ -350,10 +363,28 @@ FF5_GAME_CODES = ['BZ5E', 'BZ5J', 'BZ5P']
 
 
 class FF5TextDecoder:
-    """Decoder for FF5 Advance text with multi-byte control code support"""
+    """FF5 Advance text decoder with multi-byte control code support"""
+
+    _TOKEN_RE = re.compile(r'\[([0-9A-F]{2}(?:[0-9A-F]{2})*)\]|\[([A-Z_][A-Z0-9_]*)\]|(.)')
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
+        # Single-byte (keys < 0x100): priority - shorter mapping
+        self.rev_single: dict[str, int] = {}
+        # Multi-byte (keys >= 0x100): fallback for characters without a single-byte variant
+        self.rev_multi: dict[str, tuple[int, int]] = {}
+        for code, ch in charmap.items():
+            if code < 0x100:
+                if ch not in self.rev_single:
+                    self.rev_single[ch] = code
+            elif code not in FF5_CONTROL_CODES:
+                if ch not in self.rev_multi:
+                    self.rev_multi[ch] = (code >> 8, code & 0xFF)
+        # Control codes -> bytes (terminator 0x0D - single byte, the rest - 2 bytes)
+        # Keys without brackets '[PIC_BARTZ]' -> 'PIC_BARTZ' - matches the capture regex.
+        self.rev_control: dict[str, bytes] = {}
+        for code, name in FF5_CONTROL_CODES.items():
+            self.rev_control[name[1:-1]] = bytes([code]) if code < 0x100 else code.to_bytes(2, 'big')
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         result: list[str] = []
@@ -366,7 +397,7 @@ class FF5TextDecoder:
             if byte in FF5_TERMINATORS:
                 break
 
-            if 0xC2 <= byte <= 0xD2 and i + 1 < end:
+            if 0xC2 <= byte <= 0xD2 and i + 1 < end and data[i + 1] not in FF5_TERMINATORS:
                 second = data[i + 1]
                 code = (byte << 8) | second
                 if code in FF5_CONTROL_CODES:
@@ -386,9 +417,33 @@ class FF5TextDecoder:
 
         return ''.join(result)
 
+    def encode(self, text: str) -> bytes:
+        result = bytearray()
+        for match in self._TOKEN_RE.finditer(text):
+            hex_val, named, char = match.groups()
+            if hex_val is not None:
+                result.extend(bytes.fromhex(hex_val))
+            elif named is not None:
+                ctrl = self.rev_control.get(named)
+                if ctrl is not None:
+                    result.extend(ctrl)
+                else:
+                    raise ValueError(f"Unknown control token: [{named}]")
+            else:
+                single = self.rev_single.get(char)
+                if single is not None:
+                    result.append(single)
+                else:
+                    pair = self.rev_multi.get(char)
+                    if pair is not None:
+                        result.extend(pair)
+                    else:
+                        raise ValueError(f"Character not in charmap: {char!r}")
+        return bytes(result)
+
 
 class FF5AdvancePlugin(GamePlugin):
-    """Плагин для Final Fantasy V Advance (GBA)"""
+    """Plugin for Final Fantasy V Advance (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -403,14 +458,14 @@ class FF5AdvancePlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов FF5 Advance via pointer table"""
-        logger.info("Extracting text segments for Final Fantasy V Advance")
+        """Extract FF5 Advance text segments via the pointer table"""
+        logger.info("Извлечение текстовых сегментов для Final Fantasy V Advance")
 
         segments: list[dict] = []
 
         table_end = FF5_TEXT_POINTER_TABLE + FF5_TEXT_POINTER_COUNT * 4
         if table_end > len(rom.data):
-            logger.warning(f"Pointer table extends past ROM end ({len(rom.data):#x})")
+            logger.warning(f"Таблица указателей выходит за конец ROM ({len(rom.data):#x})")
             return segments
 
         for i in range(FF5_TEXT_POINTER_COUNT):
@@ -423,16 +478,32 @@ class FF5AdvancePlugin(GamePlugin):
 
             text_start = text_offset
             text_end = text_start
+            # Bound the terminator scan: pointers in the
+            # data/padding area can point to a 0x0D megabytes away,
+            # and without a limit each such segment would scan the rest of the ROM.
             while text_end < len(rom.data) and rom.data[text_end] not in FF5_TERMINATORS:
                 text_end += 1
+                if text_end - text_start >= FF5_MAX_SEGMENT_LEN:
+                    break
             text_end += 1
 
             text_len = text_end - text_start
-            if text_len < 2:
+            if text_len < 2 or text_len > FF5_MAX_SEGMENT_LEN:
                 continue
 
             decoded = self._decoder.decode(rom.data, text_start, text_len)
             if not decoded or all(c in ' \t\n' for c in decoded):
+                continue
+
+            # Junk tail segments: pointers run into data/padding areas,
+            # where the decoder produces long strings of [XX] tokens. Filter out records:
+            #   - with 2+ hex tokens (valid text contains at most one leading,
+            #     e.g. '[8E][PIC_GALUF]'; binary data yields dozens of tokens);
+            #   - where clean text is less than 30% of the length (lone tokens like '[56]').
+            clean_len = len(_strip_unknown_tokens(decoded))
+            if len(_UNKNOWN_TOKEN_RE.findall(decoded)) >= 2:
+                continue
+            if clean_len / len(decoded) < 0.3:
                 continue
 
             segments.append({
@@ -443,12 +514,13 @@ class FF5AdvancePlugin(GamePlugin):
                 'compression': None,
                 'charmap': CHARMAP_FF5,
                 'terminators': FF5_TERMINATORS,
+                'pad_byte': 0x00,
                 'original_text': decoded,
                 'pointer_offset': ptr_offset,
                 'pointer_value': raw,
             })
 
-        logger.info(f"Extracted {len(segments)} text entries from pointer table")
+        logger.info(f"Извлечено {len(segments)} текстовых записей из таблицы указателей")
         return segments
 
     def get_terminators(self, segment_name: str) -> list[int]:

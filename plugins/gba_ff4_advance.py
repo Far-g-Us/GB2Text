@@ -1,40 +1,48 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Final Fantasy IV Advance (GBA)
+Plugin for Final Fantasy IV Advance (GBA)
 
 Game codes: BZ4E (USA), BZ4J (Japan), BZ4P (Europe)
 
-Text encoding: Custom single-byte + multi-byte (Square Enix)
+Text encoding: custom single-byte + multi-byte (Square Enix)
 Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_IV_Advance/TBL
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
+import re
 
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.ff4_advance')
 
-# FF4 Advance charmap — BZ4E (USA)
+_UNKNOWN_TOKEN_RE = re.compile(r'\[[0-9A-F]{2,6}\]')
+
+
+def _strip_unknown_tokens(text: str) -> str:
+    """Removes hex tokens of unknown bytes ('[C280]', '[9A]', etc.)."""
+    return _UNKNOWN_TOKEN_RE.sub('', text)
+
+# FF4 Advance character table - BZ4E (USA)
 # Source: FF4 Hacking Wiki / DataCrystal TBL
 # Single-byte characters (0x00-0x7F)
 CHARMAP_FF4: dict[int, str] = {
@@ -57,7 +65,7 @@ CHARMAP_FF4: dict[int, str] = {
     0x74: '\u304B', 0x75: '\u304D', 0x76: '\u304F', 0x77: '\u3051', 0x78: '\u3053',
     0x79: '\u3055', 0x7A: '\u3057', 0x7B: '\u3059', 0x7C: '\u305B', 0x7D: '\u305D',
     0x7E: '\u305F', 0x7F: '\u3061',
-    # Multi-byte kanji — BZ4E (0xC2XX-0xD6XX)
+    # Multi-byte kanji - BZ4E (0xC2XX-0xD6XX)
     0xC4A4: '\u2026',  # Ellipsis
     0xC3A3: '\u793C', 0xC6B6: '\u516C', 0xC48E: '\u6210', 0xC4BA: '\u901A',
     0xC68E: 'h', 0xC69E: 'a', 0xC69F: 'c', 0xC6A0: 'r',
@@ -70,9 +78,9 @@ CHARMAP_FF4: dict[int, str] = {
 
 # FF4 Advance control codes (from DataCrystal)
 FF4_CONTROL_CODES: dict[int, str] = {
-    # Endstring
+    # End of line
     0x0C: '[END]',
-    # Linebreaks
+    # Line breaks
     0xC596: '[LINEBREAK_DIALOGUE]',
     0xC683: '[LINEBREAK_MENU]',
     # Names
@@ -81,15 +89,15 @@ FF4_CONTROL_CODES: dict[int, str] = {
     0xC59E: '[NAME_EDWARD]', 0xC59F: '[NAME_YANG]',
     0xC5A0: '[NAME_PALOM]', 0xC5A1: '[NAME_POLOM]', 0xC5A2: '[NAME_EDGE]',
     0xC5A3: '[NAME_FUSOYA]',
-    # Clean Box
+    # Clear box
     0xC5AC: '[CLEAN_BOX]',
-    # Pictures
+    # Images
     0xC5AD: '[PIC_CECIL]', 0xC5AE: '[PIC_KAIN]', 0xC5AF: '[PIC_ROSA]',
     0xC5B0: '[PIC_RYDIA]', 0xC5B1: '[PIC_CID]', 0xC5B2: '[PIC_TELLAH]',
     0xC5B3: '[PIC_EDWARD]', 0xC5B4: '[PIC_YANG]',
     0xC5B5: '[PIC_PALOM]', 0xC5B6: '[PIC_POLOM]', 0xC5B7: '[PIC_EDGE]',
     0xC5B8: '[PIC_FUSOYA]', 0xC5B9: '[PIC_GOLBEZ]',
-    # Remove Picture
+    # Remove image
     0xC5BA: '[REMOVE_PIC]',
     # Variables
     0xC5BB: '[VAR1]', 0xC5BD: '[CUR_HP]', 0xC5BE: '[VAR2]', 0xC5BF: '[MAX_HP]',
@@ -100,28 +108,48 @@ FF4_CONTROL_CODES: dict[int, str] = {
 }
 
 # FF4 Advance text terminators
-# Only 0x0C is the end-of-string marker
+# Only 0x0C is the end-of-line marker
 # 0x00 is a SPACE character, not a terminator
 FF4_TERMINATORS = [0x0C]
 
 # Known pointer table locations for FF4 Advance (BZ4E)
 # Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_IV_Advance/ROM_map
-# Verified: pointer table at 0x2E3680, text data starts at 0x2E98BC
-FF4_POINTER_TABLE_OFFSET = 0x2E3680  # Pointer table start (6287 entries, 4 bytes each)
-FF4_POINTER_COUNT = 6287             # Number of pointers
-FF4_TEXT_DATA_START = 0x2E98BC       # Text data starts at 0x2E98BC (verified from DataCrystal)
-FF4_TEXT_BLOCK_END = 0x323B64        # Text block ending
-FF4_POINTER_SIZE = 4                 # Each pointer is 4 bytes (2 bytes value + 2 bytes padding)
+# Verified empirically on BZ4E: pointers are OFFSETS from 0x2E3670 (table start - 0x10),
+# NOT from 0x2E98BC. Index 0 -> 0x2E98BC (data stream start), index 6286 -> 0x323B48.
+# The old base 0x2E98BC produced an exact shift of 0x624C, cutting strings mid-word.
+FF4_POINTER_TABLE_OFFSET = 0x2E3680  # Start of the pointer table (6287 entries of 4 bytes)
+FF4_POINTER_COUNT = 6287             # Pointer count
+FF4_TEXT_DATA_START = 0x2E3670       # Pointer offset base (table start - 0x10)
+FF4_TEXT_BLOCK_END = 0x323B64        # End of the text block
+FF4_POINTER_SIZE = 4                 # Each pointer 4 bytes (2-byte value + 2-byte padding)
 
 # Game codes for detection
 FF4_GAME_CODES = ['BZ4E', 'BZ4J', 'BZ4P']
 
 
 class FF4TextDecoder:
-    """Decoder for FF4 Advance text with multi-byte control code support"""
+    """FF4 Advance text decoder with multi-byte control code support"""
+
+    _TOKEN_RE = re.compile(r'\[([0-9A-F]{2}(?:[0-9A-F]{2})*)\]|\[([A-Z_][A-Z0-9_]*)\]|(.)')
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
+        # Single-byte (keys < 0x100): priority - shorter mapping
+        self.rev_single: dict[str, int] = {}
+        # Multi-byte (keys >= 0x100): fallback for characters without a single-byte variant
+        self.rev_multi: dict[str, tuple[int, int]] = {}
+        for code, ch in charmap.items():
+            if code < 0x100:
+                if ch not in self.rev_single:
+                    self.rev_single[ch] = code
+            elif code not in FF4_CONTROL_CODES:
+                if ch not in self.rev_multi:
+                    self.rev_multi[ch] = (code >> 8, code & 0xFF)
+        # Control codes -> bytes (terminator 0x0C - single byte, the rest - 2 bytes)
+        # Keys without brackets '[NAME_CECIL]' -> 'NAME_CECIL' - matches the capture regex.
+        self.rev_control: dict[str, bytes] = {}
+        for code, name in FF4_CONTROL_CODES.items():
+            self.rev_control[name[1:-1]] = bytes([code]) if code < 0x100 else code.to_bytes(2, 'big')
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         result: list[str] = []
@@ -134,8 +162,8 @@ class FF4TextDecoder:
             if byte in FF4_TERMINATORS:
                 break
 
-            # Multi-byte characters (0xC2-0xD6 prefix)
-            if 0xC2 <= byte <= 0xD6 and i + 1 < end:
+            # Multi-byte characters (prefix 0xC2-0xD6)
+            if 0xC2 <= byte <= 0xD6 and i + 1 < end and data[i + 1] not in FF4_TERMINATORS:
                 second = data[i + 1]
                 code = (byte << 8) | second
                 if code in FF4_CONTROL_CODES:
@@ -156,9 +184,33 @@ class FF4TextDecoder:
 
         return ''.join(result)
 
+    def encode(self, text: str) -> bytes:
+        result = bytearray()
+        for match in self._TOKEN_RE.finditer(text):
+            hex_val, named, char = match.groups()
+            if hex_val is not None:
+                result.extend(bytes.fromhex(hex_val))
+            elif named is not None:
+                ctrl = self.rev_control.get(named)
+                if ctrl is not None:
+                    result.extend(ctrl)
+                else:
+                    raise ValueError(f"Unknown control token: [{named}]")
+            else:
+                single = self.rev_single.get(char)
+                if single is not None:
+                    result.append(single)
+                else:
+                    pair = self.rev_multi.get(char)
+                    if pair is not None:
+                        result.extend(pair)
+                    else:
+                        raise ValueError(f"Character not in charmap: {char!r}")
+        return bytes(result)
+
 
 class FF4AdvancePlugin(GamePlugin):
-    """Плагин для Final Fantasy IV Advance (GBA)"""
+    """Plugin for Final Fantasy IV Advance (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -173,17 +225,17 @@ class FF4AdvancePlugin(GamePlugin):
         return FF4_POINTER_SIZE
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов FF4 Advance using pointer table"""
+        """Extract FF4 Advance text segments using the pointer table"""
         logger.info("Извлечение текстовых сегментов для Final Fantasy IV Advance")
 
         segments: list[dict] = []
 
-        # Read pointer table and create segments for each text entry
-        # Pointer table at 0x2E3680, each entry is 4 bytes (2 bytes value + 2 bytes padding)
+        # Read the pointer table and create segments for each text record
+        # Pointer table at 0x2E3680, each record is 4 bytes (2-byte value + 2-byte padding)
         # Pointers are relative offsets from FF4_TEXT_DATA_START
         ptr_table_size = FF4_POINTER_COUNT * FF4_POINTER_SIZE
         if FF4_POINTER_TABLE_OFFSET + ptr_table_size > len(rom.data):
-            logger.error("Pointer table extends beyond ROM data")
+            logger.error("Таблица указателей выходит за пределы данных ROM")
             return segments
 
         # Create segments for all pointers
@@ -191,14 +243,14 @@ class FF4AdvancePlugin(GamePlugin):
             ptr_offset = FF4_POINTER_TABLE_OFFSET + i * FF4_POINTER_SIZE
             ptr_val = int.from_bytes(rom.data[ptr_offset:ptr_offset+2], 'little')
 
-            # Calculate actual offset in ROM
+            # Compute the actual offset in the ROM
             actual_offset = FF4_TEXT_DATA_START + ptr_val
 
-            # Validate offset
+            # Validate the offset
             if actual_offset >= len(rom.data):
                 continue
 
-            # Find end of text (next pointer or end of block)
+            # Find the end of the text (next pointer or end of block)
             if i + 1 < FF4_POINTER_COUNT:
                 next_ptr_offset = FF4_POINTER_TABLE_OFFSET + (i + 1) * FF4_POINTER_SIZE
                 next_ptr_val = int.from_bytes(rom.data[next_ptr_offset:next_ptr_offset+2], 'little')
@@ -206,18 +258,28 @@ class FF4AdvancePlugin(GamePlugin):
             else:
                 next_offset = FF4_TEXT_BLOCK_END
 
-            # Ensure valid range
+            # Ensure a valid range
             if next_offset <= actual_offset:
                 next_offset = actual_offset + 100  # Fallback
+
+            end = min(next_offset, FF4_TEXT_BLOCK_END)
+            decoded = self._decoder.decode(rom.data, actual_offset, end - actual_offset)
+
+            # Noise filtering: empty records, lone glyphs (charmap catalog) and
+            # records made almost entirely of unknown hex tokens.
+            clean_len = len(_strip_unknown_tokens(decoded))
+            if not decoded or clean_len <= 1 or clean_len / len(decoded) < 0.3:
+                continue
 
             segments.append({
                 'name': f'ff4_text_{i}',
                 'start': actual_offset,
-                'end': min(next_offset, FF4_TEXT_BLOCK_END),
+                'end': end,
                 'decoder': self._decoder,
                 'compression': None,
                 'charmap': CHARMAP_FF4,
                 'terminators': FF4_TERMINATORS,
+                'pad_byte': 0x00,
                 'pointer_table': FF4_POINTER_TABLE_OFFSET,
                 'pointer_count': FF4_POINTER_COUNT,
             })
