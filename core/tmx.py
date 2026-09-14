@@ -126,16 +126,17 @@ class TMXHandler:
             logger.warning(f"Не удалось отформатировать XML: {e}, возвращаем без форматирования")
             return '<?xml version="1.0" encoding="utf-8"?>\n' + rough_string
 
-    def import_tmx(self, tmx_content: str) -> dict[str, dict[int, str]]:
+    def import_tmx(self, tmx_content: str) -> dict[str, dict[int | str, str]]:
         """Импорт переводов из TMX файла
 
         Args:
             tmx_content: Содержимое TMX файла
 
         Returns:
-            Словарь {segment_name: {offset: translation}}
+            Словарь {segment_name: {offset: translation}}; для записей без
+            ROM-offset ключом выступает исходный текст (str) вместо int
         """
-        translations: dict[str, dict[int, str]] = {}
+        translations: dict[str, dict[int | str, str]] = {}
 
         try:
             # Парсим XML
@@ -146,9 +147,10 @@ class TMXHandler:
                 raise ValueError("Неверный формат TMX файла: корневой элемент не 'tmx'")
 
             # Определяем исходный язык из header
+            srclang = None
             header = root.find("header")
             if header is not None:
-                header.get("srclang")
+                srclang = header.get("srclang")
 
             body = root.find("body")
             if body is None:
@@ -185,33 +187,46 @@ class TMXHandler:
                 source_text = None
                 target_text = None
 
+                # Собираем (lang, text) кандидатов в порядке следования tuv
+                candidates: list[tuple[str | None, str]] = []
                 for tuv in tuv_elements:
-                    # Проверяем оба варианта атрибута xml:lang
-                    tuv.get(f"{{{XML_NS}}}lang") or tuv.get("xml:lang")
-
+                    lang = tuv.get(f"{{{XML_NS}}}lang") or tuv.get("xml:lang")
                     seg = tuv.find("seg")
                     if seg is None:
                         continue
-
-                    # ElementTree автоматически деэкранирует XML-сущности,
-                    # поэтому seg.text уже содержит чистый текст
                     text = self._get_seg_text(seg)
-                    if not text:
-                        continue
+                    if text:
+                        candidates.append((lang, text))
 
-                    if source_text is None:
-                        source_text = text
+                if srclang is not None:
+                    sources = [text for lang, text in candidates if lang == srclang]
+                    targets = [text for lang, text in candidates if lang != srclang]
+                    if sources:
+                        source_text = sources[0]
+                        target_text = targets[0] if targets else None
                     else:
-                        target_text = text
-                        break  # Берем только первый target
+                        # srclang не совпал ни с одним tuv — битый header;
+                        # fallback на порядок следования, чтобы не сохранять
+                        # перевод под ключом-переводом.
+                        logger.warning(
+                            "srclang=%r не совпал ни с одним tuv в '%s'; "
+                            "используем порядок следования элементов",
+                            srclang, segment_name,
+                        )
+                        source_text = candidates[0][1] if candidates else None
+                        target_text = candidates[1][1] if len(candidates) > 1 else None
+                else:
+                    source_text = candidates[0][1] if candidates else None
+                    target_text = candidates[1][1] if len(candidates) > 1 else None
 
-                # Сохраняем перевод
+                # Сохраняем перевод.
+                # Если offset неизвестен, используем сам исходный текст как стабильный ключ
+                # (hash() здесь не годится — нестабилен между запусками из-за PYTHONHASHSEED).
                 if segment_name and target_text:
                     if segment_name not in translations:
                         translations[segment_name] = {}
 
-                    # Если offset неизвестен, используем хэш исходного текста
-                    key = offset if offset is not None else hash(source_text) if source_text else hash(target_text)
+                    key = offset if offset is not None else (source_text or target_text)
                     translations[segment_name][key] = target_text
                     imported_count += 1
 
@@ -219,7 +234,7 @@ class TMXHandler:
 
         except ET.ParseError as e:
             logger.error(f"Ошибка парсинга TMX XML: {e}")
-            raise ValueError(f"Неверный формат TMX файла: {e}")
+            raise ValueError(f"Неверный формат TMX файла: {e}") from None
         except ValueError:
             raise  # Пробрасываем ValueError как есть
         except Exception as e:

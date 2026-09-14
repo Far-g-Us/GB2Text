@@ -1,22 +1,23 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
+
 """
-Плагин для автоматического определения структуры текста в неизвестных играх
+Plugin for automated detection of text structure in unknown games
 """
 
 import logging
@@ -26,36 +27,36 @@ from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 from core.scanner import analyze_text_segment, auto_detect_segments, find_text_pointers
 
-# Настройки логирования выполняются в точках входа (main/run_gui)
+# Logging is configured at the entry points (main/run_gui)
 logger = logging.getLogger('gb2text.auto_detect')
 
 class AutoDetectPlugin(GamePlugin):
-    """Плагин для автоматического определения текстовых сегментов"""
+    """Plugin for automatic text-segment detection"""
 
     @property
     def game_id_pattern(self) -> str:
         return r'^.*$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Автоматическое определение текстовых сегментов"""
+        """Automatically detect text segments"""
         logger = logging.getLogger('gb2text.auto_detect')
         logger.info(f"Начало автоопределения текстовых сегментов для системы {rom.system}")
 
         segments = []
 
-        # Используем типичные паттерны для системы
+        # Use typical patterns for the system
         patterns = get_segment_patterns(rom.system)
         logger.info(f"Найдено {len(patterns)} типичных паттернов для системы {rom.system}")
 
         for i, pattern in enumerate(patterns):
-            # Проверяем, есть ли данные в этом диапазоне
+            # Check whether there is data in this range
             if pattern['start_min'] < len(rom.data):
                 start = max(pattern['start_min'], 0)
                 end = min(pattern['end_max'], len(rom.data))
-                if end > start and (end - start) > 200:  # Минимальная длина 200 байт
-                    # Проверяем плотность текста
+                if end > start and (end - start) > 200:  # Minimum length 200 bytes
+                    # Check text density
                     analysis = analyze_text_segment(rom.data, start, end)
-                    if analysis['readability'] > 0.65:  # Минимальная плотность 65%
+                    if analysis['readability'] > 0.65:  # Minimum density 65%
                         segments.append({
                             'name': f'pattern_segment_{i}',
                             'start': start,
@@ -66,13 +67,13 @@ class AutoDetectPlugin(GamePlugin):
                         logger.info(f"Добавлен сегмент из паттерна: 0x{start:X} - 0x{end:X} "
                                     f"(плотность: {analysis['readability']:.2%})")
 
-        # Если не найдено сегментов через паттерны, ищем указатели
+        # If no segments were found via patterns, search for pointers
         if not segments:
             logger.info("Не найдено сегментов через паттерны, ищем указатели")
             pointer_size = get_pointer_size(rom.system)
             logger.info(f"Поиск указателей с размером {pointer_size} байта")
 
-            # Используем кэширование результатов анализа
+            # Cache the analysis results
             analyzed_ranges = {}
 
             address_base = 0x08000000 if rom.system == 'gba' else 0
@@ -82,29 +83,29 @@ class AutoDetectPlugin(GamePlugin):
                 address_base=address_base
             )
 
-            # Группируем близко расположенные указатели
+            # Group closely spaced pointers
             pointer_groups = self._group_close_pointers(pointers, max_distance=50)
 
             for i, group in enumerate(pointer_groups):
                 start_addr = min([ptr[1] for ptr in group])
 
-                # Проверяем, не анализировали ли мы уже этот диапазон
-                range_key = (start_addr // 0x1000) * 0x1000  # Группируем по 4K
+                # Check whether we already analyzed this range
+                range_key = (start_addr // 0x1000) * 0x1000  # Group by 4K
                 if range_key in analyzed_ranges:
                     if not analyzed_ranges[range_key]:
-                        continue  # Уже определено, что здесь нет текста
+                        continue  # Already determined that there is no text here
                 else:
-                    # Анализируем только один раз на каждые 4K
+                    # Analyze only once per 4K
                     analysis = analyze_text_segment(rom.data, start_addr, min(start_addr + 0x1000, len(rom.data)))
                     analyzed_ranges[range_key] = analysis['readability'] > 0.65
                     if not analyzed_ranges[range_key]:
                         continue
 
-                # Более точная оценка длины сегмента
+                # More accurate segment length estimation
                 segment_length = self._estimate_segment_length(rom.data, start_addr, min_length=200)
 
-                if segment_length > 200:  # Увеличиваем минимальную длину
-                    # Дополнительная проверка плотности текста
+                if segment_length > 200:  # Increase the minimum length
+                    # Additional text-density check
                     analysis = analyze_text_segment(rom.data, start_addr, start_addr + segment_length)
                     if analysis['readability'] > 0.65:
                         segments.append({
@@ -118,10 +119,10 @@ class AutoDetectPlugin(GamePlugin):
                             f"Добавлен сегмент из указателей: 0x{start_addr:X} - 0x{start_addr + segment_length:X} "
                             f"(плотность: {analysis['readability']:.2%})")
 
-        # Если все еще нет сегментов, используем автоопределение
+        # If there are still no segments, use auto-detection
         if not segments:
             logger.info("Используем автоопределение сегментов")
-            # Увеличиваем минимальные требования для автоопределения
+            # Increase the minimum auto-detection requirements
             detected = auto_detect_segments(
                 rom.data,
                 min_segment_length=300,
@@ -130,7 +131,7 @@ class AutoDetectPlugin(GamePlugin):
             )
 
             for _i, seg in enumerate(detected):
-                # Дополнительная проверка плотности текста
+                # Additional text-density check
                 analysis = analyze_text_segment(rom.data, seg['start'], seg['end'])
                 if analysis['readability'] > 0.7:
                     segments.append({
@@ -143,16 +144,16 @@ class AutoDetectPlugin(GamePlugin):
                     logger.info(f"Автоопределён сегмент: 0x{seg['start']:X} - 0x{seg['end']:X} "
                                 f"(плотность: {analysis['readability']:.2%})")
 
-        # Добавляем дополнительную фильтрацию и проверку перекрытия сегментов
+        # Add additional filtering and segment-overlap checking
         filtered_segments = []
         segments = sorted(segments, key=lambda s: s['start'])
 
         for segment in segments:
-            # Проверяем, не перекрывается ли этот сегмент с уже добавленными
+            # Check whether this segment overlaps the already added ones
             is_overlapping = False
             for existing in filtered_segments:
                 if (segment['start'] < existing['end'] and segment['end'] > existing['start']):
-                    # Если новый сегмент имеет более высокую плотность, заменяем
+                    # If the new segment has higher density, replace it
                     new_analysis = analyze_text_segment(rom.data, segment['start'], segment['end'])
                     existing_analysis = analyze_text_segment(rom.data, existing['start'], existing['end'])
 
@@ -165,10 +166,10 @@ class AutoDetectPlugin(GamePlugin):
             if not is_overlapping:
                 filtered_segments.append(segment)
 
-        # Ограничиваем максимальное количество сегментов
+        # Limit the maximum number of segments
         max_segments = 20
         if len(filtered_segments) > max_segments:
-            # Оставляем только сегменты с наибольшей плотностью текста
+            # Keep only the segments with the highest text density
             filtered_segments = sorted(
                 filtered_segments,
                 key=lambda s: analyze_text_segment(rom.data, s['start'], s['end'])['readability'],
@@ -187,11 +188,11 @@ class AutoDetectPlugin(GamePlugin):
 
     def _group_close_pointers(self, pointers: list[tuple[int, int]], max_distance: int = 50) -> list[
         list[tuple[int, int]]]:
-        """Группирует близко расположенные указатели с улучшенной логикой"""
+        """Group closely spaced pointers with improved logic"""
         if not pointers:
             return []
 
-        # Сортируем указатели по адресу текста
+        # Sort pointers by text address
         sorted_pointers = sorted(pointers, key=lambda x: x[1])
 
         groups = []
@@ -201,11 +202,11 @@ class AutoDetectPlugin(GamePlugin):
             prev_addr = sorted_pointers[i - 1][1]
             curr_addr = sorted_pointers[i][1]
 
-            # Учитываем не только расстояние, но и логические группы
+            # Consider not only distance but also logical groups
             if curr_addr - prev_addr <= max_distance:
                 current_group.append(sorted_pointers[i])
             else:
-                # Проверяем, не является ли это началом новой логической группы
+                # Check whether this is the start of a new logical group
                 if len(current_group) > 1 or (curr_addr - prev_addr) > 0x100:
                     groups.append(current_group)
                     current_group = [sorted_pointers[i]]
@@ -213,7 +214,7 @@ class AutoDetectPlugin(GamePlugin):
         if current_group:
             groups.append(current_group)
 
-        # Фильтруем группы с малым количеством указателей
+        # Filter out groups with a small number of pointers
         filtered_groups = [g for g in groups if len(g) > 1 or g[0][1] % 0x100 < 0x80]
 
         if len(filtered_groups) < len(groups):
@@ -223,18 +224,18 @@ class AutoDetectPlugin(GamePlugin):
         return filtered_groups
 
     def _estimate_segment_length(self, data: bytes, start_addr: int, min_length: int = 100) -> int:
-        """Оценивает длину текстового сегмента с улучшенной точностью"""
+        """Estimate the text-segment length with improved accuracy"""
         logging.getLogger('gb2text.auto_detect')
 
-        # Проверяем, не выходит ли за пределы ROM
+        # Check whether it goes beyond the limits of the ROM
         if start_addr >= len(data):
             return 0
 
-        # Ищем терминаторы с учетом возможных паттернов
+        # Search for terminators taking possible patterns into account
         terminators = [0x00, 0xFF, 0xFE, 0x0D, 0x0A]
-        max_length = min(len(data) - start_addr, 0x1000)  # Максимальная длина 4K
+        max_length = min(len(data) - start_addr, 0x1000)  # Maximum length 4K
 
-        # Анализируем плотность текста для определения оптимальной длины
+        # Analyze text density to determine the optimal length
         best_length = min_length
         best_readability = 0
 
@@ -244,10 +245,10 @@ class AutoDetectPlugin(GamePlugin):
                 best_readability = analysis['readability']
                 best_length = length
             elif best_readability > 0.6 and analysis['readability'] < best_readability - 0.1:
-                # Если плотность резко упала, вероятно, мы вышли за пределы текста
+                # If density dropped sharply, we probably went beyond the text
                 break
 
-        # Проверяем наличие терминаторов в конце сегмента
+        # Check for terminators at the end of the segment
         for i in range(best_length - 1, max(0, best_length - 20), -1):
             if data[start_addr + i] in terminators:
                 return i + 1
@@ -255,7 +256,7 @@ class AutoDetectPlugin(GamePlugin):
         return best_length
 
     def _get_compression_for_system(self, system: str) -> str:
-        """Определяет тип сжатия для системы"""
+        """Determine the compression type for the system"""
         if system == 'gba':
             return 'gba_lz77'
         return None

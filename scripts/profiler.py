@@ -2,7 +2,7 @@
 Profiling tools for GB2Text.
 
 Usage:
-    python scripts/profile.py --module <module_name> --input <input_file>
+    python scripts/profiler.py --module <module_name> --input <input_file>
 
 Modules:
     rom-loading   - Profile ROM loading

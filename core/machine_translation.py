@@ -75,9 +75,9 @@ class DeepLTranslator(Translator):
         except ImportError:
             self.translator = None
             logger.warning("deepl не установлен")
-        except Exception as e:
+        except Exception:
             self.translator = None
-            logger.error(f"Ошибка инициализации DeepL: {e}")
+            logger.error("Ошибка инициализации DeepL", exc_info=True)
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         if not self.is_available():
@@ -133,12 +133,12 @@ class BingTranslator(Translator):
             import requests
             url = f"{self.endpoint}&from={source_lang}&to={target_lang}"
             body = [{"text": text}]
-            response = requests.post(url, headers=self.headers, json=body)
+            response = requests.post(url, headers=self.headers, json=body, timeout=15)
             response.raise_for_status()
             result = response.json()
             return result[0]["translations"][0]["text"]
         except ImportError:
-            raise Exception("requests не установлен")
+            raise Exception("requests не установлен") from None
         except Exception as e:
             logger.error(f"Ошибка Bing: {e}")
             raise

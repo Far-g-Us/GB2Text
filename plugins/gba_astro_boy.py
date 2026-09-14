@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Astro Boy: Omega Factor (GBA)
+Plugin for Astro Boy: Omega Factor (GBA)
 
 Game codes: BTAE (USA), BTAJ (Japan), BTAP (Europe)
 
 Text encoding: Caesar cipher (shift -1) + control codes
-Source: Reverse engineered from ROM analysis
+Source: ROM reverse engineering
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -52,15 +52,15 @@ ASTRO_BOY_GAME_CODES = ['BTAE', 'BTAJ', 'BTAP']
 
 
 class AstroBoyDecoder:
-    """Decoder for Astro Boy text (Caesar cipher shift -1)"""
+    """Astro Boy text decoder (Caesar cipher, shift -1)"""
 
     def __init__(self):
         self.charmap: dict[int, str] = {}
 
-        # Build charmap: byte -> char (shifted by -1)
-        # Note: 0x20 is not included — in Caesar +1 encoding,
-        # space (0x20) is stored as 0x21, so byte 0x20 in ROM
-        # is either a raw separator or control code
+        # Build the charmap: byte -> character (with shift -1)
+        # Note: 0x20 is not included — in the Caesar +1 encoding
+        # space (0x20) is stored as 0x21, therefore byte 0x20 in the ROM
+        # is either a separator or a control code
         for i in range(0x21, 0x7F):
             self.charmap[i] = chr(i - 1)
 
@@ -75,7 +75,7 @@ class AstroBoyDecoder:
         while i < end:
             byte = data[i]
 
-            # End of string
+            # End of line
             if byte == 0x00:
                 break
 
@@ -89,7 +89,7 @@ class AstroBoyDecoder:
 
 
 class AstroBoyPlugin(GamePlugin):
-    """Плагин для Astro Boy: Omega Factor (GBA)"""
+    """Plugin for Astro Boy: Omega Factor (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -104,31 +104,31 @@ class AstroBoyPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Astro Boy"""
+        """Extract Astro Boy text segments"""
         logger.info("Извлечение текстовых сегментов для Astro Boy: Omega Factor")
 
         segments: list[dict] = []
 
-        # Find pointer tables and decode text
+        # Search for pointer tables and decode text
         segments.extend(self._find_pointer_tables(rom))
 
-        # Also scan for text blocks directly
+        # Also scan text blocks directly
         segments.extend(self._scan_for_text(rom))
 
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info(f"Всего сегментов: {len(segments)}")
         return segments
 
     def _find_pointer_tables(self, rom: GameBoyROM) -> list[dict]:
-        """Find pointer tables and decode text at destinations"""
+        """Search pointer tables and decode text by destination addresses"""
         segments: list[dict] = []
 
-        # Scan for 4-byte GBA pointers
+        # Search for 4-byte GBA pointers (0x08XXXXXX)
         for i in range(0x100000, min(0x200000, len(rom.data) - 4), 4):
             val = int.from_bytes(rom.data[i:i+4], 'little')
             if 0x08100000 <= val <= 0x08800000:
                 target = val - 0x08000000
                 if target < len(rom.data):
-                    # Check if decoded text looks like dialogue
+                    # Check whether the decoded text looks like dialogue
                     decoded = self._decoder.decode(rom.data, target, 50)
                     if any(word in decoded.upper() for word in ['ASTRO', 'TENMA', 'ROBOT', 'QUE', 'HOLA']):
                         segments.append({
@@ -146,13 +146,13 @@ class AstroBoyPlugin(GamePlugin):
         return segments
 
     def _scan_for_text(self, rom: GameBoyROM) -> list[dict]:
-        """Scan for Caesar-encoded text blocks"""
+        """Scan text blocks using the Caesar cipher"""
         segments: list[dict] = []
 
-        # Scan for ASCII-like sequences (shifted by +1)
+        # Scan sequences that look like ASCII (shift +1)
         i = 0x100000
         while i < min(0x200000, len(rom.data) - 10):
-            # Check for shifted ASCII (0x21-0x7F = shifted 0x20-0x7E)
+            # Check shifted ASCII (0x21-0x7F = shifted 0x20-0x7E)
             if 0x21 <= rom.data[i] <= 0x7F:
                 start = i
                 while i < len(rom.data) and 0x21 <= rom.data[i] <= 0x7F:
@@ -174,6 +174,7 @@ class AstroBoyPlugin(GamePlugin):
         return segments
 
     def get_terminators(self, segment_name: str) -> list[int]:
+        """Terminator bytes for Astro Boy"""
         return [0x00]
 
     def get_compression_handler(self, segment_name: str):

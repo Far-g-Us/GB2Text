@@ -709,6 +709,43 @@ class TestScanner:
         result = detect_multiple_languages(text_data, 0, len(text_data))
         assert isinstance(result, list)
 
+    def test_detect_multiple_languages_cp866_russian_priority(self):
+        """Чистая CP866 русская ROM без ASCII не должна уезжать в японский.
+
+        Смесь прописных (0x80-0x9F), строчных (0xA0-0xAF) и CP866-эксклюзивных
+        (0xE0-0xFF) байт — детектор должен предпочесть русский (tiebreaker)."""
+        text_data = bytes(
+            [0x80 + (i % 0x20) for i in range(100)] +
+            [0xA0 + (i % 0x10) for i in range(100)] +
+            [0xE0 + (i % 0x10) for i in range(100)]
+        )
+        result = detect_multiple_languages(text_data, 0, len(text_data))
+        assert result[0] == 'russian'
+        assert 'japanese' in result
+
+    def test_detect_multiple_languages_jp_with_terminators_not_russian(self):
+        """Японское окно с 0xFF-terminator'ами не должно уезжать в русский.
+
+        Регрессия: 0xE0-0xFF ранее включал 0xFF (term-inator), которого в
+        японских окнах массивно, что завышало cyr_exclusive_density."""
+        text_data = bytes([0xA1 + (i % 0x3F) for i in range(400)]) + b'\xff' * 600
+        result = detect_multiple_languages(text_data, 0, len(text_data))
+        assert result[0] == 'japanese'
+
+    def test_detect_multiple_languages_prefer_lang(self):
+        """prefer_lang из плагина переопределяет эвристику."""
+        japanese_like = bytes([0xA3 + (i % 0x3C) for i in range(200)])
+        result = detect_multiple_languages(japanese_like, 0, len(japanese_like), prefer_lang='ru')
+        assert result[0] == 'russian'
+
+    def test_auto_detect_charmap_prefer_lang(self):
+        """auto_detect_charmap с prefer_lang строит кириллическую таблицу."""
+        japanese_like = bytes([0xA3 + (i % 0x3C) for i in range(200)]) * 7
+        charmap = auto_detect_charmap(japanese_like, 0, len(japanese_like), prefer_lang='ru')
+        assert isinstance(charmap, dict)
+        assert len(charmap) > 0
+        assert 'Б' in charmap.values()
+
     def test_analyze_text_segment_no_pointers(self):
         """Тест анализа без указателей"""
         text_data = b'No pointers here, just text!'

@@ -55,6 +55,11 @@ class TestGUIComponentsMocked(unittest.TestCase):
         self.assertTrue(hasattr(GBTextExtractorGUI, '__init__'))
         self.assertTrue(callable(getattr(GBTextExtractorGUI, '__init__', None)))
 
+    def test_main_window_import_xliff_method_exists(self):
+        """Метод import_xliff (П4 roadmap v1.3) должен быть определён."""
+        from gui.main_window import GBTextExtractorGUI
+        self.assertTrue(callable(getattr(GBTextExtractorGUI, 'import_xliff', None)))
+
     def test_editor_inheritance(self):
         """Тест наследования TextEditorFrame"""
         from tkinter import ttk

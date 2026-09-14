@@ -49,12 +49,24 @@ class CompressionHandler(ABC):
         pass
 
 
+# Значение по умолчанию для новых экземпляров CharMapDecoder.
+# GUI-тумблер «неизвестные байты как {{XX}}» переключает этот флаг.
+DEFAULT_VERBOSE_UNKNOWN = False
+
+
 class CharMapDecoder:
     """Декодер с использованием таблицы символов"""
 
-    def __init__(self, charmap: dict[int, str]):
+    def __init__(self, charmap: dict[int, str], verbose_unknown: bool | None = None):
         self.charmap = charmap
+        self.verbose_unknown = (
+            DEFAULT_VERBOSE_UNKNOWN
+            if verbose_unknown is None
+            else verbose_unknown
+        )
         self.reverse_charmap = {v: k for k, v in charmap.items() if len(v) == 1}
+        # Символы, потерянные при последнем encode (замена на пробел) — для отчёта GUI
+        self.last_unmapped_chars: list[str] = []
         self.logger = logging.getLogger('gb2text.decoder')
         self.logger.debug(f"Инициализирован CharMapDecoder с {len(charmap)} символами")
 
@@ -105,6 +117,11 @@ class CharMapDecoder:
                     continue
 
             # Для неизвестных байтов пробуем найти похожие символы
+            if self.verbose_unknown:
+                result.append(f'{{{{{byte:02X}}}}}')
+                i += 1
+                continue
+
             similar_char = self._find_similar_char(byte)
             if similar_char:
                 result.append(similar_char)
@@ -152,6 +169,7 @@ class CharMapDecoder:
                 if byte is None:
                     # Используем пробел как fallback
                     byte = self.reverse_charmap.get(' ', 0x20)
+                    self.last_unmapped_chars.append(char)
                     self.logger.warning(f"Символ '{char}' не найден в таблице, заменен на пробел")
 
             result.append(byte)
@@ -165,7 +183,7 @@ class CharMapDecoder:
 class LZ77Handler(CompressionHandler):
     """Обработчик LZ77 сжатия (Game Boy / GBA формат)"""
 
-    def decompress(self, data: bytes, start: int) -> tuple:
+    def decompress(self, data: bytes, start: int) -> tuple[bytes, int]:
         """
         Декомпрессия LZ77.
         Формат GBA LZ77: 4 байта заголовка, затем сжатые данные.
@@ -206,6 +224,8 @@ class LZ77Handler(CompressionHandler):
                     pos += 2
                     length = ((b1 >> 4) & 0x0F) + 3
                     displacement = ((b1 & 0x0F) << 8) | b2
+                    if displacement == 0 or displacement >= len(result):
+                        break
                     for _ in range(length):
                         if len(result) >= decompressed_size:
                             break
@@ -236,7 +256,7 @@ class MultiCharMapDecoder:
     - Динамического переключения между таблицами
     """
 
-    def __init__(self, primary_charmap: dict[int, str] | None = None):
+    def __init__(self, primary_charmap: dict[int | tuple[int, int], str] | None = None):
         self.logger = logging.getLogger('gb2text.decoder.multi')
         self.primary_charmap = primary_charmap or {}
 
@@ -248,7 +268,7 @@ class MultiCharMapDecoder:
             self.logger.warning("Multi-charmap модуль недоступен, используется базовый декодер")
 
     def decode_segment(self, data: bytes, start: int, length: int,
-                       alternative_charmaps: list[dict[int, str]] | None = None) -> str:
+                       alternative_charmaps: list[dict[int | tuple[int, int], str]] | None = None) -> str:
         """
         Декодирует сегмент с использованием нескольких таблиц символов
 
@@ -276,7 +296,7 @@ class MultiCharMapDecoder:
         multi_segment = MultiCharmapSegment(segment_data, start)
 
         # Добавляем все доступные таблицы
-        all_charmaps = [self.primary_charmap]
+        all_charmaps: list[dict[int | tuple[int, int], str]] = [self.primary_charmap]
         if alternative_charmaps:
             all_charmaps.extend(alternative_charmaps)
 
@@ -340,7 +360,7 @@ class MultiCharMapDecoder:
             return "Extended"
         return "Custom"
 
-    def learn_encoding(self, name: str, sample_data: bytes, char_map: dict[int, str]):
+    def learn_encoding(self, name: str, sample_data: bytes, char_map: dict[int | tuple[int, int], str]):
         """
         Обучает детектор кодировок на примере
 
@@ -364,7 +384,7 @@ class MultiCharMapDecoder:
             return self.detector.detect_encoding(data)
         return ('unknown', 0.0)
 
-    def suggest_charmap(self, data: bytes) -> dict[int, str] | None:
+    def suggest_charmap(self, data: bytes) -> dict[int | tuple[int, int], str] | None:
         """
         Предлагает таблицу символов для данных
 

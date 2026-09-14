@@ -36,7 +36,7 @@ class TestGenericPlugins:
         # game_id_pattern - это property
         pattern = plugin.game_id_pattern
         assert isinstance(pattern, str)
-        assert 'GAME_' in pattern
+        assert 'GAME' in pattern
 
     def test_generic_gbc_plugin(self):
         """Тест GenericGBCPlugin"""

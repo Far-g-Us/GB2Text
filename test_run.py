@@ -1,14 +1,18 @@
 
-import os, sys, logging, traceback, shutil, re
+import logging
+import os
+import re
+import shutil
+import traceback
 
 logging.basicConfig(level=logging.WARNING, format='[%(levelname)s] %(name)s: %(message)s')
 
-from core.rom import GameBoyROM
-from core.injector import TextInjector
-from plugins.generic import GenericGBAPlugin
-from plugins.mario_luigi_ss import MarioLuigiSSPlugin
-from core.scanner import auto_detect_charmap, is_text_like
 from core.decoder import CharMapDecoder
+from core.injector import TextInjector
+from core.rom import GameBoyROM
+from core.scanner import auto_detect_charmap, is_text_like
+from plugins.gba_mario_luigi_ss import MarioLuigiSSPlugin
+from plugins.generic import GenericGBAPlugin
 
 results = []
 
@@ -88,7 +92,7 @@ try:
                 injector.save(mlss_copy)
                 orig = open(mlss_path, 'rb').read()
                 patched = open(mlss_copy, 'rb').read()
-                diff_count = sum(1 for a, b in zip(orig, patched) if a != b)
+                diff_count = sum(1 for a, b in zip(orig, patched, strict=False) if a != b)
                 log(f'ROM patched: {diff_count} bytes differ from original')
         break
 
@@ -98,7 +102,7 @@ try:
     # ============================================================
     # TEST 2: Astro Boy - Omega Factor
     # ============================================================
-    astro_path = os.path.join('test_roms', 'Astro Boy - Omega Factor (USA) (En,Ja,Fr,De,Es,It).gba')
+    astro_path = os.path.join('test_roms', 'Astro Boy - Omega Factor (USA).gba')
     astro_copy = os.path.join('test_roms', '_astro_test_copy.gba')
 
     print()
@@ -141,7 +145,7 @@ try:
                 injector2.save(astro_copy)
                 orig = open(astro_path, 'rb').read()
                 patched = open(astro_copy, 'rb').read()
-                diff_count = sum(1 for a, b in zip(orig, patched) if a != b)
+                diff_count = sum(1 for a, b in zip(orig, patched, strict=False) if a != b)
                 log(f'ROM patched: {diff_count} bytes differ from original')
         break
 

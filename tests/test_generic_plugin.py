@@ -18,7 +18,7 @@ class TestGenericGBPlugin:
     def test_game_id_pattern(self):
         """Test game_id_pattern property"""
         plugin = GenericGBPlugin()
-        assert plugin.game_id_pattern == r'^GAME_[0-9A-F]{2}$'
+        assert plugin.game_id_pattern == r'^(GB|GAME)_[A-Z0-9]+$'
 
     def test_get_text_segments_no_pointers(self):
         """Test get_text_segments with no pointers found"""

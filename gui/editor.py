@@ -23,6 +23,7 @@ from datetime import datetime
 from tkinter import ttk
 
 from core.i18n import I18N
+from gui import theme, widgets
 
 logger = logging.getLogger(__name__)
 
@@ -58,24 +59,25 @@ class TextEditorFrame(ttk.Frame):
 
         # Информация о текущей записи
         info_frame = ttk.Frame(self)
-        info_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=5)
+        info_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=theme.SPACING["SM"])
 
-        ttk.Label(info_frame, text=self.i18n.t("entry")).pack(side="left", padx=5)
+        ttk.Label(info_frame, text=self.i18n.t("entry")).pack(side="left", padx=theme.SPACING["SM"])
         self.entry_label = ttk.Label(info_frame, text="")
         self.entry_label.pack(side="left")
 
         # Кнопка создания бекапа
-        ttk.Button(info_frame, text=self.i18n.t("editor.create.backup"), command=self._create_backup).pack(side="right", padx=5)
+        backup_btn = ttk.Button(info_frame, text=self.i18n.t("editor.create.backup"), command=self._create_backup)
+        backup_btn.pack(side="right", padx=theme.SPACING["SM"])
 
         # Оригинальный текст
-        ttk.Label(self, text=self.i18n.t("original.text")).grid(row=1, column=0, sticky="nw", padx=5, pady=2)
+        ttk.Label(self, text=self.i18n.t("original.text")).grid(row=1, column=0, sticky="nw", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
         self.original_text = tk.Text(self, height=6, width=50, wrap="word", state="disabled")
-        self.original_text.grid(row=1, column=1, sticky="nwe", padx=5, pady=2)
+        self.original_text.grid(row=1, column=1, sticky="nwe", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
 
         # Перевод
-        ttk.Label(self, text=self.i18n.t("translated.text")).grid(row=2, column=0, sticky="nw", padx=5, pady=2)
+        ttk.Label(self, text=self.i18n.t("translated.text")).grid(row=2, column=0, sticky="nw", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
         self.translated_text = tk.Text(self, height=6, width=50, wrap="word")
-        self.translated_text.grid(row=2, column=1, sticky="nsew", padx=5, pady=2)
+        self.translated_text.grid(row=2, column=1, sticky="nsew", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
 
         # Привязка событий для undo/redo
         self.translated_text.bind('<Control-z>', lambda e: self.undo())
@@ -84,13 +86,18 @@ class TextEditorFrame(ttk.Frame):
 
         # Кнопки навигации
         btn_frame = ttk.Frame(self)
-        btn_frame.grid(row=3, column=0, columnspan=2, pady=10)
+        btn_frame.grid(row=3, column=0, columnspan=2, pady=theme.SPACING["MD"])
 
-        ttk.Button(btn_frame, text=self.i18n.t("undo"), command=self.undo).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text=self.i18n.t("redo"), command=self.redo).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text=self.i18n.t("next.entry"), command=self.next_entry).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text=self.i18n.t("save.translation"), command=self.save_changes).pack(side="left", padx=5)
+        undo_btn = ttk.Button(btn_frame, text=self.i18n.t("undo"), command=self.undo)
+        undo_btn.pack(side="left", padx=theme.SPACING["SM"])
+        redo_btn = ttk.Button(btn_frame, text=self.i18n.t("redo"), command=self.redo)
+        redo_btn.pack(side="left", padx=theme.SPACING["SM"])
+        prev_btn = ttk.Button(btn_frame, text=self.i18n.t("prev.entry"), command=self.prev_entry)
+        prev_btn.pack(side="left", padx=theme.SPACING["SM"])
+        next_btn = ttk.Button(btn_frame, text=self.i18n.t("next.entry"), command=self.next_entry)
+        next_btn.pack(side="left", padx=theme.SPACING["SM"])
+        save_btn = ttk.Button(btn_frame, text=self.i18n.t("save.translation"), command=self.save_changes)
+        save_btn.pack(side="left", padx=theme.SPACING["SM"])
 
     def _create_backup(self):
         """Создание бэкапа ROM файла (только если ещё нет бэкапа для этого ROM)"""
@@ -198,26 +205,27 @@ class TextEditorFrame(ttk.Frame):
         preview_window = tk.Toplevel(self)
         preview_window.title(self.i18n.t("preview.title"))
         preview_window.geometry("600x400")
+        widgets.apply_window_icon(preview_window)
 
         # Оригинал
-        ttk.Label(preview_window, text=self.i18n.t("preview.original"), font=("Arial", 10, "bold")).pack(pady=5)
+        ttk.Label(preview_window, text=self.i18n.t("preview.original"), font=theme.ui_font(10, "bold")).pack(pady=theme.SPACING["SM"])
         original_text = tk.Text(preview_window, height=4, width=70, state="disabled")
-        original_text.pack(pady=5)
+        original_text.pack(pady=theme.SPACING["SM"])
         original_text.config(state="normal")
         original_text.insert(tk.END, original)
         original_text.config(state="disabled")
 
         # Новый перевод
-        ttk.Label(preview_window, text=self.i18n.t("preview.new.translation"), font=("Arial", 10, "bold")).pack(pady=5)
+        ttk.Label(preview_window, text=self.i18n.t("preview.new.translation"), font=theme.ui_font(10, "bold")).pack(pady=theme.SPACING["SM"])
         new_text = tk.Text(preview_window, height=4, width=70, state="disabled")
-        new_text.pack(pady=5)
+        new_text.pack(pady=theme.SPACING["SM"])
         new_text.config(state="normal")
         new_text.insert(tk.END, translation)
         new_text.config(state="disabled")
 
         # Кнопки
         btn_frame = ttk.Frame(preview_window)
-        btn_frame.pack(pady=20)
+        btn_frame.pack(pady=theme.SPACING["XL"])
 
         def confirm_save():
             # Фактическое сохранение перевода
@@ -225,5 +233,9 @@ class TextEditorFrame(ttk.Frame):
             logger.info(f"Сохранен перевод для записи {self.current_index}: {translation[:50]}...")
             preview_window.destroy()
 
-        ttk.Button(btn_frame, text=self.i18n.t("preview.confirm"), command=confirm_save).pack(side="left", padx=10)
-        ttk.Button(btn_frame, text=self.i18n.t("preview.cancel"), command=preview_window.destroy).pack(side="left", padx=10)
+        confirm_btn = ttk.Button(btn_frame, text=self.i18n.t("preview.confirm"), command=confirm_save)
+        confirm_btn.pack(side="left", padx=theme.SPACING["MD"])
+        cancel_btn = ttk.Button(btn_frame, text=self.i18n.t("preview.cancel"), command=preview_window.destroy)
+        cancel_btn.pack(side="left", padx=theme.SPACING["MD"])
+
+        theme.apply(preview_window, theme.is_dark())

@@ -1,6 +1,15 @@
 """FFTA character definitions from LeonarthCG/FFTA_Engine_Hacks"""
 # Source: https://github.com/LeonarthCG/FFTA_Engine_Hacks/blob/master/Text/Text%20Character%20Definitions.event
-# Verified against our existing FFTA plugin charmap — matches exactly.
+#
+# This is the printable (non-kanji) range of the FFTA event-text charmap —
+# the system used by the LZSS-compressed dialogue strings (0x32 marker).
+# Verified to match CHARMAP_FFTA_MULTI in plugins/gba_fft_advance.py code for code.
+#
+# Project conventions for display:
+# - 0x80E9 ellipsis is shown as a single '…' character
+# - 0x80F3-0x80F6 quotes are shown as straight ASCII ' and "
+# - 0x810F/0x8110 are '<-' / '->' (arrowheads) per the event definitions
+# - 0x8118-0x8122 are full-width 0-9 and '－' (fixed-width range per source)
 
 FFTA_CHARMAP_EVENT = {
     # Numbers (0x80 prefix)
@@ -21,33 +30,27 @@ FFTA_CHARMAP_EVENT = {
     0x80DE: 'u', 0x80DF: 'v', 0x80E0: 'w', 0x80E1: 'x', 0x80E2: 'y',
     0x80E3: 'z',
     # Punctuation (0x80 prefix)
-    0x80E4: '.', 0x80E9: '...', 0x80EA: '?', 0x80EB: '!',
+    0x80E4: '.',
+    0x80E9: '…', 0x80EA: '?', 0x80EB: '!',
     0x80EC: ',', 0x80ED: '·', 0x80EE: ':', 0x80EF: '_',
     0x80F1: '/', 0x80F2: '~',
-    0x80F3: '\u2018', 0x80F4: '\u2019',  # single quotes
-    0x80F5: '\u201C', 0x80F6: '\u201D',  # double quotes
+    0x80F3: "'", 0x80F4: "'",  # straight single quotes (font renders ' ')
+    0x80F5: '"', 0x80F6: '"',  # straight double quotes
     0x80F7: '(', 0x80F8: ')',
-    0x80FD: '+', 0x80FE: '-', 0x80FF: '\u00B1',  # plus-minus
+    0x80FD: '+', 0x80FE: '-', 0x80FF: '±',  # plus-minus
     # Symbols (0x81 prefix)
-    0x8100: '\u00D7',  # ×
+    0x8100: '×',
     0x8101: '=', 0x8102: '<', 0x8103: '>',
-    0x8104: '\u221E',  # ∞
-    0x8105: '\u2642',  # ♂
-    0x8106: '\u2640',  # ♀
+    0x8104: '∞',
+    0x8105: '♂', 0x8106: '♀',
     0x8107: '%', 0x8108: '&', 0x8109: '*',
-    0x810B: '\u2500',  # ─
-    0x810D: '\u25B2',  # ▲
-    0x810E: '\u25BC',  # ▼
-    0x810F: '\u2190',  # ←
-    0x8110: '\u2192',  # →
-    0x8111: '\u25CB',  # ○
-    0x8112: '\u25B3',  # △
-    0x8113: '\u25A1',  # □
-    0x8114: '\u25A0',  # ■
-    0x8115: '\u266A',  # ♪
-    0x8116: ';',
-    # Full-width numbers (0x81 prefix)
-    0x8118: '0', 0x8119: '1', 0x811A: '2', 0x811B: '3', 0x811C: '4',
-    0x811D: '5', 0x811E: '6', 0x811F: '7', 0x8120: '8', 0x8121: '9',
-    0x8122: '-',
+    0x810A: '※', 0x810B: '─', 0x810C: '│',
+    0x810D: '▲', 0x810E: '▼',
+    0x810F: '←', 0x8110: '→',
+    0x8111: '○', 0x8112: '△', 0x8113: '□', 0x8114: '■',
+    0x8115: '♪', 0x8116: ';', 0x8117: '◎',
+    # Full-width numbers 0-9 and '－' (fixed-width range, 0x81 prefix)
+    0x8118: '０', 0x8119: '１', 0x811A: '２', 0x811B: '３', 0x811C: '４',
+    0x811D: '５', 0x811E: '６', 0x811F: '７', 0x8120: '８', 0x8121: '９',
+    0x8122: '－',
 }

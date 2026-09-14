@@ -4,6 +4,7 @@
 
 import os
 import shutil
+import site
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +17,10 @@ def create_exe():
 
     # Проверяем наличие PyInstaller
     try:
-        import PyInstaller
+        import importlib.util
+
+        if importlib.util.find_spec("PyInstaller") is None:
+            raise ImportError
         print("✅ PyInstaller найден")
     except ImportError:
         print("❌ PyInstaller не найден. Устанавливаем...")
@@ -46,7 +50,7 @@ def create_exe():
     dist_dir = gb2text_dir / "dist"
     build_dir = gb2text_dir / "build"
 
-    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
     existing_folders = []
 
     for folder in required_folders:
@@ -162,6 +166,7 @@ finally:
             "--hidden-import=core.rom_cache",
             "--hidden-import=core.i18n",
             "--hidden-import=core.machine_translation",
+            "--hidden-import=spellchecker",
             "--exclude-module=posix",
             "--exclude-module=pwd",
             "--exclude-module=grp",
@@ -200,6 +205,11 @@ finally:
                 print(f"✅ Добавлены файлы локализации: {len(locales_files)} файлов")
             else:
                 cmd.extend([f"--add-data={folder_path};{folder}"])
+
+        spellchecker_dir = Path(site.getsitepackages()[0]) / "spellchecker"
+        if spellchecker_dir.exists():
+            cmd.append(f"--add-data={spellchecker_dir / 'resources'};spellchecker/resources")
+            print("✅ Добавлены словари spellchecker")
 
         icon_path = gb2text_dir / "resources" / "app_icon.ico"
         if icon_path.exists():
@@ -370,7 +380,7 @@ def create_spec_file():
         return
 
     folders_to_include = []
-    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
 
     for folder in required_folders:
         folder_path = gb2text_dir / folder
@@ -414,7 +424,8 @@ a = Analysis(
         'logging',
         'pathlib',
         'collections',
-        'unicodedata'
+        'unicodedata',
+        'spellchecker'
     ],
     hookspath=[],
     hooksconfig={{}},

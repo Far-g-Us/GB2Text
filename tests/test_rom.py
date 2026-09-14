@@ -103,7 +103,7 @@ class TestROM:
             rom = GameBoyROM(temp_path)
             game_id = rom.get_game_id()
             assert isinstance(game_id, str)
-            assert 'GAME_' in game_id
+            assert 'GAME_' in game_id or 'GB_' in game_id
         finally:
             os.unlink(temp_path)
 

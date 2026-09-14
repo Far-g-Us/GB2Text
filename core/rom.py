@@ -20,6 +20,7 @@ GB Text Extraction Framework
 """
 
 import logging
+import re
 
 from core.mbc import create_mbc
 
@@ -95,9 +96,18 @@ class GameBoyROM:
 
         try:
             with open(rom_path, 'rb') as f:
+                size = f.seek(0, 2)
+                if size > MAX_ROM_SIZE:
+                    logger.error(
+                        f"Файл слишком большой: {size} байт. Максимум {MAX_ROM_SIZE} байт")
+                    raise ValueError(
+                        f"Файл слишком большой: {size} байт. Максимум {MAX_ROM_SIZE} байт")
+                f.seek(0)
                 data = bytearray(f.read())
             logger.info(f"Успешно прочитано {len(data)} байт")
             return data
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"Ошибка при чтении ROM файла: {e!s}")
             raise
@@ -119,7 +129,7 @@ class GameBoyROM:
         """Парсинг заголовка GBA ROM"""
         # GBA заголовок: https://problemkaputt.de/gbatek.htm#gbacartridgeheader
         try:
-            title = self.data[0x000:0x00A].decode('ascii', errors='replace').rstrip('\x00')
+            title = self.data[0x0A0:0x0AC].decode('ascii', errors='replace').rstrip('\x00')
             game_code = self.data[0x0AC:0x0B0].decode('ascii', errors='replace').rstrip('\x00')
             maker_code = self.data[0x0B0:0x0B2].decode('ascii', errors='replace').rstrip('\x00')
 
@@ -137,8 +147,8 @@ class GameBoyROM:
                 'ram_size': 0,  # GBA RAM size не определяется из заголовка
                 'destination_code': 0,
                 'old_licensee_code': 0,
-                'mask_rom_version': self.data[0x01D] if len(self.data) > 0x01D else 0,
-                'header_checksum': self.data[0x01E] if len(self.data) > 0x01E else 0,
+                'mask_rom_version': self.data[0x0BC] if len(self.data) > 0x0BC else 0,
+                'header_checksum': self.data[0x0BD] if len(self.data) > 0x0BD else 0,
                 'global_checksum': 0,
                 'game_code': game_code,
                 'maker_code': maker_code,
@@ -225,15 +235,27 @@ class GameBoyROM:
 
 
     def get_game_id(self) -> str:
-        """Возвращает идентификатор игры"""
-        # Для GBA используем game_code из заголовка
+        """Возвращает идентификатор игры.
+
+        Для GBA: ``GBA_<game_code>``.
+        Для GB/GBC: ``GB_`` / ``GBC_`` + sanitized title из заголовка (0x134).
+        Если title отсутствует или состоит только из непечатных байтов,
+        сохраняется обратная совместимость ``GAME_<cartridge_type>``.
+        """
         if self.system == 'gba':
             game_code = self.header.get('game_code', '')
             if game_code:
                 return f"GBA_{game_code}"
             return "GBA_UNKNOWN"
 
-        # Для GB/GBC создаем безопасный идентификатор
+        # GB/GBC: sanitized title
+        title = self.header.get('title', '')
+        safe_title = re.sub(r'[^A-Z0-9]', '', title.upper())
+        if safe_title:
+            prefix = 'GBC' if self.system == 'gbc' else 'GB'
+            return f"{prefix}_{safe_title}"
+
+        # Fallback: cartridge type (обратная совместимость)
         cartridge_type = self.header['cartridge_type']
         return f"GAME_{cartridge_type:02X}"
 
@@ -265,20 +287,64 @@ class GameBoyROM:
     def region(self) -> int:
         return self.header.get('destination_code', 0)
 
-    def validate_header(self) -> bool:
-        """Проверяет checksum заголовка ROM (0x144-0x14C)"""
-        checksum = 0
-        for addr in range(0x0144, 0x014D):
-            checksum = (checksum - self.data[addr] - 1) & 0xFF
-        return checksum == self.header['header_checksum']
+    def calculate_header_checksum(self, data: bytes | bytearray | None = None) -> int:
+        """Глобальный (канонический) header checksum GB/GBC по байтам 0x134-0x14C.
 
-    def calculate_checksum(self) -> int:
-        """Вычисляет глобальный checksum ROM (сумма всех байт кроме 0x14E-0x14F)"""
+        Dashes include the title: проверяется вся область заголовка, как это
+        делает реальное железо (X = X - byte - 1 для каждого байта 0x134..0x14C).
+        """
+        if data is None:
+            data = self.data
         checksum = 0
-        for i in range(len(self.data)):
-            if i not in (0x14E, 0x14F):
-                checksum = (checksum + self.data[i]) & 0xFFFF
+        for addr in range(0x0134, 0x014D):
+            checksum = (checksum - data[addr] - 1) & 0xFF
         return checksum
+
+    def calculate_gba_complement(self, data: bytes | bytearray | None = None) -> int:
+        """GBA complement check byte (0x0BD).
+
+        Формула подтверждена эмпирически на 38 коммерческих GBA ROM
+        (scripts_roms/checksum_formula_probe.py):
+        byte[0x0BD] = (0 - sum(0x0A0..0x0BC) - 0x19) & 0xFF.
+        """
+        if data is None:
+            data = self.data
+        return (0 - sum(data[0x0A0:0x0BD]) - 0x19) & 0xFF
+
+    def calculate_global_checksum(self, data: bytes | bytearray | None = None) -> int:
+        """Глобальный checksum: сумма всех байт, кроме 0x14E-0x14F.
+
+        Для больших ROM (до 32MB) быстрый ``sum()`` на bytearray
+        выполняется на C-уровне и значительно быстрее поэлементного цикла.
+        """
+        if data is None:
+            data = self.data
+        return (sum(data) - data[0x14E] - data[0x14F]) & 0xFFFF
+
+    def validate_header(self) -> bool:
+        """Проверяет header checksum ROM (GB/GBC: канонический 0x134-0x14C;
+        GBA: complement check 0x0BD)."""
+        if self.system == 'gba':
+            return self.data[0x0BD] == self.calculate_gba_complement(self.data)
+        return self.data[0x014D] == self.calculate_header_checksum(self.data)
+
+    def recalculate_checksums(self, data: bytearray) -> None:
+        """Пересчитывает и записывает checksum'ы в переданный буфер.
+
+        GB/GBC: header checksum (0x14D) + глобальный (0x14E-0x14F).
+        GBA: complement check byte (0x0BD) + reserved 0xBE-0xBF (норма по GBATEK).
+        """
+        if self.system == 'gba':
+            data[0x0BD] = self.calculate_gba_complement(data)
+            # 0xBE-0xBF: в коммерческих ROM всегда 0x0000; GBATEK требует
+            # sum(0xA0..0xBF) == 0x0000 — complement на 0xBD это обеспечивает.
+            data[0x0BE] = 0x00
+            data[0x0BF] = 0x00
+            return
+        data[0x014D] = self.calculate_header_checksum(data)
+        global_checksum = self.calculate_global_checksum(data)
+        data[0x014E] = (global_checksum >> 8) & 0xFF
+        data[0x014F] = global_checksum & 0xFF
 
     def read(self, address: int) -> int:
         """Чтение из ROM с учетом MBC"""

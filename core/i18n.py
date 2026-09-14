@@ -27,6 +27,26 @@ from pathlib import Path
 
 logger = logging.getLogger('gb2text.i18n')
 
+LANGUAGE_NAMES = {"en": "English", "ru": "Русский", "ja": "日本語", "zh": "中文"}
+
+
+def language_code(value: str) -> str:
+    """Приводит название языка или его код к коду (en/ru/ja/zh).
+
+    Если значение уже является кодом — возвращается как есть; если это
+    название (например "Русский") — ищется соответствующий код.
+    """
+    value = str(value)
+    if not value:
+        return "en"
+    low = value.lower()
+    if low in LANGUAGE_NAMES:
+        return low
+    for code, name in LANGUAGE_NAMES.items():
+        if name.lower() == low:
+            return code
+    return low
+
 
 class I18N:
     """Система интернационализации для приложения"""
@@ -41,12 +61,8 @@ class I18N:
 
     def _get_resource_path(self, relative_path: str) -> str:
         """Получает правильный путь к ресурсу для exe и обычного режима"""
-        try:
-            # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
-            base_path = sys._MEIPASS
-        except AttributeError:
-            # Обычный режим - используем текущую директорию
-            base_path = os.path.abspath(".")
+        # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
+        base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
 
         return os.path.join(base_path, relative_path)
 
@@ -122,12 +138,22 @@ class I18N:
                 "supported.plugin": "Supported Plugin",
                 "text.segments": "Text Segments:",
                 "segment.content": "Segment Content:",
-                "export.json": "Export to JSON",
+"export.json": "Export to JSON",
                 "export.txt": "Export to TXT",
                 "export.csv": "Export to CSV",
                 "export.xml": "Export to XML",
+                "export.xliff": "Export to XLIFF",
                 "export.sqlite": "Export to SQLite",
+                "export.tmx": "Export TMX",
+                "import.tmx": "Import TMX",
+                "toolbar.export": "Export",
+                "toolbar.import": "Import",
+                "menu.file": "File",
                 "import.csv": "Import from CSV",
+                "import.xliff": "Import XLIFF",
+                "import.xliff.error": "XLIFF import failed: {error}",
+                "import.xliff.success": "Imported {count} translations from XLIFF",
+                "file.import.xliff": "Import from XLIFF",
                 "status.loading": "Loading...",
                 "original.text": "Original Text",
                 "translated.text": "Translation",
@@ -139,6 +165,7 @@ class I18N:
                 "display.error": "Failed to display entry: {error}",
                 "settings.localization": "Localization Settings",
                 "settings.theme": "Theme",
+                "spell.check": "Spell Check",
                 "target.language": "Target Language:",
                 "encoding.type": "Encoding Type:",
                 "auto.detect": "Auto-detection",
@@ -170,11 +197,22 @@ class I18N:
                 "cancel": "Cancel",
                 "confirm.title": "Confirm",
                 "confirm.exit": "Are you sure you want to exit?",
+                "confirm.inject": "Are you sure you want to inject translated text into the ROM?",
+                "confirm.machine.translate": "The text will be sent to a cloud translation service. Continue?",
+                "status.translating": "Translating...",
+                "translation.in.progress": "Machine translation is already in progress",
+                "translation.completed": "Translation completed",
+                "translation.completed.entry": "Translation for entry {entry} completed",
+                "translation.failed": "Translation failed",
+                "translation.error": "Translation error: {error}",
                 "legal.warning": "This tool must be used ONLY with ROM files that legally belong to you. Do not use it with illegal copies of games.\n\nThis project does NOT contain or distribute any ROM files or copyrighted materials.",
                 "file.select.rom": "Please select a ROM file first",
                 "rom.loaded": "ROM is loaded",
                 "config.created": "Configuration created and saved to:\n{path}\n\nYou can now edit it for better text extraction.",
                 "warning.no.segment": "First load a text segment",
+                "warning.no.text": "No text to translate",
+                "warning.no.original": "The original text is empty",
+                "warning.no.translation": "The translation is empty",
                 "success.title": "Success",
                 "copy.original": "Copy Original",
                 "paste.translation": "Paste Translation",
@@ -199,7 +237,10 @@ class I18N:
                 "status.error": "Error",
                 "export.txt.success": "Results successfully saved to TXT",
                 "export.json.success": "Results successfully saved to JSON",
+                "export.xliff.success": "Results successfully saved to XLIFF",
                 "file.export.json": "",
+                "file.export.xliff": "Export text to XLIFF",
+                "export.xliff.error": "Failed to export to XLIFF: {error}",
                 "extract.text.first": "Please extract text first",
                 "segment.not.found": "Selected segment not found in extracted results",
                 "segment.load.error": "Failed to load segment: {error}",
@@ -241,6 +282,7 @@ class I18N:
                 "batch.stop": "Stop",
                 "batch.export.all": "Export All",
                 "batch.rom.count": "{count} ROM files selected",
+                "batch.no.results": "No results available",
                 "export.directory": "Select Export Directory"
             },
             "ru": {
@@ -263,8 +305,18 @@ class I18N:
                 "export.txt": "Экспорт в TXT",
                 "export.csv": "Экспорт в CSV",
                 "export.xml": "Экспорт в XML",
+                "export.xliff": "Экспорт в XLIFF",
                 "export.sqlite": "Экспорт в SQLite",
+                "export.tmx": "Экспорт TMX",
+                "import.tmx": "Импорт TMX",
+                "toolbar.export": "Экспорт",
+                "toolbar.import": "Импорт",
+                "menu.file": "Файл",
                 "import.csv": "Импорт из CSV",
+                "import.xliff": "Импорт XLIFF",
+                "import.xliff.error": "Ошибка импорта XLIFF: {error}",
+                "import.xliff.success": "Импортировано {count} переводов из XLIFF",
+                "file.import.xliff": "Импорт из XLIFF",
                 "status.loading": "Загрузка...",
                 "original.text": "Оригинальный текст",
                 "translated.text": "Перевод",
@@ -283,6 +335,7 @@ class I18N:
                 "russian": "Русский",
                 "save.settings": "Сохранить настройки",
                 "settings.saved": "Настройки сохранены",
+                "spell.check": "Проверка орфографии",
                 "create.config": "Создать конфигурацию",
                 "apply.encoding": "Применить кодировку",
                 "guide.tab": "Руководство",
@@ -294,12 +347,22 @@ class I18N:
                 "warning.extract.first": "Сначала извлеките текст",
                 "warning.no.translation": "Перевод не может быть пустым",
                 "warning.no.segment": "Сначала загрузите текстовый сегмент",
+                "warning.no.text": "Нет текста для перевода",
+                "warning.no.original": "Исходный текст пуст",
                 "file.browse": "Обзор...",
                 "success.title": "Успех",
                 "error.title": "Ошибка",
                 "warning.title": "Предупреждение",
                 "confirm.title": "Подтверждение",
                 "confirm.exit": "Вы действительно хотите выйти?",
+                "confirm.inject": "Вы действительно хотите вставить переведённый текст в ROM?",
+                "confirm.machine.translate": "Текст будет отправлен в облачный сервис перевода. Продолжить?",
+                "status.translating": "Перевод...",
+                "translation.in.progress": "Машинный перевод уже выполняется",
+                "translation.completed": "Перевод завершён",
+                "translation.completed.entry": "Перевод записи {entry} завершён",
+                "translation.failed": "Перевод не удался",
+                "translation.error": "Ошибка перевода: {error}",
                 "ui.language": "Язык интерфейса",
                 "tab.about": "О программе",
                 "about.version": "Версия: {version}",
@@ -336,7 +399,10 @@ class I18N:
                 "status.error": "Ошибка",
                 "export.txt.success": "Результаты успешно сохранены в TXT",
                 "export.json.success": "Результаты успешно сохранены в JSON",
+                "export.xliff.success": "Результаты успешно сохранены в XLIFF",
                 "file.export.json": "",
+                "file.export.xliff": "Экспорт текста в XLIFF",
+                "export.xliff.error": "Не удалось экспортировать в XLIFF: {error}",
                 "extract.text.first": "Сначала извлеките текст",
                 "segment.not.found": "Выбранный сегмент не найден в извлеченных результатах",
                 "segment.load.error": "Не удалось загрузить сегмент: {error}",
@@ -378,6 +444,7 @@ class I18N:
                 "batch.stop": "Остановить",
                 "batch.export.all": "Экспортировать всё",
                 "batch.rom.count": "Выбрано файлов ROM: {count}",
+                "batch.no.results": "Нет результатов",
                 "export.directory": "Выбрать папку для экспорта"
             },
             "ja": {
@@ -400,8 +467,18 @@ class I18N:
                 "export.txt": "TXTとしてエクスポート",
                 "export.csv": "CSVとしてエクスポート",
                 "export.xml": "XMLとしてエクスポート",
+                "export.xliff": "XLIFFとしてエクスポート",
                 "export.sqlite": "SQLiteとしてエクスポート",
+                "export.tmx": "TMXとしてエクスポート",
+                "import.tmx": "TMXからインポート",
+                "toolbar.export": "エクスポート",
+                "toolbar.import": "インポート",
+                "menu.file": "ファイル",
                 "import.csv": "CSVからインポート",
+                "import.xliff": "XLIFFからインポート",
+                "import.xliff.error": "XLIFFインポートに失敗しました: {error}",
+                "import.xliff.success": "XLIFFから {count} 件の翻訳をインポートしました",
+                "file.import.xliff": "XLIFFからインポート",
                 "original.text": "原文",
                 "translated.text": "翻訳文",
                 "prev.entry": "← 前へ",
@@ -443,6 +520,7 @@ class I18N:
                 "rom.loaded": "ROMが読み込まれました",
                 "config.created": "設定ファイルが作成され、以下の場所に保存されました:\n{path}\nより良いテキスト抽出のために編集できます。",
                 "settings.saved": "設定を保存しました",
+                "spell.check": "スペルチェック",
                 "warning.no.segment": "まずテキストセグメントを読み込んでください",
                 "success.title": "成功",
                 "copy.original": "原文をコピー",
@@ -468,7 +546,10 @@ class I18N:
                 "status.error": "エラー",
                 "export.txt.success": "結果をTXTファイルに正常に保存しました",
                 "export.json.success": "結果が正常にJSONに保存されました",
+                "export.xliff.success": "結果が正常にXLIFFで保存されました",
                 "file.export.json": "",
+                "file.export.xliff": "テキストをXLIFFにエクスポート",
+                "export.xliff.error": "XLIFFへのエクスポートに失敗しました: {error}",
                 "extract.text.first": "最初にテキストを抽出してください",
                 "segment.not.found": "選択したセグメントは抽出結果にありません",
                 "segment.load.error": "セグメントの読み込みに失敗しました: {error}",
@@ -510,6 +591,7 @@ class I18N:
                 "batch.stop": "停止",
                 "batch.export.all": "すべてエクスポート",
                 "batch.rom.count": "{count}個のROMファイルを選択",
+                "batch.no.results": "結果がありません",
                 "export.directory": "エクスポート先フォルダを選択"
             },
             "zh": {
@@ -577,8 +659,18 @@ class I18N:
                 "export.txt": "导出为TXT",
                 "export.csv": "导出为CSV",
                 "export.xml": "导出为XML",
+                "export.xliff": "导出为XLIFF",
                 "export.sqlite": "导出为SQLite",
+                "export.tmx": "导出为TMX",
+                "import.tmx": "从TMX导入",
+                "toolbar.export": "导出",
+                "toolbar.import": "导入",
+                "menu.file": "文件",
                 "import.csv": "从CSV导入",
+                "import.xliff": "从XLIFF导入",
+                "import.xliff.error": "XLIFF导入失败: {error}",
+                "import.xliff.success": "已从XLIFF导入 {count} 条翻译",
+                "file.import.xliff": "从XLIFF导入",
                 "status.loading": "加载中...",
                 # 搜索
                 "search": "搜索",
@@ -604,6 +696,8 @@ class I18N:
                 "batch.stop": "停止",
                 "batch.export.all": "导出全部",
                 "batch.rom.count": "已选择 {count} 个ROM文件",
+                "batch.no.results": "没有可用的结果",
+                "spell.check": "拼写检查",
                 "export.directory": "选择导出目录"
             }
         }
@@ -632,12 +726,7 @@ class I18N:
 
     def get_available_languages(self) -> dict[str, str]:
         """Возвращает доступные языки в формате код: название"""
-        return {
-            "en": "English",
-            "ru": "Русский",
-            "ja": "日本語",
-            "zh": "中文"
-        }
+        return dict(LANGUAGE_NAMES)
 
     def change_language(self, lang: str):
         """Меняет текущий язык"""

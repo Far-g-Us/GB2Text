@@ -53,8 +53,8 @@ def dump_header(rom_path):
     print(f"Game Title: {rom.title}")
     print(f"CGB Flag: {rom.cgb_flag}")
 
-    print(f"\nNintendo Logo Valid: {rom.validate_header()}")
-    print(f"\nChecksum Valid: {hex(rom.calculate_checksum())}")
+    print(f"\nHeader Checksum Valid: {rom.validate_header()}")
+    print(f"\nGlobal Checksum (hex): {hex(rom.calculate_global_checksum())}")
 
 
 def scan_blocks(rom_path, limit=None):

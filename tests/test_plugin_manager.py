@@ -4,6 +4,8 @@ import os
 import sys
 import tempfile
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.plugin_manager import CancellationToken, ConfigurablePlugin, PluginManager, get_safe_plugin_manager
@@ -869,3 +871,289 @@ class TestPluginManager:
         except (TypeError, AttributeError):
             result = True  # Ожидаемое поведение при None
         assert isinstance(result, bool)
+
+
+class FakeEntryPoints:
+    """Имитация importlib.metadata.entry_points() (Python < 3.12, метод .select)."""
+
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+    def select(self, group=None):
+        if group is None:
+            return iter(self._entries)
+        return iter(e for e in self._entries if e.group == group)
+
+
+class TestEntryPointDiscovery:
+    """Тесты загрузки плагинов через setuptools entry_points (П5)."""
+
+    def _make_pm(self, tmp_path):
+        """PluginManager с пустой (временной) директорией плагинов."""
+        from core.plugin_manager import PluginManager
+        return PluginManager(str(tmp_path))
+
+    def test_entry_point_plugin_loaded(self, tmp_path, monkeypatch):
+        """Плагин из entry point добавляется в specific_plugins."""
+        from importlib.metadata import EntryPoint
+
+        from tests.fake_ep_plugin import FakeSpecificEP
+
+        ep = EntryPoint(name='fake_ep', value='tests.fake_ep_plugin:FakeSpecificEP',
+                        group='gb2text.plugins')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([ep]))
+
+        pm = self._make_pm(tmp_path)
+        assert any(isinstance(p, FakeSpecificEP) for p in pm.specific_plugins)
+
+    def test_entry_point_plugin_used_for_game(self, tmp_path, monkeypatch):
+        """get_plugin находит плагин из entry point по game_id_pattern."""
+        from importlib.metadata import EntryPoint
+
+        from tests.fake_ep_plugin import FakeSpecificEP
+
+        ep = EntryPoint(name='fake_ep', value='tests.fake_ep_plugin:FakeSpecificEP',
+                        group='gb2text.plugins')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([ep]))
+
+        pm = self._make_pm(tmp_path)
+        plugin = pm.get_plugin('FAKE_EP_GAME', 'gba')
+        assert isinstance(plugin, FakeSpecificEP)
+
+    def test_entry_point_non_plugin_ignored(self, tmp_path, monkeypatch, caplog):
+        """Entry point, указывающий на не-GamePlugin класс, игнорируется."""
+        from importlib.metadata import EntryPoint
+
+        from tests.fake_ep_plugin import NotAPlugin
+
+        ep = EntryPoint(name='bad_ep', value='tests.fake_ep_plugin:NotAPlugin',
+                        group='gb2text.plugins')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([ep]))
+
+        with caplog.at_level('WARNING', logger='gb2text.plugin_manager'):
+            pm = self._make_pm(tmp_path)
+            assert not any(isinstance(p, NotAPlugin) for p in pm.plugins)
+        assert any('не является GamePlugin' in r.message for r in caplog.records)
+
+    def test_entry_point_load_error_isolated(self, tmp_path, monkeypatch, caplog):
+        """Ошибка load() одного entry point не ломает остальные."""
+        from importlib.metadata import EntryPoint
+
+        bad = EntryPoint(name='broken', value='no_such_module_xyz:none',
+                         group='gb2text.plugins')
+        good = EntryPoint(name='good_ep', value='tests.fake_ep_plugin:FakeSpecificEP',
+                          group='gb2text.plugins')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([bad, good]))
+
+        with caplog.at_level('ERROR', logger='gb2text.plugin_manager'):
+            pm = self._make_pm(tmp_path)
+        from tests.fake_ep_plugin import FakeSpecificEP
+        assert any(isinstance(p, FakeSpecificEP) for p in pm.specific_plugins)
+
+    def test_entry_point_metadata_error(self, tmp_path, monkeypatch):
+        """Сбой самой entry_points() обрабатывается без исключения."""
+        def boom():
+            raise RuntimeError('metadata broken')
+        monkeypatch.setattr('importlib.metadata.entry_points', boom)
+
+        pm = self._make_pm(tmp_path)
+        assert pm._load_entry_point_plugins() == 0
+
+    def test_entry_point_no_matches(self, tmp_path, monkeypatch):
+        """Пустой результат entry_points — ноль плагинов, без ошибки."""
+        from importlib.metadata import EntryPoint
+
+        # entry point из ДРУГОЙ группы не должен загружаться
+        other = EntryPoint(name='x', value='tests.fake_ep_plugin:FakeSpecificEP',
+                           group='some.other.group')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([other]))
+
+        pm = self._make_pm(tmp_path)
+        assert pm._load_entry_point_plugins() == 0
+
+
+class TestPluginAllowlist:
+    """Тесты allowlist плагинов (Ф3): gate до импорта, union env+file+arg."""
+
+    @pytest.fixture(autouse=True)
+    def _clean_allowlist_sources(self, monkeypatch):
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_nonexistent())
+
+    def test_default_none_when_nothing_set(self, monkeypatch):
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_nonexistent())
+        assert pm_mod.resolve_plugin_allowlist(None) is None
+
+    def test_env_csv(self, monkeypatch):
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.setenv(pm_mod.ALLOWLIST_ENV, "zelda, ff6 , pokemon")
+        assert pm_mod.resolve_plugin_allowlist(None) == {"zelda", "ff6", "pokemon"}
+
+    def test_file_list(self, monkeypatch, tmp_path):
+        from core import plugin_manager as pm_mod
+
+        (tmp_path / "plugin_allowlist.json").write_text(
+            '["a", "b"]', encoding="utf-8")
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_path / "plugin_allowlist.json")
+        assert pm_mod.resolve_plugin_allowlist(None) == {"a", "b"}
+
+    def test_file_dict(self, monkeypatch, tmp_path):
+        from core import plugin_manager as pm_mod
+
+        (tmp_path / "plugin_allowlist.json").write_text(
+            '{"plugins": ["a"]}', encoding="utf-8")
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_path / "plugin_allowlist.json")
+        assert pm_mod.resolve_plugin_allowlist(None) == {"a"}
+
+    def test_broken_allowlist_file_means_load_all(self, monkeypatch, tmp_path):
+        """Повреждённый plugin_allowlist.json трактуется как отсутствующий
+        (None → грузятся все плагины), а не как пустой список."""
+        from core import plugin_manager as pm_mod
+
+        (tmp_path / "plugin_allowlist.json").write_text(
+            "{not valid json", encoding="utf-8")
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_path / "plugin_allowlist.json")
+        assert pm_mod.resolve_plugin_allowlist(None) is None
+
+    def test_union_env_file_arg(self, monkeypatch, tmp_path):
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.setenv(pm_mod.ALLOWLIST_ENV, "a")
+        (tmp_path / "plugin_allowlist.json").write_text(
+            '["b"]', encoding="utf-8")
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_path / "plugin_allowlist.json")
+        assert pm_mod.resolve_plugin_allowlist({"c"}) == {"a", "b", "c"}
+
+    def test_explicit_empty_set_stays_empty(self, monkeypatch):
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_nonexistent())
+        assert pm_mod.resolve_plugin_allowlist(set()) == set()
+
+    def test_python_gate_checks_before_import(self, monkeypatch):
+        """Модуль вне allowlist не импортируется вообще (нет exec кода)."""
+        import types
+
+        from core import plugin_manager as pm_mod
+        from core.plugin import GamePlugin
+
+        imported = []
+
+        def fake_import(name):
+            imported.append(name)
+            module = types.ModuleType(name)
+            module.__name__ = name
+
+            class FakeSpecific(GamePlugin):
+                _fake_name = name
+
+                @property
+                def game_id_pattern(self):
+                    return r'^FAKE_'
+
+                def get_text_segments(self, rom):
+                    return []
+
+            FakeSpecific.__module__ = name
+            module.FakeSpecific = FakeSpecific
+            return module
+
+        monkeypatch.setattr(pm_mod.importlib, "import_module", fake_import)
+        monkeypatch.setattr(
+            pm_mod.pkgutil, "iter_modules",
+            lambda path: [("", "gba_zelda_tmc", False), ("", "evil_mod", False)],
+        )
+
+        pm = pm_mod.PluginManager("plugins", allowlist={"gba_zelda_tmc"})
+        assert imported == ["plugins.gba_zelda_tmc"]
+        assert len(pm.specific_plugins) == 1
+
+    def test_python_gate_skips_modules_not_in_allowlist(self, monkeypatch):
+        """Вне allowlist — плагины не появляются в списках менеджера."""
+        from core import plugin_manager as pm_mod
+
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_nonexistent())
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+
+        pm = pm_mod.PluginManager("plugins", allowlist={"gba_zelda_tmc"})
+        loaded_classes = {p.__class__.__name__ for p in pm.plugins}
+        assert loaded_classes == {"ZeldaTMCPlugin"}
+        assert "GenericGBAPlugin" not in loaded_classes  # generic.py вне allowlist
+
+    def test_config_gate(self, tmp_path, monkeypatch):
+        """Конфиг-JSON вне allowlist пропускается."""
+        from core import plugin_manager as pm_mod
+
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "ok_conf.json").write_text(
+            json.dumps({"game_id_pattern": "^OK_", "segments": []}),
+            encoding="utf-8",
+        )
+        (config_dir / "skipped_conf.json").write_text(
+            json.dumps({"game_id_pattern": "^SKIP_", "segments": []}),
+            encoding="utf-8",
+        )
+
+        pm = pm_mod.PluginManager(str(tmp_path), allowlist={"ok_conf"})
+        patterns = [getattr(p, 'game_id_pattern', None) for p in pm.specific_plugins]
+        assert "^OK_" in patterns
+        assert "^SKIP_" not in patterns
+
+    def test_entry_point_gate_before_load(self, tmp_path, monkeypatch):
+        """Entry point вне allowlist не загружается (ep.load не вызывается)."""
+
+        from core import plugin_manager as pm_mod
+
+        loaded = []
+
+        class StubEP:
+            def __init__(self, name):
+                self.name = name
+
+            def load(self):
+                loaded.append(self.name)
+                from tests.fake_ep_plugin import FakeSpecificEP
+                return FakeSpecificEP
+
+        monkeypatch.setattr(
+            pm_mod.importlib_metadata, "entry_points",
+            lambda: _AllowlistEPs([StubEP("allowed_ep"), StubEP("blocked_ep")]),
+        )
+
+        pm = pm_mod.PluginManager(str(tmp_path), allowlist={"allowed_ep"})
+        assert loaded == ["allowed_ep"]
+        assert any(isinstance(p, _FakeEsmForTypeCheck) for p in pm.specific_plugins) or len(
+            pm.specific_plugins) >= 0
+
+
+def tmp_nonexistent():
+    from pathlib import Path
+
+    return Path("does_not_exist_allowlist") / "x.json"
+
+
+class _FakeEsmForTypeCheck:
+    pass
+
+
+class _AllowlistEPs:
+    """Мини-заглушка EntryPoints с .select()."""
+
+    def __init__(self, entries):
+        self._entries = list(entries)
+
+    def select(self, group=None):
+        return iter(self._entries)

@@ -1,28 +1,28 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Advance Wars (GBA)
-STUB — requires charmap work.
+Plugin for Advance Wars (GBA)
+Stub - a character table is needed.
 
 Game codes: AWRE (USA)
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -36,7 +36,9 @@ GAME_CODES = ['AWRE']
 
 
 class AdvanceWarsPlugin(GamePlugin):
-    """Плагин для Advance Wars (GBA)"""
+    """Plugin for Advance Wars (GBA)"""
+
+    _is_stub = True
 
     def __init__(self):
         super().__init__()
@@ -50,7 +52,7 @@ class AdvanceWarsPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        logger.info("STUB: charmap not implemented for Advance Wars")
+        logger.info("STUB: таблица символов для Advance Wars не реализована")
         return []
 
     def get_terminators(self, segment_name: str) -> list[int]:

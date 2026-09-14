@@ -1,4 +1,4 @@
-# GB Text Extraction Framework
+# GB2Text — Contributing
 
 [![Language](https://img.shields.io/badge/Language-English-brightgreen)](docs/en/CONTRIBUTING.md)
 [![Language](https://img.shields.io/badge/Language-Русский-blue)](docs/ru/CONTRIBUTING.md)

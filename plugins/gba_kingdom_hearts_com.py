@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Kingdom Hearts: Chain of Memories (GBA)
+Plugin for Kingdom Hearts: Chain of Memories (GBA)
 
 Game codes: B8CE (USA)
 
 Text encoding: ASCII with control codes
-Source: ROM analysis
+Source: ROM reverse engineering
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -37,7 +37,7 @@ logger = logging.getLogger('gb2text.plugins.kingdom_hearts_com')
 # KH:CoM uses ASCII encoding
 CHARMAP_KHCOM: dict[int, str] = {i: chr(i) for i in range(0x20, 0x7F)}
 
-# Control codes for KH:CoM
+# KH:CoM control codes
 KHCOM_CONTROL_CODES: dict[int, str] = {
     0x01: '[LINE]',
     0x02: '[PAUSE]',
@@ -64,7 +64,7 @@ KHCOM_GAME_CODES = ['B8CE']
 
 
 class KHCOMTextDecoder:
-    """Decoder for KH:CoM text (ASCII + control codes)"""
+    """KH:CoM text decoder (ASCII + control codes)"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -97,7 +97,7 @@ class KHCOMTextDecoder:
 
 
 class KingdomHeartsCOMPlugin(GamePlugin):
-    """Плагин для Kingdom Hearts: Chain of Memories (GBA)"""
+    """Plugin for Kingdom Hearts: Chain of Memories (GBA)"""
 
     def __init__(self):
         super().__init__()
@@ -112,16 +112,16 @@ class KingdomHeartsCOMPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов KH:CoM"""
+        """Extract KH:CoM text segments"""
         logger.info("Извлечение текстовых сегментов для KH: Chain of Memories")
 
         segments: list[dict] = []
 
-        # Scan for ASCII text blocks
+        # Scan ASCII text blocks
         scan_ranges = [
             (0x080000, 0x100000),  # Code area
             (0x200000, 0x300000),  # Data area
-            (0x400000, 0x500000),  # More data
+            (0x400000, 0x500000),  # Additional data
         ]
 
         for range_start, range_end in scan_ranges:
@@ -132,7 +132,7 @@ class KingdomHeartsCOMPlugin(GamePlugin):
             i = range_start
 
             while i + 10 < end:
-                # Look for ASCII strings (minimum 10 chars)
+                # Search for ASCII strings (minimum 10 characters)
                 length = 0
                 while i + length < end and length < 200:
                     b = rom.data[i + length]
@@ -143,7 +143,7 @@ class KingdomHeartsCOMPlugin(GamePlugin):
                     else:
                         break
 
-                if length >= 20:  # Found a text string (minimum 20 chars)
+                if length >= 20:  # Text string found (minimum 20 characters)
                     segments.append({
                         'name': f'khcom_text_{len(segments)}',
                         'start': i,
@@ -157,7 +157,7 @@ class KingdomHeartsCOMPlugin(GamePlugin):
                 else:
                     i += 1
 
-        logger.info(f"Total segments: {len(segments)}")
+        logger.info(f"Всего сегментов: {len(segments)}")
         return segments
 
     def get_terminators(self, segment_name: str) -> list[int]:

@@ -1,36 +1,36 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Mega Man Battle Network (GBA)
+Plugin for Mega Man Battle Network (GBA)
 
 Game codes: AREP (Europe), ABKE (USA), ABKJ (Japan)
 
-Text encoding: Custom encoding with control codes
+Text encoding: custom encoding with control codes
 Known facts:
-- MMBN uses custom text encoding with control codes
-- TextPet tool has built-in tables for this game
+- MMBN uses a custom text encoding with control codes
+- The TextPet tool ships with built-in tables for this game
 - Pointer tables are located at specific ROM offsets
-- Text includes control codes for mugshots, menu items, etc.
+- Text uses control codes for portraits, menu items, etc.
 
 Source: https://github.com/Prof9/TextPet
 
 NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -41,7 +41,7 @@ from core.rom import GameBoyROM
 logger = logging.getLogger('gb2text.plugins.megaman_battle_network')
 
 # Mega Man Battle Network charmap (ASCII-like encoding)
-# Source: TextPet plugin analysis
+# Source: analysis of the TextPet plugin
 CHARMAP_MMBN: dict[int, str] = {
     # Standard ASCII range
     0x00: ' ', 0x01: 'A', 0x02: 'B', 0x03: 'C', 0x04: 'D', 0x05: 'E',
@@ -58,11 +58,11 @@ CHARMAP_MMBN: dict[int, str] = {
     0x3F: '!', 0x40: '?', 0x41: '.', 0x42: ',', 0x43: ':', 0x44: ';',
     0x45: '-', 0x46: '+', 0x47: '=', 0x48: '(', 0x49: ')', 0x4A: '/',
     0x4B: "'", 0x4C: '"',
-    0x50: '\n',  # Newline
-    0xFF: '\n',  # End of string
+    0x50: '\n',  # Line feed
+    0xFF: '\n',  # End of line
 }
 
-# Control codes for Mega Man Battle Network
+# Mega Man Battle Network control codes
 MMBN_CONTROL_CODES: dict[int, str] = {
     0xE5: '[END]',
     0xE6: '[KEY_WAIT]',
@@ -78,7 +78,7 @@ MMBN_GAME_CODES = ['AREP', 'ABKE', 'ABKJ']
 
 
 class MMBNTextDecoder:
-    """Decoder for Mega Man Battle Network text"""
+    """Mega Man Battle Network text decoder"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -109,7 +109,9 @@ class MMBNTextDecoder:
 
 
 class MegaManBattleNetworkPlugin(GamePlugin):
-    """Плагин для Mega Man Battle Network (GBA)"""
+    """Plugin for Mega Man Battle Network (GBA)"""
+
+    _is_stub = True
 
     def __init__(self):
         super().__init__()
@@ -124,13 +126,13 @@ class MegaManBattleNetworkPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Mega Man Battle Network"""
+        """Extract Mega Man Battle Network text segments"""
         logger.info("Извлечение текстовых сегментов для Mega Man Battle Network")
 
         segments: list[dict] = []
 
-        # TODO: Find actual pointer table locations for MMBN
-        # For now, use heuristic scanning
+        # TODO: find the actual pointer-table locations for MMBN
+        # Heuristic scanning is used for now
         logger.info("MMBN: Using heuristic scanning (TODO: find pointer tables)")
 
         logger.info(f"Total segments: {len(segments)}")

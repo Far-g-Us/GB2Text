@@ -8,7 +8,7 @@
 scripts/
 ├── diagnostics.py   # Диагностика окружения и зависимостей
 ├── debug.py        # Отладочные инструменты
-├── profile.py      # Профилирование производительности
+├── profiler.py      # Профилирование производительности
 ├── diagnostics.bat # Windows batch-скрипт
 └── diagnostics.sh  # Linux/Mac shell-скрипт
 ```
@@ -29,16 +29,16 @@ python scripts/diagnostics.py --quick
 
 ```bash
 # Профилирование загрузки ROM
-python scripts/profile.py --module rom-loading --input test.gb
+python scripts/profiler.py --module rom-loading --input test.gb
 
 # Профилирование сканирования текста
-python scripts/profile.py --module scanning --input test.gb
+python scripts/profiler.py --module scanning --input test.gb
 
 # Профилирование полного цикла
-python scripts/profile.py --module full-workflow --input test.gb --iterations 5
+python scripts/profiler.py --module full-workflow --input test.gb --iterations 5
 
 # Генерация отчёта о производительности
-python scripts/profile.py --module benchmark --input test.gb --output benchmark.json
+python scripts/profiler.py --module benchmark --input test.gb --output benchmark.json
 ```
 
 ### Отладка

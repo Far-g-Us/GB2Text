@@ -54,24 +54,24 @@ def _detect_constant_stride(pointers: list[tuple[int, int]], min_run: int = 8) -
     """
     Детектор ложных срабатываний: отбрасывает последовательности указателей
     с постоянной дельтой (constant stride).
-    
+
     Признаки ложного срабатывания:
     - Разница между соседними указателями постоянна на протяжении >= min_run записей
     - Это индексный массив, таблица ширин глифов, или двойная косвенность,
       а не реальные указатели на строки (у которых длина = длина предыдущей строки)
-    
+
     Returns:
         Отфильтрованный список указателей без constant-stride последовательностей
     """
     if len(pointers) < min_run:
         return pointers
-    
+
     # Вычисляем дельты между соседними указателями (по адресам в ROM)
     deltas = []
     for i in range(1, len(pointers)):
         delta = pointers[i][1] - pointers[i - 1][1]
         deltas.append(delta)
-    
+
     # Ищем runs с постоянной дельтой
     filtered = []
     i = 0
@@ -80,7 +80,7 @@ def _detect_constant_stride(pointers: list[tuple[int, int]], min_run: int = 8) -
         if i + min_run <= len(pointers):
             # Смотрим дельты в окне [i, i+min_run)
             window_deltas = deltas[i:i + min_run - 1] if i + min_run - 1 <= len(deltas) else deltas[i:]
-            
+
             if len(window_deltas) >= min_run - 1:
                 # Проверяем, все ли дельты одинаковы и ненулевые
                 first_delta = window_deltas[0]
@@ -90,17 +90,17 @@ def _detect_constant_stride(pointers: list[tuple[int, int]], min_run: int = 8) -
                     run_end = i + min_run - 1
                     while run_end < len(deltas) and deltas[run_end] == first_delta:
                         run_end += 1
-                    
+
                     logger.warning(
                         f"Constant-stride detected at 0x{pointers[i][0]:X}: "
                         f"stride=0x{first_delta:X}, skipping {run_end - i + 1} entries"
                     )
                     i = run_end + 1
                     continue
-        
+
         filtered.append(pointers[i])
         i += 1
-    
+
     return filtered
 
 
@@ -212,50 +212,123 @@ def is_text_like(rom_data: bytes, start: int, min_length: int,
     return True
 
 
-def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000) -> list[str]:
-    """Определяет все языки, присутствующие в ROM"""
+# Коды языков из плагинов → имена, понятные детектору.
+_LANG_ALIASES = {'en': 'english', 'ru': 'russian', 'ja': 'japanese'}
+
+# Байты 0xE0-0xFD: эксклюзивный CP866-хвост (строчные р-я, Ё/ё).
+# JIS X 0201 (ГВ) их не использует, поэтому их наличие — сильный сигнал «русский».
+# 0xFE/0xFF исключены: это частые контрольные байты (перевод строки/END)
+# в японских текстовых окнах, они завышают плотность.
+# CP866 Russian exclusive tail (lowercase р-я, Ё/ё). JIS X 0201 never uses them,
+# so their presence is a strong "russian" signal vs the 8-bit katakana collision.
+CYRILLIC_EXCLUSIVE_RANGE = (0xE0, 0xFD)
+
+
+def _density_for(freq: Counter, byte_range: tuple[int, int], window_size: int) -> float:
+    return sum(freq.get(i, 0) for i in range(byte_range[0], byte_range[1] + 1)) / window_size
+
+
+def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000,
+                              prefer_lang: str | None = None) -> list[str]:
+    """Определяет все языки, присутствующие в ROM.
+
+    Использует относительные плотности (процент байтов в диапазоне языка
+    к общему числу байтов в окне), чтобы корректно работать с
+    slot-interleaved многоязычными играми (MLSS, Castlevania CVAS).
+
+    Ограничение (известное): KATAKANA_RANGE (0xA0-0xDF) пересекается с
+    CYRILLIC_UPPER (0xA0-0xBF), а HIRAGANA_RANGE (0x80-0x9F) — с CP866
+    прописными буквами. В 8-битных таблицах один и тот же байт может быть
+    катаканой или кириллицей. Когда плотности японского и русского высоки
+    одновременно, приоритет отдаётся русскому при наличии эксклюзивных
+    CP866 байт (0xE0-0xFF), иначе японскому.
+
+    `prefer_lang` — код языка, указанный плагином ('en'/'ru'/'ja'). Если он
+    валидный, соответствующий язык ставится первым (авторитетнее эвристики).
+    """
 
     logger = logging.getLogger('gb2text.scanner')
     logger.info(f"Определение всех языков в ROM, начиная с 0x{start:X}")
 
-    freq = Counter()
-    for i in range(start, min(start + length, len(rom_data))):
-        byte = rom_data[i]
-        freq[byte] += 1
+    end = min(start + length, len(rom_data))
+    window_size = end - start
+    if window_size <= 0:
+        return ['english']
+
+    # Считаем частоты одним проходом
+    freq = Counter(rom_data[start:end])
+
+    ascii_density = _density_for(freq, (ASCII_PRINTABLE_START, ASCII_PRINTABLE_END), window_size)
+
+    # Плотность японского: хирагана + катакана
+    hiragana_count = sum(freq.get(i, 0) for i in range(HIRAGANA_RANGE[0], HIRAGANA_RANGE[1] + 1))
+    katakana_count = sum(freq.get(i, 0) for i in range(KATAKANA_RANGE[0], KATAKANA_RANGE[1] + 1))
+    japanese_density = (hiragana_count + katakana_count) / window_size
+
+    # Плотность русского
+    cyr_upper_count = sum(freq.get(i, 0) for i in range(CYRILLIC_UPPER[0], CYRILLIC_UPPER[1] + 1))
+    cyr_lower_count = sum(freq.get(i, 0) for i in range(CYRILLIC_LOWER[0], CYRILLIC_LOWER[1] + 1))
+    russian_density = (cyr_upper_count + cyr_lower_count) / window_size
+
+    cyr_exclusive_density = _density_for(freq, CYRILLIC_EXCLUSIVE_RANGE, window_size)
+
+    min_density = 0.04  # 4% окна
 
     detected_languages = []
 
-    # Проверка на английский (ASCII)
-    ascii_count = sum(1 for i in range(0x20, 0x7F) if i in freq and freq[i] > 2)
-    if ascii_count > 20:
+    # ASCII (английский): только если действительно много печатных символов
+    if ascii_density > 0.2:
         detected_languages.append('english')
-        logger.info(f"Обнаружен английский язык (ASCII символов: {ascii_count})")
+        logger.info(f"Обнаружен английский язык (плотность ASCII: {ascii_density:.1%})")
 
-    # Проверка на японский
-    japanese_count = sum(1 for i in range(0xA0, 0xDF) if i in freq and freq[i] > 2)
-    if japanese_count > 10:
-        detected_languages.append('japanese')
-        logger.info(f"Обнаружен японский язык (катакана символов: {japanese_count})")
+    # Коллизия CP866/JIS: при высоких плотностях обоих языков эксклюзивные
+    # CP866 байты (0xE0-0xFF, не входят в JIS X 0201) снимают неоднозначность
+    # в пользу русского. Без них японский сохраняет приоритет.
+    russian_preferred = (
+        russian_density >= min_density and cyr_exclusive_density >= 0.005)
 
-    # Проверка на русский
-    cyrillic_count = sum(1 for i in range(CYRILLIC_UPPER[0], CYRILLIC_UPPER[1]) if i in freq and freq[i] > 2)
-    if cyrillic_count > 10:
+    if russian_preferred:
         detected_languages.append('russian')
-        logger.info(f"Обнаружен русский язык (кириллица символов: {cyrillic_count})")
+        if japanese_density >= min_density:
+            detected_languages.append('japanese')
+    else:
+        # Японский: приоритет при равенстве с русским (наибольшее кол-во ROM на пл.)
+        if japanese_density >= min_density:
+            detected_languages.append('japanese')
+        # Русский
+        if russian_density >= min_density:
+            detected_languages.append('russian')
 
+    # Плагин знает свой язык лучше статистики — ставим его первым.
+    if prefer_lang is not None and prefer_lang in _LANG_ALIASES:
+        resolved = _LANG_ALIASES[prefer_lang]
+        if resolved in detected_languages:
+            detected_languages.remove(resolved)
+        detected_languages.insert(0, resolved)
+
+    for lang in detected_languages:
+        logger.info(f"Обнаружен язык: {lang}")
     return detected_languages if detected_languages else ['english']
 
 
-def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> dict[int, str]:
-    """Автоматическое определение таблицы символов с поддержкой нескольких языков"""
+def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000,
+                        prefer_lang: str | None = None) -> dict[int, str]:
+    """Автоматическое определение таблицы символов с поддержкой нескольких языков
+
+    `prefer_lang` — код языка, указанный плагином ('en'/'ru'/'ja'). Если задан,
+    он переопределяет эвристику (плагин знает язык игры авторитетнее статистики).
+    """
 
     logger = logging.getLogger('gb2text.scanner')
     logger.info(f"Автоопределение таблицы символов, начиная с 0x{start:X}, длина: {length}")
 
-    detected_languages = detect_multiple_languages(rom_data, start, length)
+    detected_languages = detect_multiple_languages(rom_data, start, length, prefer_lang=prefer_lang)
     logger.info(f"Обнаружены языки: {detected_languages}")
 
-    if 'english' in detected_languages:
+    if prefer_lang is not None and prefer_lang in _LANG_ALIASES:
+        primary_language = _LANG_ALIASES[prefer_lang]
+        logger.info(f"Плагин указал язык: {prefer_lang} → {primary_language}")
+    elif 'english' in detected_languages:
         primary_language = 'english'
         logger.info("Выбран английский язык как приоритетный")
     else:
@@ -272,10 +345,6 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
 
     charmap = {}
 
-    # # Определяем язык игры по статистике
-    # language = _detect_language(rom_data, start, length, freq)
-    # logger.info(f"Определен язык игры: {language}")
-
     # Проверяем минимальный размер ROM
     if len(rom_data) < ROM_HEADER_SIZE:
         logger.error("ROM слишком маленький для анализа")
@@ -291,35 +360,12 @@ def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000) -> 
         _setup_english_charmap(charmap)
 
     # Добавляем пробелы и терминаторы
-    _setup_common_symbols(charmap, freq, False, rom_data)
+    _setup_common_symbols(charmap, freq, False, rom_data, start, length)
 
     logger.info(f"Создана таблица символов с {len(charmap)} символами для языка: {primary_language}")
     logger.debug(f"Таблица символов: {dict(list(charmap.items())[:10])}...")
 
     return charmap
-
-
-def _detect_language(rom_data: bytes, start: int, length: int, freq: Counter) -> str:
-    """Улучшенное определение языка с приоритетом английского"""
-
-    # Сначала проверяем плотность ASCII символов
-    ascii_density = sum(1 for i in range(start, min(start + length, len(rom_data)))
-                        if 0x20 <= rom_data[i] <= 0x7E) / length
-
-    if ascii_density > 0.3:  # 30% ASCII = английский
-        return 'english'
-
-    # Проверка на японский
-    japanese_count = sum(1 for i in range(0xA0, 0xDF) if i in freq and freq[i] > 3)
-    if japanese_count > 15:
-        return 'japanese'
-
-    # Проверка на русский
-    cyrillic_count = sum(1 for i in range(CYRILLIC_LOWER[0], CYRILLIC_LOWER[1] + 1) if i in freq and freq[i] > 3)
-    if cyrillic_count > 15:
-        return 'russian'
-
-    return 'english'  # По умолчанию английский
 
 
 def _setup_russian_charmap(charmap: dict):
@@ -345,8 +391,11 @@ def _setup_russian_charmap(charmap: dict):
         0xEC: 'Г', 0xED: 'г', 0xEE: 'Р', 0xEF: 'р', 0xF0: 'Ш', 0xF1: 'ш',
         0xF2: 'Щ', 0xF3: 'щ', 0xF4: 'З', 0xF5: 'з', 0xF6: 'Х', 0xF7: 'х',
         0xF8: 'Ъ', 0xF9: 'ъ', 0xFA: 'Ф', 0xFB: 'ф', 0xFC: 'Ы', 0xFD: 'ы',
-        0xFE: 'Ь', 0xFF: 'ь'
+        0xFE: 'Ь'
     }
+    # 0xFF НЕ мапим на букву: это стандартный терминатор сообщений в GB-играх
+    # (см. _setup_english_charmap/_setup_japanese_charmap), иначе сообщения
+    # будут склеиваться. Декодируется как '\n' через _setup_common_symbols.
     charmap.update(cyrillic_map)
 
     # Добавляем распространенные символы
@@ -430,18 +479,27 @@ def _setup_japanese_charmap(charmap: dict, freq: Counter):
     charmap[0x0D] = '\n'  # Возврат каретки
 
 
-def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: bytes | None = None):
-    """Добавляет общие символы и терминаторы"""
+def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: bytes | None = None,
+                          start: int = 0, length: int = 1000):
+    """Добавляет общие символы и терминаторы
+
+    `freq` считается по окну `rom_data[start:start+length]`, поэтому и порог
+    пробела, и поиск терминаторов должны работать в том же окне, а не по
+    всему ROM (у больших ROM окно — лишь малая его часть).
+    """
 
     logger = logging.getLogger('gb2text.scanner')
     logger.info("Настройка общих символов и терминаторов")
 
+    sample_end = min(start + length, len(rom_data)) if rom_data is not None else 0
+    sample_len = sample_end - start
+
     # Ищем наиболее частый байт как потенциальный пробел
-    if freq and rom_data is not None:
+    if freq and rom_data is not None and sample_len > 0:
         most_common = freq.most_common(10)
         for byte, count in most_common:
             # Если байт встречается часто и не является ASCII символом
-            if count > len(rom_data) * 0.01 and byte not in charmap and byte not in TEXT_TERMINATORS:
+            if count > sample_len * 0.01 and byte not in charmap and byte not in TEXT_TERMINATORS:
                 charmap[byte] = ' '
                 logger.info(f"Определен символ пробела: 0x{byte:02X}")
                 break
@@ -453,12 +511,11 @@ def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: 
         if freq[byte] > 10 and byte not in charmap:
             is_terminator = True
 
-            # Проверяем, часто ли этот байт встречается перед другими символами
-            if rom_data is not None:
-                # Эффективная проверка с использованием any()
+            # Проверяем в окне freq, встречается ли этот байт перед другим
+            if rom_data is not None and sample_len > 1:
                 is_terminator = any(
                     rom_data[i] == byte and rom_data[i + 1] != byte
-                    for i in range(min(100, len(rom_data) - 1))
+                    for i in range(start, sample_end - 1)
                 )
 
             if is_terminator:

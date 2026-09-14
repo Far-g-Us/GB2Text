@@ -1,0 +1,22 @@
+{
+  "game_id_pattern": "^GBA_AWRE$",
+  "rom_signature": [
+    {
+      "title_pattern": "^ADVANCEWARS",
+      "min_size": 4194304,
+      "max_size": 33554432
+    }
+  ],
+  "segments": [
+    {
+      "name": "mission_names",
+      "start": "0x80D44",
+      "end": "0x8162C",
+      "charmap": {
+        "0x20-0x7E": "ASCII printable"
+      }
+    }
+  ],
+  "description": "REFERENCE (rom_signature + segments) for Advance Wars GBA (USA AWRE). The gba_advance_wars.py plugin is a stub (returns no segments), so the documented addresses come from MANUAL ROM ANALYSIS (verified on the USA ROM, not from a Python plugin): fixed ASCII mission-name area 0x80D44-0x8162C (0x00-terminated ASCII). Covered: that single fixed ASCII region only. The game's dialog uses a custom encoded charset (not plain ASCII) - character table not implemented yet, use a future Python plugin for complete coverage. Advance Wars 2 (AWRP/AWRJ) uses different addresses. Hack authors: copy and adapt title_pattern to match YOUR hack ROM title.",
+  "_user_created": true
+}

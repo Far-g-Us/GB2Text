@@ -53,7 +53,59 @@ pm = PluginManager("plugins")
 
 # Получение плагина для игры
 plugin = pm.get_plugin(game_id, system)
+
+# Получение плагина по сигнатуре ROM (для хаков)
+plugin = pm.get_plugin(game_id, system, rom=rom)
 ```
+
+Плагины-хаки имеют сигнатурный гейт: когда передан объект `rom`, кандидаты
+должны подходить по game id **и** проходить `validate_rom(rom)` (либо быть
+уровня 0). Хак-плагин обязан возвращать `False` на несовместимый ROM.
+Конфигурируемые плагины вместо этого поддерживают поле `rom_signature`.
+
+Детект хаков имеет смысл только для игр, у которых (а) есть рабочий плагин
+в этом фреймворке и (б) реально существует хак-сцена. Гейт не сработает без
+плагина-кандидата, поэтому у остальных игр остаётся fallback на generic.
+Игры с реальной хак-сценой:
+
+| Игра | Коды игр | Хак-сцена |
+|------|----------|-----------|
+| Pokémon GBA | `BPEE`, `BPRE`, `BPGE`, `AXVE`, `AXPE` | ★★★ огромная |
+| Fire Emblem GBA (Blazing Blade / Sacred Stones) | `BE7E`, `BE7J`, `AE7Y` / `BE8E`, `BE8J`, `BE8P` | ★★★ большая |
+| Golden Sun / The Lost Age | `AGSE` / `AGFE` | ★★ заметная |
+| Advance Wars | `AWRE` | ★★ заметная |
+| Castlevania (Aria of Sorrow / Circle of the Moon / Harmony of Dissonance) | `A2CE`, `AGBJ`, `AGBE` / `AAME`, `AAMJ`, `AAMP` / `ACHP`, `ACHJ`, `ACHI` | ★ точечная |
+| Metroid Fusion | `AMTE`, `AMTP`, `AMTJ` | ★ точечная |
+| FF5 / FF6 Advance | `BZ5E`, `BZ5J`, `BZ5P` / `BZ6E`, `BZ6J`, `BZ6P` | ★ точечная |
+| Mega Man Battle Network 1/2 | `AREP`, `ABKE`, `ABKJ` / `AM2P` | ★ точечная |
+| The Legend of Zelda: The Minish Cap | `BZME` | ★ точечная |
+| Breath of Fire (GBA) | `ABFE` | ★ точечная |
+
+Эталонные конфиги (паттерн title замени на название конкретного хака):
+
+Pokémon GBA (Emerald и др.):
+```json
+{
+  "game_id_pattern": "^GBA_(BPEE|BPRE|BPGE|AXVE|AXPE)$",
+  "rom_signature": [
+    { "title_pattern": "^POKEMON HACK$", "min_size": 16777216 }
+  ]
+}
+```
+Fire Emblem GBA:
+```json
+{
+  "game_id_pattern": "^GBA_(BE7E|BE7J|AE7Y|BE8E|BE8J|BE8P)$",
+  "rom_signature": [
+    { "title_pattern": "^FEMAKER", "min_size": 16777216 }
+  ]
+}
+```
+
+`title_pattern` матчится через `re.match` (префикс) — добавляй явные якоря
+(`^...$`), иначе хак-плагин перехватит все ROM с тем же `game_code`.
+`min_size`/`max_size` ограничивают размер ROM в байтах
+(`min <= размер <= max`); запись без полей подходит любому ROM.
 
 ### Scanner Functions
 ```python

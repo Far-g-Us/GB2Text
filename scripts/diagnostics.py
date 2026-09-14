@@ -167,8 +167,8 @@ def check_guides():
     guides_dir = os.path.join(base_dir, 'guides')
 
     if os.path.exists(guides_dir):
-        guides = [f for f in os.listdir(guides_dir) if f.endswith('.rating')]
-        print(f"  Found {len(guides)} rating guides:")
+        guides = [f for f in os.listdir(guides_dir) if f.endswith('.json')]
+        print(f"  Found {len(guides)} guide files:")
         for g in sorted(guides)[:5]:
             print(f"    - {g}")
         if len(guides) > 5:

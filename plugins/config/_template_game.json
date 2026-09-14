@@ -1,14 +1,27 @@
 {
-  "disclaimer": "Эта конфигурация предназначена ТОЛЬКО для анализа ROM-файлов, законно принадлежащих пользователю. Не используйте с нелегальными копиями игр.",
-  "game_id_pattern": "^GAME_[0-9A-F]{2}$",
+  "game": {
+    "name": "Шаблон GBA игры (минимальный)",
+    "version": "2.0.0",
+    "description": "Минимальный шаблон для быстрого создания плагина GBA игры"
+  },
+  "supported_platforms": ["GBA"],
+  "game_id_pattern": "^GBA_[A-Z0-9_]+$",
+  "extraction_mode": "ascii",
   "segments": [
     {
-      "name": "main_text",
-      "start": "0x4000",
-      "end": "0x7FFF",
+      "name": "text",
+      "start": "0x100000",
+      "end": "0x120000",
+      "encoding": "ascii",
+      "terminators": ["0x00", "0xFF"],
+      "min_length": 5,
       "charmap": {
-
+        "0x20-0x7E": "ASCII"
       }
     }
-  ]
+  ],
+  "validation": {
+    "min_alpha_ratio": 0.3,
+    "max_unknown_bytes": 0.2
+  }
 }

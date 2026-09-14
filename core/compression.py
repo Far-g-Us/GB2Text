@@ -20,6 +20,7 @@ GB Text Extraction Framework
 """
 
 import logging
+from typing import ClassVar
 
 from core.decoder import CompressionHandler, LZ77Handler as BaseLZ77Handler
 from core.gba_support import GBALZ77Handler
@@ -141,7 +142,7 @@ class AutoDetectCompressionHandler(CompressionHandler):
     """
 
     # Карта сигнатур для определения типа сжатия
-    SIGNATURES = {
+    SIGNATURES: ClassVar[dict[str, list[int]]] = {
         'gba_lz77': [0x10],      # GBA LZ77
         'lz77': [],               # Nintendo LZ77 без заголовка
         'lzss': [],               # Без четкой сигнатуры
@@ -233,153 +234,300 @@ class AutoDetectCompressionHandler(CompressionHandler):
         return rle_markers >= 2
 
 
-class FFTA_LZSSHandler(CompressionHandler):
+class FFTA_LZSSHandler(CompressionHandler):  # noqa: N801 — имя с префиксом игры осознанно
     """
     Обработчик LZSS сжатия для Final Fantasy Tactics Advance (GBA).
 
-    Формат (из DataCrystal):
+    Формат (DataCrystal + эталон references/ffta_lzss_myguyz.py):
     - 4 байта big-endian: размер распакованных данных
-    - Затем команды, декодируемые по старшему биту:
+    - Затем поток команд; тип определяется старшим битом либо точным значением.
 
-    Бит 7 установлен: RLE — следующий байт повторяется (X+3) раз
-    Бит 6 установлен: literals — следующий байт это X+1 литералов
-    Бит 5 установлен: output zeros — X+2 нулевых байт
-    Бит 4 установлен: backref — 3 байта, back Z, copy 4+0b00YYXXXX
-    Бит 1 установлен: output 0x00 × (X+3)
-    Бит 0 установлен: output 0xFF × (X+3)
-    Нет бит: backref — 3 байта, back Z, copy X+5
+    Команды (первый байт `cmd`):
+    - бит 7 (0b1XXXXYYY YYYYYYYY): backref — расстояние ((cmd&7)<<8|arg)+1
+      (1..0x800), длина ((cmd>>3)&0xF)+3 (3..18); 2 байта.
+    - бит 6 (0b01XXXXXX): литералы, длина (cmd&0x3F)+1.
+    - бит 5 (0b001XXXXX): нули, длина (cmd&0x1F)+2.
+    - бит 4 (0b0001XXXX YYZZZZZZ ZZZZZZZZ): backref — расстояние
+      (((b1&0x3F)<<8)|b2)+1 (1..0x4000), длина (((b1>>2)&0x30)|(cmd&0xF))+4
+      (4..67); 3 байта.
+    - cmd == 0x02: нули. Следующий байт + 3.
+    - cmd == 0x01: байты 0xFF. Следующий байт + 3.
+    - cmd == 0x00: backref — расстояние (b2<<8)|b3 (1..0x10000),
+      длина b1+5 (5..260); 4 байта.
+    - прочие значения (0x03, 0x04, 0x06, ...) — невалидный поток.
 
-    Алгоритм из C# референсного кода DataCrystal:
-    Каждая команда — один байт. Старшие биты определяют тип:
-    - 0b1XXXXXXX: RLE — X+3 копий следующего байта
-    - 0b01XXXXXX: literals — X+1 следующих байт копируются
-    - 0b001XXXXX: zeros — X+2 нулевых байт
-    - 0b0001XXXX YYZZZZZZ ZZZZZZZZ: backref Z, copy 4+0b00YYXXXX
-    - 0b00000010 XXXXXXXX: output 0x00 × (X+3)
-    - 0b00000001 XXXXXXXX: output 0xFF × (X+3)
-    - 0b00000000 XXXXXXXX YYYYYYYY ZZZZZZZZ: backref Z, copy X+5
+    Семантика переполнения decomp_size: все команды (нули, backref, литералы)
+    клampятся — вывод усекается до decomp_size, декомпрессия считается успешной.
+    Это осознанно расходится с эталоном references/ffta_lzss_myguyz.py: литералы
+    у эталона при переполнении возвращают None. Унификация оправдана длиной
+    реальных блоков (ни один не переполняет заявленный размер) и прецедентом
+    GBALZ77Handler (gba_support.py). Исчерпание входа при литералах по-прежнему
+    ошибка.
     """
 
     def decompress(self, data: bytes, start: int) -> tuple[bytes, int]:
         """Распаковывает FFTA LZSS данные.
 
-        Ожидает 4-байтовый заголовок big-endian с размером распакованных данных.
+        Ожидает 4-байтовый big-endian заголовок с размером распакованных данных.
+        При некорректном или оборванном потоке возвращает (b"", 0).
         """
         if start + 4 > len(data):
             return b"", 0
 
-        # Читаем размер распакованных данных (big-endian, 4 байта)
         decomp_size = int.from_bytes(data[start:start + 4], 'big')
 
         if decomp_size <= 0 or decomp_size > 0x100000:
             return b"", 0
 
-        # Данные начинаются после заголовка
-        result = bytearray()
+        result: bytearray = bytearray()
         i = start + 4
+        data_len = len(data)
 
-        while i < len(data) and len(result) < decomp_size:
+        while len(result) < decomp_size:
+            if i >= data_len:
+                return b"", 0
             cmd = data[i]
             i += 1
 
-            # Бит 7: backref — 2-байтовая обратная ссылка
-            # Формат: 0b1HHHLLLL LLLLLLLL — back (H<<8|L)+1 байт, copy 3+((cmd>>3)&0x0F)
+            # Бит 7: backref — 2 байта (расстояние 1..0x800, длина 3..18)
             if cmd & 0x80:
-                if i >= len(data):
-                    break
-                low = data[i]
+                if i >= data_len:
+                    return b"", 0
+                dist = (((cmd & 0x07) << 8) | data[i]) + 1
                 i += 1
-                dist = ((cmd & 0x07) << 8) | low
-                dist = dist + 1
-                count = ((cmd >> 3) & 0x0F) + 3
                 src_pos = len(result) - dist
                 if src_pos < 0:
-                    src_pos = 0
+                    return b"", 0
+                count = ((cmd >> 3) & 0x0F) + 3
                 for _ in range(count):
                     if len(result) >= decomp_size:
                         break
-                    result.append(result[src_pos])
+                    if src_pos < len(result):
+                        result.append(result[src_pos])
+                    else:
+                        result.append(0)
                     src_pos += 1
 
-            # Бит 6: literals — скопировать X+1 следующих байт
+            # Бит 6: литералы — скопировать (cmd&0x3F)+1 следующих байт
             elif cmd & 0x40:
-                x = cmd & 0x3F
-                lit_count = x + 1
+                lit_count = (cmd & 0x3F) + 1
                 for _ in range(lit_count):
-                    if i >= len(data) or len(result) >= decomp_size:
+                    if len(result) >= decomp_size:
                         break
+                    if i >= data_len:
+                        return b"", 0
                     result.append(data[i])
                     i += 1
 
-            # Бит 5: zeros — X+2 нулевых байт
+            # Бит 5: нули — (cmd&0x1F)+2 нулевых байт
             elif cmd & 0x20:
-                x = cmd & 0x1F
-                zero_count = x + 2
+                zero_count = (cmd & 0x1F) + 2
                 for _ in range(zero_count):
                     if len(result) >= decomp_size:
                         break
                     result.append(0)
 
-            # Бит 4: backref 4-байтовый
+            # Бит 4: backref — 3 байта (расстояние 1..0x4000, длина 4..67)
             elif cmd & 0x10:
-                x = cmd & 0x0F
-                if i + 1 < len(data):
-                    b1 = data[i]
-                    b2 = data[i + 1]
-                    i += 2
-
-                    # back Z bytes, copy 4 + (0b00 << 6 | YY << 4 | X)
-                    # Из DataCrystal: 0b0001XXXX 0bYYZZZZZZ 0bZZZZZZZZ
-                    z = ((b1 & 0x3F) << 8) | b2
-                    yy = (b1 >> 6) & 0x03
-                    copy_len = 4 + ((yy << 4) | x)
-
-                    if z > 0 and z <= len(result):
-                        for _ in range(copy_len):
-                            if len(result) >= decomp_size:
-                                break
-                            result.append(result[len(result) - z])
-
-            # Бит 1: output 0x00 × (X+3)
-            elif cmd & 0x02:
-                # Формат: 0b00000010 XXXXXXXX
-                if i < len(data):
-                    x = data[i]
-                    i += 1
-                    for _ in range(x + 3):
-                        if len(result) >= decomp_size:
-                            break
-                        result.append(0)
-
-            # Бит 0: output 0xFF × (X+3)
-            elif cmd & 0x01:
-                if i < len(data):
-                    x = data[i]
-                    i += 1
-                    for _ in range(x + 3):
-                        if len(result) >= decomp_size:
-                            break
-                        result.append(0xFF)
-
-            # Нет бит: backref 5-байтовый
-            # Формат: 0x00 cnt dist_lo dist_hi — back dist, copy cnt+5
-            else:
-                if i + 3 < len(data):
-                    cnt = data[i]
-                    dist = data[i + 3] | (data[i + 2] << 8)
-                    i += 4
-
-                    copy_len = cnt + 5
-                    src_pos = len(result) - dist - 1
-                    if src_pos < 0:
-                        src_pos = 0
-                    for _ in range(copy_len):
-                        if len(result) >= decomp_size:
-                            break
+                if i + 1 >= data_len:
+                    return b"", 0
+                b1 = data[i]
+                b2 = data[i + 1]
+                i += 2
+                src_pos = len(result) - ((b1 & 0x3F) << 8) - b2 - 1
+                if src_pos < 0:
+                    src_pos = 0
+                copy_len = (((b1 >> 2) & 0x30) | (cmd & 0x0F)) + 4
+                for _ in range(copy_len):
+                    if len(result) >= decomp_size:
+                        break
+                    if src_pos < len(result):
                         result.append(result[src_pos])
-                        src_pos += 1
+                    else:
+                        result.append(0)
+                    src_pos += 1
 
-        return bytes(result[:decomp_size]), i - start
+            # Команда 0x02: нули — следующий байт + 3 штук
+            elif cmd == 0x02:
+                if i >= data_len:
+                    return b"", 0
+                for _ in range(data[i] + 3):
+                    if len(result) >= decomp_size:
+                        break
+                    result.append(0)
+                i += 1
+
+            # Команда 0x01: байты 0xFF — следующий байт + 3 штук
+            elif cmd == 0x01:
+                if i >= data_len:
+                    return b"", 0
+                for _ in range(data[i] + 3):
+                    if len(result) >= decomp_size:
+                        break
+                    result.append(0xFF)
+                i += 1
+
+            # Команда 0x00: backref — 4 байта (расстояние 1..0x10000, длина 5..260)
+            elif cmd == 0x00:
+                if i + 2 >= data_len:
+                    return b"", 0
+                src_pos = len(result) - ((data[i + 1] << 8) | data[i + 2]) - 1
+                if src_pos < 0:
+                    src_pos = 0
+                copy_len = data[i] + 5
+                i += 3
+                for _ in range(copy_len):
+                    if len(result) >= decomp_size:
+                        break
+                    if src_pos < len(result):
+                        result.append(result[src_pos])
+                    else:
+                        result.append(0)
+                    src_pos += 1
+
+            # Прочие байты — невалидная команда
+            else:
+                return b"", 0
+
+        return bytes(result), i - start
+
+    def compress(self, data: bytes) -> bytes:
+        """Сжимает данные в FFTA LZSS.
+
+        Возвращает 4-байтовый big-endian заголовок (размер распакованных данных)
+        и поток команд, который корректно разбирается decompress() и эталоном.
+        Жадный подбор: сначала run'ы нулей/0xFF, затем длиннейшее совпадение
+        в окне 0x4000. Пустые данные не поддерживаются.
+        """
+        if not data:
+            raise ValueError("FFTA LZSS не поддерживает сжатие пустых данных")
+
+        if len(data) > 0x100000:
+            raise ValueError(
+                f"FFTA LZSS не сжимает блоки больше 0x100000 байт (получено {len(data)})"
+            )
+
+        n = len(data)
+        out = bytearray()
+        out.extend(n.to_bytes(4, 'big'))
+        pos = 0
+        literals = bytearray()
+
+        def flush() -> None:
+            """Сбрасывает накопленные литералы в поток (блоками до 64 байт)."""
+            if not literals:
+                return
+            cur = 0
+            while cur < len(literals):
+                count = min(64, len(literals) - cur)
+                out.append(0x40 | (count - 1))
+                out.extend(literals[cur:cur + count])
+                cur += count
+            literals.clear()
+
+        def find_best_match(start: int) -> tuple[int, int]:
+            """Ищет длиннейшее совпадение в окне 0x4000. Возвращает (len, dist)."""
+            best_len = 0
+            best_dist = 0
+            limit = min(start, 0x4000)
+            max_len = min(260, n - start)
+            for d in range(1, limit + 1):
+                src = start - d
+                ln = 0
+                while ln < max_len and data[src + ln] == data[start + ln]:
+                    ln += 1
+                if ln > best_len:
+                    best_len = ln
+                    best_dist = d
+                    if ln >= max_len:
+                        break
+            return best_len, best_dist
+
+        while pos < n:
+            field = data[pos]
+
+            run = 1
+            while pos + run < n and data[pos + run] == field and run < 260:
+                run += 1
+
+            # Run'ы нулей: бит5 (до 33 байт одной командой) и команда 0x02 (до 258)
+            if field == 0x00 and run >= 2:
+                flush()
+                consumed = 0
+                remaining = run
+                while remaining > 258:
+                    out.append(0x02)
+                    out.append(0xFF)  # 258 нулей
+                    remaining -= 258
+                    consumed += 258
+                if remaining >= 2:
+                    if remaining <= 33:
+                        out.append(0x20 | (remaining - 2))
+                    else:
+                        out.append(0x02)
+                        out.append(remaining - 3)
+                    consumed += remaining
+                pos += consumed
+                continue
+
+            # Run 0xFF: только команда 0x01 (3..258 байт)
+            if field == 0xFF and run >= 3:
+                flush()
+                consumed = 0
+                remaining = run
+                while remaining >= 3:
+                    chunk = min(258, remaining)
+                    out.append(0x01)
+                    out.append(chunk - 3)
+                    remaining -= chunk
+                    consumed += chunk
+                pos += consumed
+                continue
+
+            best_len, best_dist = find_best_match(pos)
+
+            best_gain = -1
+            best_cover = 0
+            best_type = 0  # 7 = бит7, 4 = бит4, 0 = команда 0x00
+
+            def consider(gain: int, cover: int, cmd_type: int) -> None:
+                nonlocal best_gain, best_cover, best_type
+                if gain > best_gain or (gain == best_gain and cover > best_cover):
+                    best_gain = gain
+                    best_cover = cover
+                    best_type = cmd_type
+
+            if best_len >= 3 and best_dist <= 0x800:
+                consider(min(best_len, 18) - 2, min(best_len, 18), 7)
+            if best_len >= 4 and best_dist <= 0x4000:
+                consider(min(best_len, 67) - 3, min(best_len, 67), 4)
+            if best_len >= 5:
+                consider(min(best_len, 260) - 4, min(best_len, 260), 0)
+
+            if best_gain > 0:
+                flush()
+                dist_code = best_dist - 1
+                if best_type == 7:
+                    out.append(0x80 | ((best_cover - 3) << 3) | ((dist_code >> 8) & 0x07))
+                    out.append(dist_code & 0xFF)
+                elif best_type == 4:
+                    length_code = best_cover - 4
+                    out.append(0x10 | (length_code & 0x0F))
+                    out.append(((length_code >> 4) << 6) | ((dist_code >> 8) & 0x3F))
+                    out.append(dist_code & 0xFF)
+                else:
+                    out.append(0x00)
+                    out.append(best_cover - 5)
+                    out.append((dist_code >> 8) & 0xFF)
+                    out.append(dist_code & 0xFF)
+                pos += best_cover
+                continue
+
+            literals.append(field)
+            pos += 1
+
+        flush()
+        return bytes(out)
 
 
 class HuffmanHandler(CompressionHandler):
@@ -433,9 +581,16 @@ class HuffmanHandler(CompressionHandler):
         while byte_offset < len(rom_data) and len(result) < 1024:
             # Начинаем с корня дерева (индекс 0)
             node_idx = 0
+            depth = 0
 
             # Декодируем один символ
             while True:
+                # Предохранитель от циклического/вырожденного дерева:
+                # на боевых данных путь до листа не превышает ~16 узлов
+                if depth > 64:
+                    return bytes(result)
+                depth += 1
+
                 if byte_offset >= len(rom_data):
                     break
 

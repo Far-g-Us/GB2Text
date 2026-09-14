@@ -29,7 +29,16 @@ GB Text Extraction Framework
   - get_compression_handler(segment_name) → CompressionHandler | None
   - get_terminators(segment_name) → list[int]
   - get_pointer_size(rom) → int
-  - validate_rom(rom) → bool
+  - validate_rom(rom) → bool — сигнатурный гейт выбора плагина.
+    Вызывается PluginManager.get_plugin() ТОЛЬКО когда туда передан rom.
+    Дефолт (не переопределён) = True для любого ROM: плагин считается
+    «без гейта» (level 0). Плагин с переопределённым validate_rom считается
+    «с гейтом» (level 1) и выигрывает выбор у плагина без гейта при том же
+    game_id_pattern — это механизм поддержки ROM-хаков и вариантов игры с
+    тем же game_code (заголовок/размер меняются, game_code — нет).
+    КОНТРАКТ для хак-плагинов: validate_rom ОБЯЗАН возвращать False на ROM,
+    не подходящем под сигнатуру плагина, иначе он перебьёт ванильный плагин.
+    Исключения из validate_rom рассматриваются как «ROM не подходит».
 
 Структура dict, возвращаемого get_text_segments():
   - name: str           — уникальное имя сегмента
@@ -133,7 +142,21 @@ class GamePlugin(ABC):
       - get_terminators(segment_name)
       - get_pointer_size(rom)
       - validate_rom(rom)
+
+    Атрибуты:
+      - is_stub (bool) — True если плагин только детектирует игру,
+        но структура текста ещё не реализована (get_text_segments может
+        вернуть пустой список). Используется тестами и GUI для честного
+        статуса вместо мусорных сегментов. Контракт: читать is_stub
+        ПОСЛЕ вызова get_text_segments(rom) — плагины, общие для рабочей
+        и stub-версии игры, выставляют флаг внутри метода по game_code.
     """
+
+    _is_stub: bool = False
+
+    @property
+    def is_stub(self) -> bool:
+        return self._is_stub
 
     @property
     @abstractmethod
@@ -167,7 +190,14 @@ class GamePlugin(ABC):
         return 2
 
     def validate_rom(self, rom: GameBoyROM) -> bool:
-        """Опционально: проверка валидности ROM для этого плагина."""
+        """Сигнатурный гейт: подходит ли этот ROM плагину.
+
+        Дефолт True. Переопределение маркирует плагин как «с гейтом»
+        (level 1): он принимает только ROM, подходящие под его сигнатуру,
+        и выигрывает выбор у плагина без гейта при том же game_id_pattern.
+        Для ROM-хаков validate_rom ОБЯЗАН вернуть False на ROM, не
+        подходящем под сигнатуру, иначе хак-плагин перебьёт ванильный.
+        Исключение внутри validate_rom трактуется как False."""
         return True
 
 

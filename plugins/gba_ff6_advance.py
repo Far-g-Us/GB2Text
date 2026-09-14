@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Final Fantasy VI Advance (GBA)
+Plugin for Final Fantasy VI Advance (GBA)
 
 Game codes: BZ6E (USA), BZ6J (Japan), BZ6P (Europe)
 
-Text encoding: Custom single-byte + multi-byte (Square Enix)
+Text encoding: proprietary single-byte + multibyte (Square Enix)
 Source: https://datacrystal.tcrf.net/wiki/Final_Fantasy_VI_Advance/TBL
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -34,7 +34,7 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.ff6_advance')
 
-# FF6 Advance charmap (based on FF4/FF5 pattern from DataCrystal)
+# FF6 Advance charmap (modeled on FF4/FF5 from DataCrystal)
 # Source: DataCrystal TBL format
 # Single-byte characters (0x00-0x77)
 CHARMAP_FF6: dict[int, str] = {
@@ -68,27 +68,27 @@ CHARMAP_FF6: dict[int, str] = {
 
 # FF6 Advance control codes (from DataCrystal)
 FF6_CONTROL_CODES: dict[int, str] = {
-    # Endstring
+    # End of line
     0x0D: '[END]',
-    # Linebreaks
+    # Line breaks
     0xC28E: '[LINEBREAK]', 0xC392: '[LINEBREAK_MENU]',
     # Names (dialogue)
     0xC2A5: '[NAME_LOCKE]', 0xC2A6: '[NAME_CELES]', 0xC2A7: '[NAME_TERRA]',
     0xC2A8: '[NAME_EDGAR]', 0xC2A9: '[NAME_SABIN]', 0xC2AA: '[NAME_CYAN]',
     0xC2AB: '[NAME_SHADOW]', 0xC2AC: '[NAME_SETZER]', 0xC2AD: '[NAME_CEALES]',
     0xC2AE: '[NAME_RELM]', 0xC2AF: '[NAME_STRAGO]', 0xC2B0: '[NAME_MOOGLE]',
-    # Pictures
+    # Images
     0xC2B1: '[PIC_LOCKE]', 0xC2B2: '[PIC_CELES]', 0xC2B3: '[PIC_TERRA]',
     0xC2B4: '[PIC_EDGAR]', 0xC2B5: '[PIC_SABIN]', 0xC2B6: '[PIC_CYAN]',
     0xC2B7: '[PIC_SHADOW]', 0xC2B8: '[PIC_SETZER]', 0xC2B9: '[PIC_CEALES]',
     0xC2BA: '[PIC_RELM]', 0xC2BB: '[PIC_STRAGO]',
-    # Remove Picture
+    # Remove image
     0xC2BC: '[REMOVE_PIC]',
     # Variables
     0xC2BD: '[VAR1]', 0xC2BE: '[CUR_HP]', 0xC2BF: '[VAR2]', 0xC2C0: '[MAX_HP]',
     # Treasure/Inn
     0xC2C1: '[TREASURE_ITEM]', 0xC2C2: '[INN_GIL]',
-    # Box control
+    # Window control
     0xC2C3: '[BOX_NO_BUTTON]',
     # Colors
     0xC2C4: '[COLOR_WHITE]', 0xC2C5: '[COLOR_BLUE]', 0xC2C6: '[COLOR_RED]',
@@ -96,25 +96,25 @@ FF6_CONTROL_CODES: dict[int, str] = {
 }
 
 # FF6 Advance text terminators
-# Only 0x0D is the end-of-string marker
+# Only 0x0D is the end-of-line marker
 # 0x00 is a SPACE character, not a terminator
 FF6_TERMINATORS = [0x0D]
 
-# Known pointer table locations for FF6 Advance (BZ6E)
+# Known pointer-table locations for FF6 Advance (BZ6E)
 # Source: DataCrystal
 FF6_POINTER_TABLES = [
-    (0x000000, 0x000000, 'unknown'),  # TODO: Find actual locations
+    (0x000000, 0x000000, 'unknown'),  # TODO: Find the actual locations
 ]
 
-# Known text block locations for FF6 Advance (BZ6E)
+# Known text-block locations for FF6 Advance (BZ6E)
 # Source: DataCrystal
 FF6_TEXT_BLOCKS = [
-    (0x000000, 0x000000, 'unknown'),  # TODO: Find actual locations
+    (0x000000, 0x000000, 'unknown'),  # TODO: Find the actual locations
 ]
 
 
 class FF6AdvanceTextDecoder:
-    """Decoder for FF6 Advance text"""
+    """FF6 Advance text decoder"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -147,6 +147,8 @@ class FF6AdvanceTextDecoder:
 class FF6AdvancePlugin(GamePlugin):
     """Plugin for Final Fantasy VI Advance"""
 
+    _is_stub = True
+
     def __init__(self) -> None:
         self._decoder = FF6AdvanceTextDecoder(CHARMAP_FF6)
 
@@ -155,14 +157,14 @@ class FF6AdvancePlugin(GamePlugin):
         return '^GBA_(BZ6E|BZ6J|BZ6P)$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Final Fantasy VI Advance"""
+        """Extract Final Fantasy VI Advance text segments"""
         logger.info("Извлечение текстовых сегментов для Final Fantasy VI Advance")
 
         segments: list[dict] = []
 
-        # TODO: Find actual pointer table locations for FF6 Advance
-        # For now, use heuristic scanning
-        logger.info("FF6 Advance: Using heuristic scanning (TODO: find pointer tables)")
+        # TODO: Find the pointer-table location for FF6 Advance
+        # For now use heuristic scanning
+        logger.info("FF6 Advance: используется эвристическое сканирование (TODO: найти таблицы указателей)")
 
         logger.info(f"Total segments: {len(segments)}")
         return segments

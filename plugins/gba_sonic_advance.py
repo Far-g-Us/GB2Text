@@ -1,35 +1,35 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Sonic Advance (GBA)
+Plugin for Sonic Advance (GBA)
 
-Game codes: ASOE (USA)
+Game codes: ASOE (Sonic Advance USA), A2NE (Sonic Advance 2)
 
 Text encoding: ASCII
 Source: ROM analysis (credits, zone names, music credits)
 
-Text format: Length-prefixed ASCII strings
+Text format: ASCII lines with a length prefix
 - Byte 0: string length
 - Byte 1: 0x00
 - Bytes 2+: ASCII text
 
 NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -45,12 +45,16 @@ CHARMAP_SONIC: dict[int, str] = {i: chr(i) for i in range(0x20, 0x7F)}
 # Text terminators
 SONIC_TERMINATORS = [0x00]
 
-# Game codes for detection
-SONIC_GAME_CODES = ['ASOE']
+# Game codes for game detection
+SONIC_GAME_CODES = ['ASOE', 'A2NE']
+
+# Sonic Advance 2 (A2NE): the text engine differs from SA1, the structure
+# is not implemented. The plugin detects the game but returns an empty list.
+SONIC_STUB_CODES = {'A2NE'}
 
 
 class SonicTextDecoder:
-    """Decoder for Sonic Advance text (ASCII)"""
+    """Sonic Advance text decoder (ASCII)"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -78,11 +82,12 @@ class SonicTextDecoder:
 
 
 class SonicAdvancePlugin(GamePlugin):
-    """Плагин для Sonic Advance (GBA)"""
+    """Plugin for Sonic Advance (GBA)"""
 
     def __init__(self):
         super().__init__()
         self._decoder = SonicTextDecoder(CHARMAP_SONIC)
+        self._game_code = ''
 
     @property
     def game_id_pattern(self) -> str:
@@ -93,13 +98,24 @@ class SonicAdvancePlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов Sonic Advance"""
+        """Extract Sonic Advance text segments"""
         logger.info("Извлечение текстовых сегментов для Sonic Advance")
+
+        game_code = rom.header.get('game_code', '')
+        self._game_code = game_code
+        self._is_stub = game_code in SONIC_STUB_CODES
+
+        if game_code in SONIC_STUB_CODES:
+            logger.info(
+                f"Sonic {game_code} (Advance 2): структура текста "
+                f"не реализована, возвращаю пустой список"
+            )
+            return []
 
         segments: list[dict] = []
 
-        # Credits text at 0x682000-0x683000 (verified from ROM analysis)
-        # Format: length-prefixed ASCII strings
+        # Credits text at 0x682000-0x683000 (confirmed by ROM analysis)
+        # Format: ASCII lines with a length prefix
         credits_start = 0x682000
         credits_end = 0x683000
 
@@ -115,8 +131,8 @@ class SonicAdvancePlugin(GamePlugin):
             })
             logger.info(f"Found credits block at 0x{credits_start:X}-0x{credits_end:X}")
 
-        # Scan for more text blocks using heuristic
-        # Look for length-prefixed ASCII strings
+        # Scan additional text blocks heuristically
+        # Search for ASCII lines with a length prefix
         scan_ranges = [
             (0x080000, 0x0C0000),  # Code/data area
             (0x600000, 0x700000),  # Data area
@@ -130,10 +146,10 @@ class SonicAdvancePlugin(GamePlugin):
             i = range_start
 
             while i + 10 < end:
-                # Check for length-prefixed string
+                # Check the line with a length prefix
                 str_len = rom.data[i]
                 if 3 <= str_len <= 100:
-                    # Check if the next bytes are ASCII
+                    # Check whether the following bytes are ASCII
                     has_ascii = False
                     for j in range(1, min(str_len + 1, 20)):
                         if i + j < end:
@@ -145,7 +161,7 @@ class SonicAdvancePlugin(GamePlugin):
                                 break
 
                     if has_ascii and str_len >= 5:
-                        # Found a text string
+                        # A text string was found
                         seg_end = min(i + str_len + 2, end)
                         segments.append({
                             'name': f'sonic_text_{len(segments)}',

@@ -1,30 +1,30 @@
 """
 GB Text Extraction Framework
 
-ПРЕДУПРЕЖДЕНИЕ ОБ АВТОРСКИХ ПРАВАХ:
-Этот программный инструмент предназначен ТОЛЬКО для анализа ROM-файлов,
-законно принадлежащих пользователю. Использование этого инструмента для
-нелегального копирования, распространения или модификации защищенных
-авторским правом материалов строго запрещено.
+COPYRIGHT WARNING:
+This software tool is intended ONLY for the analysis of ROM files
+lawfully owned by the user. Any use of this tool to
+illegally copy, distribute, or modify copyrighted
+material is strictly prohibited.
 
-Этот проект НЕ содержит и НЕ распространяет никакие ROM-файлы или
-защищенные авторским правом материалы. Все ROM-файлы должны быть
-законно приобретены пользователем самостоятельно.
+This project does NOT contain or distribute any ROM files or
+copyrighted material. All ROM files must be
+lawfully acquired by the user independently.
 
-Этот инструмент разработан исключительно для исследовательских целей,
-обучения и реверс-инжиниринга в рамках, разрешенных законодательством.
+This tool is developed exclusively for research purposes,
+education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Плагин для Final Fantasy I & II: Dawn of Souls (GBA)
+Plugin for Final Fantasy I & II: Dawn of Souls (GBA)
 
-Game codes: BZSE (USA)
+Game codes: BFFE (USA)
 
-Text encoding: Custom multi-byte (Square Enix)
+Text encoding: proprietary multibyte (Square Enix)
 Source: DataCrystal TBL
 
-NOTE: This plugin contains ONLY factual technical information.
-No copyrighted dialogue or story content is included.
+This plugin contains ONLY factual technical information.
+Dialogs and story content protected by copyright are not included.
 """
 
 import logging
@@ -34,14 +34,14 @@ from core.rom import GameBoyROM
 
 logger = logging.getLogger('gb2text.plugins.ff12_dawn_of_souls')
 
-# FF1&2 Dawn of Souls charmap — BZSE (USA)
+# FF1&2 Dawn of Souls charmap — BFFE (USA)
 # Source: DataCrystal TBL
 CHARMAP_FF12: dict[int, str] = {
     # Single-byte (0x00-0x2E)
     0x00: '[END]',
-    0x0A: '\n',  # Newline
+    0x0A: '\n',  # New line
     0x2D: '-', 0x2E: '.',
-    # Multi-byte (0x81XX)
+    # Multibyte (0x81XX)
     0x810A: '\r',  # CR
     0x8140: ' ', 0x8143: ',', 0x8144: '.', 0x8145: '?', 0x8146: ':',
     0x8147: ';', 0x8148: '?', 0x8149: '!', 0x8151: '_', 0x815E: '/',
@@ -58,21 +58,21 @@ CHARMAP_FF12: dict[int, str] = {
     # Digits (0x824F-0x8258)
     0x824F: '0', 0x8250: '1', 0x8251: '2', 0x8252: '3', 0x8253: '4',
     0x8254: '5', 0x8255: '6', 0x8256: '7', 0x8257: '8', 0x8258: '9',
-    # Uppercase (0x8260-0x8279)
+    # Uppercase letters (0x8260-0x8279)
     0x8260: 'A', 0x8261: 'B', 0x8262: 'C', 0x8263: 'D', 0x8264: 'E',
     0x8265: 'F', 0x8266: 'G', 0x8267: 'H', 0x8268: 'I', 0x8269: 'J',
     0x826A: 'K', 0x826B: 'L', 0x826C: 'M', 0x826D: 'N', 0x826E: 'O',
     0x826F: 'P', 0x8270: 'Q', 0x8271: 'R', 0x8272: 'S', 0x8273: 'T',
     0x8274: 'U', 0x8275: 'V', 0x8276: 'W', 0x8277: 'X', 0x8278: 'Y',
     0x8279: 'Z',
-    # Lowercase (0x8281-0x8299)
+    # Lowercase letters (0x8281-0x8299)
     0x8281: 'a', 0x8282: 'b', 0x8283: 'c', 0x8284: 'd', 0x8285: 'e',
     0x8286: 'f', 0x8287: 'g', 0x8288: 'h', 0x8289: 'i', 0x828A: 'j',
     0x828B: 'k', 0x828C: 'l', 0x828D: 'm', 0x828E: 'n', 0x828F: 'o',
     0x8290: 'p', 0x8291: 'q', 0x8292: 'r', 0x8293: 's', 0x8294: 't',
     0x8295: 'u', 0x8296: 'v', 0x8297: 'w', 0x8298: 'x', 0x8299: 'y',
     0x829A: 'z',
-    # Accented characters (0x829F-0x82CF)
+    # Characters with diacritics (0x829F-0x82CF)
     0x829F: '\u0152', 0x82A0: '\u0153', 0x82A1: '\u00A1', 0x82A2: '\u00BF',
     0x82A3: '\u00C0', 0x82A4: '\u00C1', 0x82A5: '\u00C2', 0x82A6: '\u00C4',
     0x82A7: '\u00C7', 0x82A8: '\u00C8', 0x82A9: '\u00C9', 0x82AA: '\u00CA',
@@ -115,11 +115,11 @@ FF12_CONTROL_CODES: dict[int, str] = {
 FF12_TERMINATORS = [0x00]
 
 # Game codes for detection
-FF12_GAME_CODES = ['BZSE']
+FF12_GAME_CODES = ['BFFE']
 
 
 class FF12TextDecoder:
-    """Decoder for FF1&2 Dawn of Souls text"""
+    """FF1&2 Dawn of Souls text decoder"""
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
@@ -135,7 +135,7 @@ class FF12TextDecoder:
             if byte in FF12_TERMINATORS:
                 break
 
-            # Multi-byte characters (0x81-0x87 prefix)
+            # Multibyte characters (prefix 0x81-0x87)
             if 0x81 <= byte <= 0x87 and i + 1 < end:
                 second = data[i + 1]
                 code = (byte << 8) | second
@@ -159,7 +159,9 @@ class FF12TextDecoder:
 
 
 class FF12DawnOfSoulsPlugin(GamePlugin):
-    """Плагин для Final Fantasy I & II: Dawn of Souls (GBA)"""
+    """Plugin for Final Fantasy I & II: Dawn of Souls (GBA)"""
+
+    _is_stub = True
 
     def __init__(self):
         super().__init__()
@@ -174,14 +176,14 @@ class FF12DawnOfSoulsPlugin(GamePlugin):
         return 4
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Извлечение текстовых сегментов FF1&2 Dawn of Souls"""
+        """Extract FF1&2 Dawn of Souls text segments"""
         logger.info("Извлечение текстовых сегментов для FF1&2 Dawn of Souls")
 
         segments: list[dict] = []
 
-        # TODO: Find pointer table location for BZSE
-        # For now, return empty - needs ROM analysis
-        logger.warning("Pointer table location not yet determined for BZSE")
+        # TODO: Find the pointer-table location for BFFE
+        # For now return an empty list — a ROM analysis is needed
+        logger.warning("Pointer table location not yet determined for BFFE")
 
         return segments
 

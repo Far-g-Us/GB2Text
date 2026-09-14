@@ -3,9 +3,11 @@
 Не нужно прописывать игры — система сама находит плагин по game_id
 """
 import os
+
 import pytest
-from core.rom import GameBoyROM
+
 from core.plugin_manager import PluginManager
+from core.rom import GameBoyROM
 
 
 def find_roms():
@@ -13,7 +15,7 @@ def find_roms():
     roms_dir = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
     if not os.path.exists(roms_dir):
         return []
-    
+
     return [
         os.path.join(roms_dir, f)
         for f in os.listdir(roms_dir)
@@ -30,7 +32,7 @@ def test_plugin_matches_rom(rom_path):
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
     plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
-    
+
     assert plugin is not None, f"No plugin found for {rom.get_game_id()}"
     # Проверяем что regex паттерн совпадает
     import re
@@ -44,10 +46,14 @@ def test_extraction_returns_segments(rom_path):
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
     plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
-    
+
     segments = plugin.get_text_segments(rom)
     assert isinstance(segments, list)
-    assert len(segments) > 0, f"No segments found for {os.path.basename(rom_path)}"
+    if getattr(plugin, 'is_stub', False):
+        assert len(segments) == 0, \
+            f"Stub plugin {plugin.__class__.__name__} returned segments for {os.path.basename(rom_path)}"
+    else:
+        assert len(segments) > 0, f"No segments found for {os.path.basename(rom_path)}"
 
 
 @pytest.mark.parametrize("rom_path", ROM_PATHS, ids=lambda p: os.path.basename(p))
@@ -56,10 +62,10 @@ def test_segments_have_required_keys(rom_path):
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
     plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
-    
+
     segments = plugin.get_text_segments(rom)
     required_keys = {'name', 'start', 'end'}
-    
+
     for seg in segments:
         assert required_keys.issubset(seg.keys()), \
             f"Segment missing keys: {required_keys - seg.keys()}"

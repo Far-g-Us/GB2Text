@@ -1,8 +1,8 @@
-# GB Text Extraction Framework Documentation
+# GB2Text Documentation
 
-[![License](https://img.shields.io/badge/Language-English-brightgreen)](../LICENSE.md)
+[![License](https://img.shields.io/badge/License-Custom-brightgreen)](../LICENSE.md)
 
-Welcome to the documentation for GB Text Extraction Framework!
+Welcome to the documentation for GB2Text — the GB Text Extraction Tool!
 
 ## Select your language - Readme
 

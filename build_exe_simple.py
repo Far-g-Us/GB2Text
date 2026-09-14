@@ -3,6 +3,7 @@
 """
 
 import shutil
+import site
 import subprocess
 import sys
 from pathlib import Path
@@ -15,7 +16,10 @@ def create_simple_exe():
 
     # Проверяем наличие PyInstaller
     try:
-        import PyInstaller
+        import importlib.util
+
+        if importlib.util.find_spec("PyInstaller") is None:
+            raise ImportError
         print("✅ PyInstaller найден")
     except ImportError:
         print("❌ PyInstaller не найден. Устанавливаем...")
@@ -76,6 +80,7 @@ def create_simple_exe():
         "--hidden-import=core.rom_cache",
         "--hidden-import=core.i18n",
         "--hidden-import=core.machine_translation",
+        "--hidden-import=spellchecker",
         "--hidden-import=plugins.auto_detect",
         "--hidden-import=tkinter",
         "--hidden-import=tkinter.ttk",
@@ -96,7 +101,7 @@ def create_simple_exe():
         print(f"⚠️ Файл VERSION не найден в {version_file}")
 
     # Добавляем папки проекта
-    required_folders = ['plugins', 'locales', 'guides', 'settings', 'resources', 'gui', 'core']
+    required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
     for folder in required_folders:
         folder_path = gb2text_dir / folder
         if folder_path.exists():
@@ -118,6 +123,12 @@ def create_simple_exe():
     icon_path = gb2text_dir / "resources" / "app_icon.ico"
     if icon_path.exists():
         cmd.append(f"--icon={icon_path}")
+
+    # Словари pyspellchecker (ресурсы пакета)
+    spellchecker_dir = Path(site.getsitepackages()[0]) / "spellchecker"
+    if spellchecker_dir.exists():
+        cmd.append(f"--add-data={spellchecker_dir / 'resources'};spellchecker/resources")
+        print("✅ Добавлены словари spellchecker")
 
     cmd.append(str(main_script))
 

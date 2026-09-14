@@ -217,10 +217,10 @@ class TestScanningIntegration(unittest.TestCase):
         self.assertIsNotNone(analyze_text_segment)
 
     def test_detect_language_import(self):
-        """Тест импорта _detect_language"""
-        from core.scanner import _detect_language
+        """Тест импорта detect_multiple_languages"""
+        from core.scanner import detect_multiple_languages
 
-        self.assertIsNotNone(_detect_language)
+        self.assertIsNotNone(detect_multiple_languages)
 
 
 class TestConstantsImport(unittest.TestCase):
