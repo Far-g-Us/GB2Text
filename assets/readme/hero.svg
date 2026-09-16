@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg"
      width="1200" height="360" viewBox="0 0 1200 360"
      role="img" aria-labelledby="title desc">
-  <title id="title">GB Text Extraction Framework</title>
+  <title id="title">GB Text Extraction Tool</title>
   <desc id="desc">Framework that extracts and reinserts text from Game Boy, Game Boy Color and Game Boy Advance ROM files, shown with an annotated hex dump of a decoded game text segment.</desc>
 
   <rect width="1200" height="360" rx="24" fill="#0E1116"/>
@@ -10,12 +10,12 @@
   <text x="84" y="55" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="600" letter-spacing="1" fill="#9BBC0F">GB · GBC · GBA TEXT EXTRACTION TOOLKIT</text>
 
   <text x="56" y="136" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="62" font-weight="700" fill="#E6EDF3">Text Extraction</text>
-  <text x="56" y="206" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="62" font-weight="700" fill="#E6EDF3">Framework</text>
+  <text x="56" y="206" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="62" font-weight="700" fill="#E6EDF3">Tool</text>
 
   <text x="56" y="252" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="24" fill="#AEB7C2">Extract and reinsert text from ROM files</text>
   <text x="56" y="284" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, sans-serif" font-size="24" fill="#AEB7C2">with a plugin API for new games.</text>
 
-  <text x="56" y="322" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#8B949E">PYTHON 3.11&#160;&#160;·&#160;&#160;36 GAMES&#160;&#160;·&#160;&#160;PLUGIN-BASED&#160;&#160;·&#160;&#160;EN / RU</text>
+  <text x="56" y="322" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#8B949E">PYTHON 3.11&#160;&#160;·&#160;&#160;31 GAMES&#160;&#160;·&#160;&#160;PLUGIN-BASED&#160;&#160;·&#160;&#160;EN / RU</text>
 
   <g id="proof-panel">
     <rect x="688" y="64" width="456" height="256" rx="18" fill="#161B22"/>
@@ -29,9 +29,9 @@
 
     <text x="716" y="156" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#525B66">8F 26 4A 50 21 00 9B FE&#160;&#160;..JP!..</text>
     <text x="716" y="192" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#525B66">3C 9E 11 02 48 00 61 6B&#160;&#160;&lt;...H.ak</text>
-    <text x="716" y="228" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#9BBC0F" font-weight="700">45 58 41 4D 50 4C 45 00&#160;&#160;EXAMPLE.</text>
+    <text x="716" y="228" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#9BBC0F" font-weight="700">57 45 4C 43 4F 4D 45 00&#160;&#160;WELCOME.</text>
     <text x="716" y="264" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#525B66">E5 08 72 19 A3 00 4C FF&#160;&#160;..r...L.</text>
 
-    <text x="716" y="300" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#8B949E">LZ77 + charmap decoder → item name</text>
+    <text x="716" y="300" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#8B949E">LZ77 + charmap decoder → dialogue line</text>
   </g>
 </svg>

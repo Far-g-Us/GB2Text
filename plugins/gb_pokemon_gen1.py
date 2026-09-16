@@ -26,9 +26,10 @@ Tables extracted:
   - MonsterNames: fixed-width (10 bytes/slot), 0x50 = terminator/padding
   - MoveNames:    variable-length, 0x50-terminated strings
 
-Addresses verified against Pokemon Red Version (USA, Europe).gb.
-Other versions (Blue, Green, Yellow) use different layouts and are
-NOT supported yet — validate_rom rejects them.
+Addresses verified against real ROMs.
+Red/Blue/Green share the same layout (verified on "Pokemon Red/Blue/Green
+Version (USA, Europe).gb"); Yellow uses its own offsets (verified on
+"Pokemon Yellow Version - Special Pikachu Edition (USA, Europe).gb").
 
 NOTE: This plugin contains ONLY factual technical information.
 Dialogs and story content protected by copyright are not included.
@@ -91,23 +92,42 @@ CHARMAP_GEN1: dict[int, str] = {
     0xfb: '5', 0xfc: '6', 0xfd: '7', 0xfe: '8', 0xff: '9',
 }
 
-# Known Gen1 titles. Blue/Green/Yellow use different table layouts and are
-# NOT supported yet (get_text_segments returns [] → stub), but they are still
-# Gen1 games so validate_rom accepts them. Gold/Silver/Crystal (Gen2) are NOT.
+# Known Gen1 titles. Blue/Green share the Red layout; Yellow uses its own.
+# Gold/Silver/Crystal (Gen2) are NOT Gen1.
 GEN1_TITLES = {'POKEMON RED', 'POKEMON BLUE', 'POKEMON GREEN',
                'POKEMON YELLOW'}
 
 # Gen1 text terminators
 GEN1_TERMINATORS = [0x50]
 
-# Fixed tables for Pokemon Red (USA, Europe)
-# Addresses verified by decoding real ROMs.
+# Fixed tables for Pokemon Gen1.
+# Red/Blue/Green (USA, Europe) — verified by decoding real ROMs.
+# Yellow — device layout (item 0x45B7, monster 0xE8000, move 0xBC000),
+# verified on "Pokemon Yellow Version - Special Pikachu Edition (USA, Europe).gb".
 GEN1_TABLES: dict[str, list[dict]] = {
     'POKEMON RED': [
         {'name': 'item_names', 'start': 0x472B, 'end': 0x4A92},
         {'name': 'monster_names', 'start': 0x1C21E, 'end': 0x1C98A,
          'fixed_width': 10},
         {'name': 'move_names', 'start': 0xB0000, 'end': 0xB060F},
+    ],
+    'POKEMON BLUE': [
+        {'name': 'item_names', 'start': 0x472B, 'end': 0x4A92},
+        {'name': 'monster_names', 'start': 0x1C21E, 'end': 0x1C98A,
+         'fixed_width': 10},
+        {'name': 'move_names', 'start': 0xB0000, 'end': 0xB060F},
+    ],
+    'POKEMON GREEN': [
+        {'name': 'item_names', 'start': 0x472B, 'end': 0x4A92},
+        {'name': 'monster_names', 'start': 0x1C21E, 'end': 0x1C98A,
+         'fixed_width': 10},
+        {'name': 'move_names', 'start': 0xB0000, 'end': 0xB060F},
+    ],
+    'POKEMON YELLOW': [
+        {'name': 'item_names', 'start': 0x45B7, 'end': 0x491E},
+        {'name': 'monster_names', 'start': 0xE8000, 'end': 0xE876C,
+         'fixed_width': 10},
+        {'name': 'move_names', 'start': 0xBC000, 'end': 0xBC60F},
     ],
 }
 

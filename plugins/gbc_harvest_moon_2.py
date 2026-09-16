@@ -16,19 +16,19 @@ education, and reverse engineering within the limits permitted by law.
 """
 
 """
-Plugin for Phoenix Wright: Ace Attorney (GBA) - fan translation
+Plugin for Harvest Moon 2 (GBC)
 
-Game codes: ASBJ (Japan, fan translation ROM)
+game_id: GBC_HMOON2 (header title "H-MOON2 CGBBM2E", platform GBC)
 
 Current status: STUB. The game is detected; the text structure is not implemented.
 
-Known facts from RE (scripts_roms/, not guaranteed):
-- The fan translation uses ASCII; control codes in the 0x01-0x0F range
-  (LINE/PAUSE/END/COLOR/SPEED/SFX/BGM/VAR/CHOICE/WAIT/CLEAR/SHIFT/ICON/
-  NAME/TEXTBOX), terminators 0x00 / 0x03.
-- Naive ASCII block scan produced unreadable output
-  (wrong encoding/layout for the T-En ROM); a verified pointer/text
-  layout is unknown.
+Known facts from DataCrystal (user-provided TBL, not guaranteed):
+- Non-ASCII charmap:
+  0x00-0x09 = digits, 0x0A-0x23 = A-Z, 0x24-0x3D = a-z,
+  0x3E-0x61 = special characters.
+- Control codes: 0xF0 = [END], 0xF1 = [NEWLINE], 0xF5 = [HOLD],
+  0xF8 = [PLAYER NAME].
+- DataCrystal ROM map covers only graphics — text segment addresses are unknown.
 
 This plugin contains ONLY factual technical information.
 Dialogs and story content protected by copyright are not included.
@@ -39,25 +39,21 @@ import logging
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
 
-logger = logging.getLogger('gb2text.plugins.phoenix_wright')
-
-# Game codes for detection
-PW_GAME_CODES = ['ASBJ']
+logger = logging.getLogger('gb2text.plugins.harvest_moon_2')
 
 
-class PhoenixWrightPlugin(GamePlugin):
-    """Plugin for Phoenix Wright: Ace Attorney (GBA) - stub"""
+class HarvestMoon2Plugin(GamePlugin):
+    """Plugin for Harvest Moon 2 (GBC) - stub"""
 
     _is_stub = True
 
     @property
     def game_id_pattern(self) -> str:
-        codes = '|'.join(PW_GAME_CODES)
-        return f'^GBA_({codes})$'
+        return r'^GBC_HMOON2CGBBM2E$'
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         logger.info(
-            "Phoenix Wright: Ace Attorney: структура текста не "
-            "реализована, возвращаю пустой список"
+            "Harvest Moon 2: структура текста не реализована, "
+            "возвращаю пустой список"
         )
         return []

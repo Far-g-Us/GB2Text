@@ -1146,6 +1146,13 @@ class GBTextExtractorGUI:
         # Создать конфигурацию
         ttk.Button(settings_frame, text=self.i18n.t("create.config"), command=self.create_user_config).pack(pady=theme.SPACING["XS"])
 
+        # Community Plugins
+        ttk.Button(
+            settings_frame,
+            text=self.i18n.t("plugins.community.title"),
+            command=self._open_community_plugins,
+        ).pack(pady=theme.SPACING["XS"])
+
         # Кнопка применения кодировки
         ttk.Button(settings_frame, text=self.i18n.t("apply.encoding"), command=self.apply_encoding).pack(pady=theme.SPACING["XS"])
 
@@ -1424,6 +1431,16 @@ class GBTextExtractorGUI:
     def _open_charmap_editor(self):
         """Открывает диалог редактора таблицы символов"""
         dialog = _CharmapEditorDialog(self.root, self)
+        dialog.run()
+
+    def reload_plugin_manager(self):
+        """Пересоздаёт PluginManager для подхвата новых плагинов."""
+        self.plugin_manager = PluginManager(self.plugin_dir)
+
+    def _open_community_plugins(self):
+        """Открывает диалог каталога общедоступных плагинов"""
+        from gui.community_plugins_dialog import CommunityPluginsDialog
+        dialog = CommunityPluginsDialog(self.root, self)
         dialog.run()
 
     def load_guide(self):
@@ -4567,7 +4584,8 @@ def run_gui(rom_path=None, plugin_dir="plugins", lang="en"):
             level=logging.INFO,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             filename=log_path,
-            filemode='w'
+            filemode='w',
+            encoding='utf-8'
         )
     except OSError:
         logging.basicConfig(

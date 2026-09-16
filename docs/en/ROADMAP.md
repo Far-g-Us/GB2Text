@@ -169,7 +169,7 @@
 ### Repair tools
 - [ ] CRC/checksum fixer — standalone CLI command for ROMs corrupted by third-party hex editors (header + global checksum, GB/GBC/GBA variants)
 - [ ] Pointer validator/repair — scan pointer tables for inconsistencies after manual patching, offer recovery
-- [ ] IPS/BPS patch generator — produce a patch file instead of distributing patched ROMs (legal translation distribution)
+- [x] IPS/BPS patch generator — produce a patch file instead of distributing patched ROMs (legal translation distribution); core/patcher.py: bps_create/bps_apply (CRC32-verified BPS1, SourceRead/TargetRead/SourceCopy), ips_create/ips_apply (literals + RLE), create_patch/apply_patch with format auto-detection; round-trip verified on real ROMs in test_roms/
 - [ ] Bank-aware pointer scan (from backlog) — proper bank_byte + addr scheme for GB/GBC
 
 ### Agents & API

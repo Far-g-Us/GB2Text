@@ -91,30 +91,30 @@ def _write_gb_mock(path: str, title: str, size: int = 0x100000) -> str:
     return path
 
 
-def test_yellow_is_stub():
-    """Yellow (другой layout) — stub: validate_rom True, сегментов нет."""
+def test_yellow_is_full():
+    """Yellow (свой layout) — реализован: validate_rom True, 3 сегмента."""
     tmp = os.path.join(tempfile.gettempdir(), 'mock_yellow.gb')
     _write_gb_mock(tmp, title='POKEMON YELLOW', size=0x200000)
     try:
         rom = GameBoyROM(tmp)
         plugin = PokemonGen1Plugin()
         assert plugin.validate_rom(rom) is True
-        assert plugin.get_text_segments(rom) == []
-        assert plugin.is_stub is True
+        assert len(plugin.get_text_segments(rom)) == 3
+        assert plugin.is_stub is False
     finally:
         os.remove(tmp)
 
 
-def test_blue_is_stub():
-    """Blue — stub: validate_rom True, сегментов нет, is_stub True."""
+def test_blue_is_full():
+    """Blue (layout как Red) — реализован: validate_rom True, 3 сегмента."""
     tmp = os.path.join(tempfile.gettempdir(), 'mock_blue.gb')
     _write_gb_mock(tmp, title='POKEMON BLUE', size=0x100000)
     try:
         rom = GameBoyROM(tmp)
         plugin = PokemonGen1Plugin()
         assert plugin.validate_rom(rom) is True
-        assert plugin.get_text_segments(rom) == []
-        assert plugin.is_stub is True
+        assert len(plugin.get_text_segments(rom)) == 3
+        assert plugin.is_stub is False
     finally:
         os.remove(tmp)
 
@@ -240,6 +240,67 @@ def test_real_rom_roundtrip():
         shutil.copyfile(src, work)
         # имена в чистом виде (смещения не переносятся между плагинами) —
         # просто проверка симметрии extractor через реальный ROM
+        rom = GameBoyROM(src)
+        before = TextExtractor(src, rom=rom).extract()
+        injector = TextInjector(work)
+        for seg in plugin.get_text_segments(rom):
+            texts = [m['text'] for m in before.get(seg['name'], [])]
+            assert injector.inject_segment(seg['name'], texts, plugin)
+        injector.save(work)
+        after = TextExtractor(work, rom=GameBoyROM(work)).extract()
+        for seg in plugin.get_text_segments(rom):
+            before_texts = [m['text'] for m in before.get(seg['name'], [])]
+            after_texts = [m['text'] for m in after.get(seg['name'], [])]
+            assert before_texts == after_texts
+
+
+# ── Другие версии Gen1 (Blue/Green/Yellow) ─────────────────────────────────
+
+GEN1_ROM_TITLES = {
+    'POKEMON BLUE': 'Pokemon - Blue Version (USA, Europe).gb',
+    'POKEMON GREEN': 'Pokemon - Green Version (USA, Europe) '
+                     '[T-En by Skeetendo Inc. v3.0] [n].gb',
+    'POKEMON YELLOW': 'Pokemon - Yellow Version - '
+                      'Special Pikachu Edition (USA, Europe).gb',
+}
+
+
+@pytest.mark.rom_required
+@pytest.mark.parametrize('title,file_name', list(GEN1_ROM_TITLES.items()))
+def test_other_gen1_versions_validate_and_extract(title, file_name):
+    """Blue/Green/Yellow: validate_rom True, сегменты, читаемые имена."""
+    path = os.path.join(ROM_DIR, file_name)
+    if not os.path.exists(path):
+        pytest.skip('test ROM not present')
+    rom = GameBoyROM(path)
+    plugin = PokemonGen1Plugin()
+    assert plugin.validate_rom(rom) is True
+    assert plugin.is_stub is False
+    segments = plugin.get_text_segments(rom)
+    assert len(segments) == 3
+    names = {seg['name'] for seg in segments}
+    assert names == {'gen1_item_names', 'gen1_monster_names', 'gen1_move_names'}
+    msgs = _decode_segment(plugin, rom, segments[0])
+    assert msgs[0] == 'MASTER BALL'
+    mon = _decode_segment(plugin, rom, segments[1])
+    assert len(mon) == 190
+    assert mon[0] == 'RHYDON'
+    mov = _decode_segment(plugin, rom, segments[2])
+    assert mov[0] == 'POUND'
+    assert mov[-1] == 'STRUGGLE'
+
+
+@pytest.mark.rom_required
+@pytest.mark.parametrize('title,file_name', list(GEN1_ROM_TITLES.items()))
+def test_other_gen1_versions_roundtrip(title, file_name):
+    """Blue/Green/Yellow: extract → inject → extract идентичны."""
+    src = os.path.join(ROM_DIR, file_name)
+    if not os.path.exists(src):
+        pytest.skip('test ROM not present')
+    plugin = PokemonGen1Plugin()
+    with tempfile.TemporaryDirectory() as td:
+        work = os.path.join(td, file_name)
+        shutil.copyfile(src, work)
         rom = GameBoyROM(src)
         before = TextExtractor(src, rom=rom).extract()
         injector = TextInjector(work)

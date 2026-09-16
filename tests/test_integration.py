@@ -36,7 +36,6 @@ class TestROMDirectory:
 
     def test_rom_directory_exists(self):
         """Тест существования папки test_roms"""
-        # Пропускаем если папка не существует
         if not os.path.exists(ROM_DIR):
             pytest.skip(f"Папка {ROM_DIR} не существует")
 
@@ -77,6 +76,7 @@ class TestROMDirectory:
             rom = GameBoyROM(rom_path)
             assert rom.system in ['gb', 'gbc']
 
+    @pytest.mark.slow
     def test_gba_pointer_detection(self, rom_files):
         """Тест обнаружения указателей в GBA"""
         gba_files = [f for f in rom_files if f.endswith('.gba')]
@@ -90,6 +90,7 @@ class TestROMDirectory:
             assert isinstance(pointers, list)
             print(f"\n{os.path.basename(rom_path)}: найдено указателей: {len(pointers)}")
 
+    @pytest.mark.slow
     def test_gba_plugin_extraction(self, rom_files):
         """Тест извлечения текста плагином"""
         gba_files = [f for f in rom_files if f.endswith('.gba')]
@@ -103,6 +104,7 @@ class TestROMDirectory:
             assert isinstance(segments, list)
             print(f"\n{os.path.basename(rom_path)}: найдено сегментов: {len(segments)}")
 
+    @pytest.mark.slow
     def test_game_language_detection(self, rom_files):
         """Тест определения языка игры"""
         if not rom_files:
@@ -131,6 +133,7 @@ class TestROMDirectory:
             print(f"  - Ожидаемый язык (по имени): {detected_from_name}")
             print(f"  - Обнаруженные языки (по содержимому): {detected_from_rom}")
 
+    @pytest.mark.slow
     def test_text_extraction_random(self, rom_files):
         """Тест извлечения рандомной строки текста из игры"""
         if not rom_files:

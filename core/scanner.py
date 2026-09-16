@@ -22,6 +22,13 @@ GB Text Extraction Framework
 import logging
 from collections import Counter
 
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    np = None  # type: ignore[assignment]
+    NUMPY_AVAILABLE = False
+
 from core.constants import (
     ASCII_PRINTABLE_END,
     ASCII_PRINTABLE_START,
@@ -111,37 +118,56 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int | None = None,
     Поиск указателей на текст в ROM с учетом размера указателя и базового адреса (для GBA)
     Возвращает список кортежей (адрес, адрес_текста)
     """
-    # Определяем конечный адрес
-    end_value = end if end is not None else len(rom_data)
+    data_len = len(rom_data)
+    end_value = end if end is not None else data_len
 
-    # Формируем сообщение для лога
     logger.info(f"Поиск указателей (размер указателя: {pointer_size} байта) в диапазоне 0x{start:X}-0x{end_value:X}")
 
     pointers = []
-    step = pointer_size
 
-    for i in range(start, end_value - pointer_size + 1, step):
-        # Определение адреса в зависимости от размера указателя
-        if pointer_size == 2:
-            addr = (rom_data[i + 1] << 8) | rom_data[i]
-        elif pointer_size == 4:
-            addr = (rom_data[i + 3] << 24) | (rom_data[i + 2] << 16) | (rom_data[i + 1] << 8) | rom_data[i]
-        else:
-            continue  # Неподдерживаемый размер указателя
+    # Fast numpy path for 2/4 byte pointers
+    if NUMPY_AVAILABLE and pointer_size in (2, 4) and start % pointer_size == 0:
+        span = end_value - start
+        count = span // pointer_size
+        if count > 0:
+            dtype = np.dtype('<u4') if pointer_size == 4 else np.dtype('<u2')
+            values = np.frombuffer(rom_data, dtype=dtype, count=count, offset=start).astype(np.int64)
 
-        # Маппим адрес для систем с базой адреса (например, GBA 0x08000000)
-        mapped = addr
-        if pointer_size == 4 and address_base:
-            mapped = addr - address_base
-            if mapped < 0:
+            if pointer_size == 4 and address_base:
+                mapped = values - int(address_base)
+            else:
+                mapped = values
+
+            mask = (mapped >= 0x4000) & (mapped < data_len)
+            indices = np.nonzero(mask)[0]
+
+            # Convert to Python lists for iteration (numpy→python overhead is low for ~140K items)
+            rom_offsets: list[int] = (start + indices * pointer_size).tolist()
+            targets: list[int] = mapped[mask].tolist()
+
+            for rom_offset, target in zip(rom_offsets, targets, strict=True):
+                if is_text_like(rom_data, target, min_length):
+                    pointers.append((int(rom_offset), int(target)))
+    else:
+        # Fallback: pure Python loop for non-aligned or exotic pointer sizes
+        step = pointer_size
+        for i in range(start, end_value - pointer_size + 1, step):
+            if pointer_size == 2:
+                addr = (rom_data[i + 1] << 8) | rom_data[i]
+            elif pointer_size == 4:
+                addr = (rom_data[i + 3] << 24) | (rom_data[i + 2] << 16) | (rom_data[i + 1] << 8) | rom_data[i]
+            else:
                 continue
 
-        # Проверяем, является ли значение возможным адресом
-        if 0x4000 <= mapped < len(rom_data):
-            # Проверяем, похож ли текст по адресу на текст
-            if is_text_like(rom_data, mapped, min_length):
-                pointers.append((i, mapped))
-                logger.debug(f"Найден указатель: 0x{i:X} -> 0x{mapped:X} (raw=0x{addr:X}, base=0x{address_base:X})")
+            mapped = addr
+            if pointer_size == 4 and address_base:
+                mapped = addr - address_base
+                if mapped < 0:
+                    continue
+
+            if 0x4000 <= mapped < data_len:
+                if is_text_like(rom_data, mapped, min_length):
+                    pointers.append((i, mapped))
 
     # Фильтруем constant-stride false positives
     original_count = len(pointers)
@@ -166,11 +192,10 @@ def is_text_like(rom_data: bytes, start: int, min_length: int,
         min_length: минимальная длина для проверки
         min_printable_ratio: минимальный процент printable символов (по умолчанию 0.6)
     """
-
-    if start + min_length > len(rom_data):
+    data_len = len(rom_data)
+    if start + min_length > data_len:
         return False
 
-    # Подсчитываем процент "читаемых" символов
     printable = 0
     consecutive_printable = 0
     max_consecutive = 0
@@ -178,37 +203,27 @@ def is_text_like(rom_data: bytes, start: int, min_length: int,
 
     for i in range(min_length):
         byte = rom_data[start + i]
-        # ASCII printable символы (0x20-0x7E) + перенос строки + возврат каретки
-        if 0x20 <= byte <= 0x7E or byte in [0x0A, 0x0D]:
+        if 0x20 <= byte <= 0x7E or byte in (0x0A, 0x0D):
             printable += 1
             consecutive_printable += 1
-            max_consecutive = max(max_consecutive, consecutive_printable)
+            if consecutive_printable > max_consecutive:
+                max_consecutive = consecutive_printable
         else:
             consecutive_printable = 0
-            # Проверяем терминаторы
-            if byte in [0x00, 0xFF]:
+            if byte in (0x00, 0xFF):
                 has_terminator = True
 
-    # Проверяем условия
     ratio = printable / min_length if min_length > 0 else 0
-
-    # Текст должен иметь достаточно printable символов
     if ratio < min_printable_ratio:
         return False
 
-    # Текст должен иметь непрерывные последовательности (не случайные символы)
-    # Для коротких блоков (min_length <= 8) требуем хотя бы 4 символа подряд
-    # Для длинных блоков требуем хотя бы 8 символов подряд
     min_consecutive = 4 if min_length <= 8 else 8
     if max_consecutive < min_consecutive:
         return False
 
-    # Если есть терминатор, это хороший знак
-    # Если нет терминатора, требуем более высокий порог printable
     if not has_terminator and ratio < 0.8:
         return False
 
-    logger.debug(f"Область 0x{start:X} похожа на текст ({ratio:.0%} printable, {max_consecutive} consecutive)")
     return True
 
 
