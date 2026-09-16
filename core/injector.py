@@ -795,16 +795,24 @@ class TextInjector:
         self.last_overflow_report = []
         injected = 0
         skipped = 0
+        encoder = segment.get('pointer_encoder')
+        if encoder is None:
+            encoder = decoder.encode
         for entry, translation in zip(manifest, translations, strict=False):
             addr = entry['target']
             room = entry['free_after']
-            try:
-                trans_bytes = decoder.encode(translation)
-            except (ValueError, KeyError, IndexError):
-                if skip_long:
-                    skipped += 1
-                    continue
-                return False
+            raw = entry.get('raw')
+            if isinstance(raw, (bytes, bytearray)) and \
+                    translation == entry.get('original'):
+                trans_bytes = bytes(raw)
+            else:
+                try:
+                    trans_bytes = encoder(translation)
+                except (ValueError, KeyError, IndexError):
+                    if skip_long:
+                        skipped += 1
+                        continue
+                    return False
             payload = trans_bytes + segment.get('terminator', b'\xff')
             if len(payload) > room:
                 self.last_overflow_report.append({

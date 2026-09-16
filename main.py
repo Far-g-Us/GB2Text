@@ -119,10 +119,11 @@ def main(argv=None):
         return api_main(args_list)
 
     logging.basicConfig(
-        level=logging.DEBUG,  # Изменено с INFO на DEBUG для более детального лога
+        level=logging.DEBUG,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         filename='gb2text.log',
-        filemode='a'  # 'w' перезаписывает файл при каждом запуске, 'a' дописывает
+        filemode='a',
+        encoding='utf-8'
     )
     # Добавим вывод в консоль для отладки
     console = logging.StreamHandler()

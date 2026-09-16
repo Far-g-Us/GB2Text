@@ -99,7 +99,24 @@ Before submitting a PR, run the test suite:
 pytest tests/ -v
 ```
 
-Ensure all tests pass and coverage remains above 80% for core modules.
+For a fast local run that skips the heavy ROM-scanning integration tests:
+
+```bash
+pytest tests/ -m "not slow"
+```
+
+To parallelize tests across CPU cores (recommended for the full suite):
+
+```bash
+pytest tests/ -n auto
+```
+
+Coverage is measured in CI (`coverage.yml`). Locally, only run `--cov` when you
+intentionally want a report:
+
+```bash
+pytest tests/ -m "not slow" --cov=core --cov=plugins
+```
 
 ## 🐞 Debugging and Diagnostics
 

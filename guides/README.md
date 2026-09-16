@@ -1,34 +1,25 @@
 # Руководства по извлечению текста
 
 Пошаговые инструкции для извлечения текста из конкретных игр.
+Каждый гайд — это JSON-файл `guides/<game_id>.json` (пример: `guides/example_homebrew.json`).
+Файл читается через `GuideManager` (`core/guide.py`) и показывается в GUI.
 
-## Структура гайда
+## Формат гайда
+
+Минимальный формат повторяет шаблон `GuideManager.create_template()`:
 
 ```json
 {
   "game_id": "GBA_FF5_ADVANCE",
   "description": "Извлечение текста из Final Fantasy V Advance",
-  "platform": "GBA",
-  "game_codes": ["BZ5E"],
-  "difficulty": "medium",
   "steps": [
     {
       "title": "Поиск указателей",
-      "description": "Поиск 4-байтовых GBA-указателей (0x08XXXXXX) в ROM",
-      "details": "Сканировать ROM на наличие значений 0x08000000-0x09000000"
+      "description": "Поиск 4-байтовых GBA-указателей (0x08XXXXXX) в ROM"
     }
   ],
-  "charmap_reference": {
-    "0x00": "space",
-    "0x41-0x5A": "A-Z",
-    "0x61-0x7A": "a-z",
-    "0xFF": "END"
-  },
   "tips": [
     "Используйте pointer_table_scan для автоматического поиска"
-  ],
-  "warnings": [
-    "Некоторые игры используют LZ77-сжатие"
   ]
 }
 ```
@@ -37,15 +28,13 @@
 
 | Поле | Тип | Обязательно | Описание |
 |------|-----|-------------|----------|
-| `game_id` | string | ✅ | ID игры (совпадает с именем плагина) |
+| `game_id` | string | ✅ | ID игры (совпадает с именем плагина и именем файла) |
 | `description` | string | ✅ | Краткое описание |
-| `platform` | string | ✅ | Платформа: GB, GBC, GBA |
-| `game_codes` | array | ✅ | Коды игры из заголовка ROM |
-| `difficulty` | string | ✅ | easy / medium / hard |
-| `steps` | array | ✅ | Массив шагов |
-| `charmap_reference` | object | ❌ | Ссылка на таблицу символов |
+| `steps` | array | ✅ | Массив шагов `{title, description}` |
 | `tips` | array | ❌ | Полезные советы |
-| `warnings` | array | ❌ | Предупреждения |
+
+Дополнительные поля (например, карта чармапа или предупреждения) допустимы —
+`GuideManager` не валидирует схему, но GUI отображает только `steps` и `tips`.
 
 ## Типичные паттерны извлечения
 
@@ -128,14 +117,14 @@ for i in range(TEXT_START, TEXT_END, 4):
 **Примеры:** Pokemon Gen 3
 
 ```python
-from core.compression import GBALZ77Handler
+from core.compression import LZSSHandler
 
-handler = GBALZ77Handler()
+handler = LZSSHandler()
 # Поиск LZ77-заголовков (0x10 XX XX XX)
 for i in range(start, end):
     if rom.data[i] == 0x10:
         try:
-            decompressed = handler.decompress(rom.data, i)
+            decompressed, _ = handler.decompress(bytes(rom.data), i)
             if decompressed:
                 # Разбиение на строки по 0xFF
                 strings = decompressed.split(b'\xFF')
@@ -158,12 +147,12 @@ LANGUAGES = {
 }
 
 for lang, (start, end) in LANGUAGES.items():
-    # Поиск указателей в這個 диапазоне
+    # Поиск указателей в этом диапазоне
     for i in range(0, len(rom.data) - 4, 4):
         val = int.from_bytes(rom.data[i:i+4], 'little')
         target = val - 0x08000000
         if start <= target < end:
-            # Указатель в这个 диапазоне = этот язык
+            # Указатель в этом диапазоне = этот язык
             pass
 ```
 

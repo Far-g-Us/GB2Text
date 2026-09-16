@@ -166,12 +166,12 @@
 
 ### Качество
 - [ ] Увеличить покрытие тестами
-- [ ] Довести остальные плагины до состояния stub (детекция + честный пустой результат)
+- [x] Довести остальные плагины до состояния stub (детекция + честный пустой результат)
 
 ### Инструменты починки (repair tools)
 - [ ] CRC/checksum fixer — отдельная CLI-команда для ROM, битых сторонними хекс-редакторами (header + global checksum, GB/GBC/GBA варианты)
-- [ ] Pointer validator/repair — сканирование таблиц указателей на несогласованность после ручного патчинга, предложение восстановления
-- [ ] IPS/BPS patch generator — генерация патч-файла вместо дистрибуции патченных ROM (легальная дистрибуция перевода)
+- [x] Pointer validator/repair — сканирование таблиц указателей на несогласованность после ручного патчинга, предложение восстановления; core/pointer_validator.py: validate_pointer_table (статусы ok/zero/out_of_bounds/duplicate), problem_summary, repair_pointer_table (LE, база адресации + 2/4-байтные указатели)(может работать неправильно)
+- [x] IPS/BPS patch generator — генерация патч-файла вместо дистрибуции патченных ROM (легальная дистрибуция перевода); core/patcher.py: bps_create/bps_apply (CRC32-верифицируемый BPS1, SourceRead/TargetRead/SourceCopy), ips_create/ips_apply (литералы + RLE), create_patch/apply_patch с автоопределением формата; round-trip на реальных ROM в test_roms/(может работать неправильно)
 - [ ] Bank-aware pointer scan (из backlog) — честная схема bank_byte + addr для GB/GBC
 
 ### Агенты и API
@@ -180,6 +180,9 @@
 ### Перевод
 - [ ] Line-length / textbox simulator — симуляция переноса строк перевода в реальных границах textbox (max_length/fixed_width) до инъекции
 - [ ] DTE-словарь compression helper — автоматический построитель DTE-таблицы по частотному анализу би-грамм под конкретный перевод (GB/GBC, для языков длиннее английского)
+
+### Плагины и платформы
+- [x] Community/shared plugin registry — каталог сторонних плагинов (статический JSON на GitHub Pages), установка без форка репо
 
 ---
 
@@ -193,7 +196,6 @@
 
 ### GB/GBC
 - Компрессия GB/GBC (RLE/LZ для Gen1/2)
-- Плагины для Zelda: Link's Awakening (GB/DX), Oracle of Seasons, Harvest Moon, Resident Evil Gaiden, Super Mario Bros. Deluxe, SMT Devil Children, Fire Emblem (ROM'ы уже есть в test_roms/)
 
 ### Плагины и платформы
 - Nintendo DS — плагины для новой платформы
@@ -240,4 +242,4 @@
 
 ---
 
-*Roadmap обновлён: 2026-09-14*
+*Roadmap обновлён: 2026-09-16*

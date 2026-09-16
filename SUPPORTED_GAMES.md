@@ -35,14 +35,14 @@ are listed with status "—".
 
 | Game | Game ID | Region | Plugin | Status | Problem |
 |------|---------|--------|--------|--------|---------|
-| Astro Boy: Omega Factor | BTAE | USA | gba_astro_boy | ❌ Broken | Caesar-1 covers 1 of 6 languages; keyword scan for Spanish words (QUE/ROBOT); 22k segments of garbage |
-| Sonic Advance | ASOE | USA | gba_sonic_advance | ❌ Broken | "length prefix + ASCII" heuristic; output is garbage, "credits" decode to spaces |
-| Kingdom Hearts: Chain of Memories | B8CE | USA | gba_kingdom_hearts_com | ❌ Broken | Unreadable output (wrong encoding/offsets) |
-| Phoenix Wright: Ace Attorney | ASBJ | Japan | gba_phoenix_wright | ❌ Broken | Unreadable output (wrong encoding/layout for the T-En ROM) |
+| Astro Boy: Omega Factor | BTAE | USA | gba_astro_boy | 🔧 Stub | is_stub=True: naive Caesar scan produced ~22k garbage segments; pointer table unknown |
+| Sonic Advance | ASOE | USA | gba_sonic_advance | 🔧 Stub | is_stub=True: "length prefix + ASCII" heuristic produced garbage, credits decode to spaces |
+| Kingdom Hearts: Chain of Memories | B8CE | USA | gba_kingdom_hearts_com | 🔧 Stub | is_stub=True: unreadable output (wrong encoding/offsets) |
+| Phoenix Wright: Ace Attorney | ASBJ | Japan | gba_phoenix_wright | 🔧 Stub | is_stub=True: unreadable output (wrong encoding/layout for the T-En ROM) |
 | Mega Man Battle Network | AREP | Europe | gba_megaman_battle_network | 🔧 Stub | 0 segments (encoding/table unknown) |
 | FF VI Advance | BZ6E | USA | gba_ff6_advance | 🔧 Stub | 0 segments, no pointer table |
-| Fire Emblem (Europe) | AE7Y | Europe | gba_fire_emblem | 🔧 Stub | Huffman tree not implemented (USA addresses known, EU not) |
-| Fire Emblem: Sacred Stones | BE8P | Europe | gba_fire_emblem | 🔧 Stub | Huffman tree not implemented |
+| Fire Emblem (Europe) | AE7Y | Europe | gba_fire_emblem | 🔧 Stub | is_stub=True: Huffman tree format not implemented; FE7 codes BE7E/BE7J also detected |
+| Fire Emblem: Sacred Stones | BE8E | USA | gba_fire_emblem | 🔧 Stub | is_stub=True: Huffman tree format not implemented; codes BE8P/BE8J also detected |
 | Castlevania: Circle of the Moon | AAME | USA | gba_castlevania_ctm | 🔧 Stub | 0 segments, charmap unknown |
 | Castlevania: Harmony of Dissonance | ACHP | Europe | gba_castlevania_hod | 🔧 Stub | 0 segments, charmap unknown |
 
@@ -50,7 +50,7 @@ are listed with status "—".
 
 | Game | Game ID | Region | Plugin | Status | Known Info |
 |------|---------|--------|--------|--------|------------|
-| Golden Sun: The Lost Age | AGFE | USA/Europe | gba_golden_sun_tla | 🔧 Stub | 0 segments, same engine as GS1 |
+| Golden Sun: The Lost Age | AGFE | USA/Europe | gba_golden_sun_tla | ✅ Full | Contextual Huffman (same engine as GS1), decoder/encoder + full extract→inject→extract round-trip verified on the real ROM (12461 dialogue segments, byte-identical) |
 | Advance Wars | AWRE | USA | gba_advance_wars | 🔧 Stub | ASCII, menu-heavy |
 | Mega Man Battle Network 2 | AM2P | Europe | gba_megaman_battle_network_2 | 🔧 Stub | 0 segments, same engine as MMBN1 |
 | Mega Man Zero | AZCE | USA/Europe | gba_megaman_zero | 🔧 Stub | Custom encoding, ASCII subset |
@@ -63,40 +63,6 @@ are listed with status "—".
 | Breath of Fire | ABFE | USA | gba_breath_of_fire | 🔧 Stub | is_stub=True: pointer table candidate @ 0x117DD4, targets ~0x101238, custom charmap (not ASCII). RE as a separate task |
 | Keitai Denjuu Telefang 2 | ATPJ | Japan | gba_telefang_2 | 🔧 Stub | is_stub=True: pointer table candidate @ 0x101650, targets ~0x0FCF10, Japanese strings. RE as a separate task |
 
-## GB Games — Working / Partial
-
-| Game | Game ID | Region | Plugin | Status | Notes |
-|------|---------|--------|--------|--------|-------|
-| Pokemon: Red Version | GB_POKEMONRED | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 fixed tables (item names @ 0x472B, monster names @ 0x1C21E fixed-width 10, move names @ 0xB0000), Gen1 charmap (from pret/pokered), terminator 0x50, `pad_byte=0x50` on insert; round-trip extract→inject→extract verified on the real ROM. SGB Enhanced (flag 0x146 = 0x03) |
-
-## GB Games — Stub / No Plugin
-
-| Game | Game ID | Region | Plugin | Status | Notes |
-|------|---------|--------|--------|--------|-------|
-| Pokemon: Blue Version | GB_POKEMONBLUE | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet — different table addresses. SGB Enhanced (flag 0x146 = 0x03) |
-| Pokemon: Green Version | GB_POKEMONGREEN | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet. SGB Enhanced (flag 0x146 = 0x03) |
-| Pokemon: Yellow Version | GBC_POKEMONYELLOW | USA/Europe | gb_pokemon_gen1 | 🔧 Stub | Detected (Gen1 title), layout not implemented yet. SGB Enhanced (flag 0x146 = 0x03). File is `.gb` but core detects `gbc` (CGB flag 0x80) → game_id `GBC_POKEMONYELLOW` |
-| Legend of Zelda: Link's Awakening | GB_ZELDA | USA/Europe | — | — | No dedicated plugin (generic GB route, manual config needed). Not SGB Enhanced (flag 0x146 = 0x00) |
-
-## GBC Games — No Plugin
-
-No dedicated Game Boy Color plugins yet — GBC ROMs go through the generic
-GB/GBC plugin (`GenericGBPlugin`/`GenericGBCPlugin`, game_id `GBC_*`/`GAME_*`),
-which needs a per-game config with segment offsets. SGB Enhanced = flag
-0x146 = 0x03 in the cartridge header (Super Game Boy extensions on SNES).
-
-| Game | Region | Plugin | Status | Notes |
-|------|--------|--------|--------|-------|
-| Harvest Moon GBC | USA | — | — | SGB Enhanced (flag 0x146 = 0x03) |
-| Harvest Moon 2 GBC | USA | — | — | SGB Enhanced (flag 0x146 = 0x03) |
-| Harvest Moon 3 GBC | USA | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
-| Fire Emblem: The Reincarnation of Light and Dark | Asia (T-En) | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
-| Legend of Zelda: Link's Awakening DX | USA/Europe | — | — | SGB Enhanced (flag 0x146 = 0x03) |
-| Legend of Zelda: Oracle of Seasons | USA/Australia | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
-| Resident Evil Gaiden | USA | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
-| Shin Megami Tensei Devil Children | Japan (T-En) | — | — | SGB Enhanced (flag 0x146 = 0x03) |
-| Super Mario Bros. Deluxe | USA/Europe | — | — | Not SGB Enhanced (flag 0x146 = 0x00) |
-
 ## FFTA String Tables (DataCrystal, verified)
 
 | Table | Pointer Table Offset | Text Start | Entries |
@@ -106,17 +72,51 @@ which needs a per-game config with segment offsets. SGB Enhanced = flag
 | Mission Names | 0x0055A64C | 0x00558008 | 512 |
 | Random Names | 0x005680DC | 0x00566A00 | 725 |
 
+## GB Games — Working / Partial
+
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Pokemon: Red Version | GB_POKEMONRED | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 fixed tables (item names @ 0x472B, monster names @ 0x1C21E fixed-width 10, move names @ 0xB0000), Gen1 charmap (from pret/pokered), terminator 0x50, `pad_byte=0x50` on insert; round-trip extract→inject→extract verified on the real ROM. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon: Blue Version | GB_POKEMONBLUE | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 plugin (same as Red); round-trip verified on real ROM. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon: Green Version | GB_POKEMONGREEN | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 plugin; T-En patched ROM. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon: Yellow Version | GBC_POKEMONYELLOW | USA/Europe | gb_pokemon_gen1 | ✅ Full | Gen1 plugin; round-trip verified. SGB Enhanced (flag 0x146 = 0x03). File is `.gb` but core detects `gbc` (CGB flag 0x80) → game_id `GBC_POKEMONYELLOW` |
+| Legend of Zelda: Link's Awakening | GB_ZELDA | USA/Europe | gb_zelda_awakening | ✅ Full | Direct ASCII, 0x5E=apostrophe, terminator 0xFF, split 0xFE; 7 segments (6 dialog + credits) at 0x26700-0x77FB6; ZeldaTextDecoder shared with DX; round-trip verified on real ROM. Not SGB Enhanced |
+
+## GBC Games — Working / Partial
+
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Legend of Zelda: Link's Awakening DX | GBC_ZELDADXAE | USA/Europe | gbc_zelda_awakening_dx | ✅ Full | Same engine as GB (ASCII, 0x5E=apostrophe, 0xFF terminator, 0xFE split); 6 segments (5 dialog + credits) at 0x26800-0x77FCC; shared ZeldaTextDecoder; round-trip verified on real ROM. SGB Enhanced (flag 0x146 = 0x03) |
+| Pokemon Gold | GBC_POKEMONGLDAAUE | USA/Europe | gbc_pokemon_gsc | ✅ Full | Gen2 charmap (=Gen1), 4 tables: item_names, trainer_class_names, monster_names (fixed-width 10), move_names — verified against test ROM (GBC_POKEMONGLDAAUE, 2MB MBC3+SGB) |
+| Legend of Zelda: Oracle of Seasons | GBC_ZELDADINAZ7E | USA/Australia | gbc_zelda_seasons | ✅ Full | Full text pool via high-index/pointer tables (0-3 dict, 4-0x63 text), mini-dictionary (2-byte refs 0x02-0x05), control codes (COL/SPEED/POS/JUMP/CALL etc.), kanji/accented Latin as Unicode, bracket tokens. Inserter: verbatim byte-copy for unchanged strings + greedy dictionary recompression for new translations; full extract→inject→extract round-trip verified on real ROM. Not SGB Enhanced (flag 0x146 = 0x00) |
+
+## GBC Games — Stub Plugins
+
+Dedicated GBC stub-plugins exist for every GBC ROM in `test_roms/`. No
+`GenericGBCPlugin` route is needed anymore. SGB Enhanced = flag 0x146 = 0x03
+in the cartridge header (Super Game Boy extensions on SNES).
+
+| Game | Game ID | Region | Plugin | Status | Notes |
+|------|---------|--------|--------|--------|-------|
+| Harvest Moon GBC | GBC_HARVESTMOONGB | USA | gbc_harvest_moon | 🔧 Stub | Detected (GBC_HARVESTMOONGB); text layout unknown, needs RE. SGB Enhanced (flag 0x146 = 0x03) |
+| Harvest Moon 2 GBC | GBC_HMOON2CGBBM2E | USA | gbc_harvest_moon_2 | 🔧 Stub | Non-ASCII charmap (A-Z 0x0A-0x23, a-z 0x24-0x3D, control 0xF0-0xF8); DataCrystal TBL available, structure not implemented. SGB Enhanced (flag 0x146 = 0x03) |
+| Harvest Moon 3 GBC | GBC_HMOON3CGBBWAE | USA | gbc_harvest_moon_3 | 🔧 Stub | Detected (GBC_HMOON3CGBBWAE); text layout unknown, needs RE. Not SGB Enhanced (flag 0x146 = 0x00) |
+| Fire Emblem: The Reincarnation of Light and Dark | GBC_SUPERSLG | Asia (T-En) | gbc_fire_emblem_reincarnation | 🔧 Stub | Detected (GBC_SUPERSLG, title "SUPER SLG"); T-En patched ROM, text layout unknown. Not SGB Enhanced (flag 0x146 = 0x00) |
+| Resident Evil Gaiden | GBC_RESEVILGDARHE | USA | gbc_resident_evil_gaiden | 🔧 Stub | Detected (GBC_RESEVILGDARHE); text layout unknown, needs RE. Not SGB Enhanced (flag 0x146 = 0x00) |
+| Shin Megami Tensei Devil Children | GBC_DEBITIRUBBHEJ | Japan (T-En) | gbc_smt_devil_children | 🔧 Stub | Detected (GBC_DEBITIRUBBHEJ); T-En patched ROM, text layout unknown. SGB Enhanced (flag 0x146 = 0x03) |
+| Super Mario Bros. Deluxe | GBC_MARIODELUXAHYE | USA/Europe | gbc_super_mario_bros_deluxe | 🔧 Stub | Detected (GBC_MARIODELUXAHYE); text layout unknown, needs RE. Not SGB Enhanced (flag 0x146 = 0x00) |
+
 ## Summary
 
 | Status | Count | Games |
 |--------|-------|-------|
-| ✅ Full | 15 | FFTA, Zelda TMC, FF5 Advance, FF4 Advance, Golden Sun, Mario & Luigi SS, Castlevania AoS, Metroid Fusion, Wario Land 4, Pokemon Emerald, Pokemon Ruby, Pokemon Sapphire, Pokemon FireRed, Pokemon LeafGreen, Pokemon Red (GB) |
-| ⚠️ Partial | 0 | |
-| ❌ Broken | 4 | Astro Boy, Sonic Advance, Kingdom Hearts CoM, Phoenix Wright |
-| 🔧 Stub | 21 | FF6 Advance, Fire Emblem ×2, Mega Man Battle Network ×2, Advance Wars, Mega Man Zero, Shining Force, CT Special Forces, Custom Robo GX, Metroid ZM, FF1&2 Dawn of Souls, Castlevania CotM/HoD, Golden Sun TLA, Sonic Advance 2, Breath of Fire, Telefang 2, Pokemon Blue/Green (GB), Yellow (GBC-detected) |
-| — No plugin | 10 | Zelda Link's Awakening (GB), Harvest Moon 1/2/3, Fire Emblem T-En (Asia), Zelda Link's Awakening DX, Oracle of Seasons, Resident Evil Gaiden, SMT Devil Children, Super Mario Bros. Deluxe (GBC) |
+| ✅ Full | 23 | FFTA (GBA), Zelda TMC (GBA), FF5 Advance (GBA), FF4 Advance (GBA), Golden Sun (GBA), Mario & Luigi SS (GBA), Castlevania AoS (GBA), Metroid Fusion (GBA), Wario Land 4 (GBA), Pokemon Emerald (GBA), Pokemon Ruby (GBA), Pokemon Sapphire (GBA), Pokemon FireRed (GBA), Pokemon LeafGreen (GBA), Pokemon Red/Blue/Green/Yellow (GB/GBC), Pokemon Gold (GBC), Zelda Link's Awakening (GB + DX), Zelda Oracle of Seasons (GBC), Golden Sun: The Lost Age (GBA) |
+| ⚠️ Partial | 0 | — |
+| ❌ Broken | 0 | |
+| 🔧 Stub | 28 | Astro Boy, Sonic Advance ×2, Kingdom Hearts CoM, Phoenix Wright, FF6 Advance, Fire Emblem ×2, Mega Man Battle Network ×2, Advance Wars, Mega Man Zero, Shining Force, CT Special Forces, Custom Robo GX, Metroid ZM, FF1&2 Dawn of Souls, Castlevania CotM/HoD, Breath of Fire, Telefang 2, Harvest Moon 1/2/3, Resident Evil Gaiden, SMT Devil Children, Super Mario Bros. Deluxe, Fire Emblem Reincarnation (T-En) |
+| — No plugin | 0 | |
 
-Total: 50 ROMs in test_roms (36 GBA + 9 GBC + 5 GB); 40 covered by plugins (36 GBA + 4 GB).
+Total: 51 ROMs in test_roms (36 GBA + 10 GBC + 5 GB); 51 covered by plugins (36 GBA + 10 GBC + 5 GB).
 
 ## How to Add a Game
 

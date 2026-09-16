@@ -121,18 +121,24 @@ class GoldenSunHuffmanDecoder:
     Contextual Huffman decoder for Golden Sun's compressed strings.
 
     Trees: 256 (indexed by the previous decoded byte).
-    Tree i starts at GS_TREES_BASE + offsets[i]; offsets[i] == 0x8000
+    Tree i starts at trees_base + offsets[i]; offsets[i] == 0x8000
     means tree i is unused. Each tree consists of a leaf array
     (packed symbols, growing backwards from the start of the topology),
     followed by a pre-order topology bit stream (0=internal node,
     1=leaf, LSB-first).
+
+    Base addresses are configurable so both Golden Sun 1 (AGSE) and
+    The Lost Age (AGFE) share this decoder; defaults are GS1.
     """
 
-    def __init__(self, rom_data: bytes | bytearray):
+    def __init__(self, rom_data: bytes | bytearray,
+                 offsets_base: int = GS_OFFSETS_BASE,
+                 trees_base: int = GS_TREES_BASE):
         self.data = bytes(rom_data)
-        if GS_OFFSETS_BASE + 512 > len(rom_data):
+        self.trees_base = trees_base
+        if offsets_base + 512 > len(rom_data):
             raise ValueError('ROM too small for Golden Sun Huffman tables')
-        self.offsets = list(struct.unpack_from('<256H', rom_data, GS_OFFSETS_BASE))
+        self.offsets = list(struct.unpack_from('<256H', rom_data, offsets_base))
         self._topo_cache: dict[int, int] = {}
 
     def _read_leaf(self, topo_start: int, leaf_id: int) -> int:
@@ -163,7 +169,7 @@ class GoldenSunHuffmanDecoder:
         tree_rel = self.offsets[prev]
         if tree_rel == GS_NO_TREE or tree_rel == 0:
             raise ValueError(f'no valid Huffman tree for prev=0x{prev:02X}')
-        topo_start = GS_TREES_BASE + tree_rel
+        topo_start = self.trees_base + tree_rel
         if topo_start - 2 < 0 or topo_start >= len(self.data):
             raise ValueError(f'tree topology out of bounds: 0x{topo_start:X}')
 
@@ -208,13 +214,19 @@ class GoldenSunHuffmanEncoder:
     game does, then emits the bit stream with the same LSB-first writer as
     tools/pack_strings.c. The 0x00 terminator is encoded as part of the
     string, so decoding stops at the same logical point as in the original.
+
+    Base addresses are configurable so both Golden Sun 1 (AGSE) and
+    The Lost Age (AGFE) share this encoder; defaults are GS1.
     """
 
-    def __init__(self, rom_data: bytes | bytearray):
+    def __init__(self, rom_data: bytes | bytearray,
+                 offsets_base: int = GS_OFFSETS_BASE,
+                 trees_base: int = GS_TREES_BASE):
         self.data = bytes(rom_data)
-        if GS_OFFSETS_BASE + 512 > len(rom_data):
+        self.trees_base = trees_base
+        if offsets_base + 512 > len(rom_data):
             raise ValueError('ROM too small for Golden Sun Huffman tables')
-        self.offsets = list(struct.unpack_from('<256H', rom_data, GS_OFFSETS_BASE))
+        self.offsets = list(struct.unpack_from('<256H', rom_data, offsets_base))
         self._codes_cache: dict[int, dict[int, tuple[int, ...]]] = {}
 
     def _read_leaf(self, topo_start: int, leaf_id: int) -> int:
@@ -228,7 +240,7 @@ class GoldenSunHuffmanEncoder:
         tree_rel = self.offsets[prev]
         if tree_rel == GS_NO_TREE or tree_rel == 0:
             raise ValueError(f'no valid Huffman tree for prev=0x{prev:02X}')
-        topo_start = GS_TREES_BASE + tree_rel
+        topo_start = self.trees_base + tree_rel
         tp = _BitReader(self.data, topo_start)
         codes: dict[int, tuple[int, ...]] = {}
         leaf_id = 0

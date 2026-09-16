@@ -25,13 +25,15 @@ def find_roms():
 
 ROM_PATHS = find_roms()
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.mark.parametrize("rom_path", ROM_PATHS, ids=lambda p: os.path.basename(p))
 def test_plugin_matches_rom(rom_path):
     """Проверяет что для ROM находится подходящий плагин"""
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
-    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
+    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system, rom=rom)
 
     assert plugin is not None, f"No plugin found for {rom.get_game_id()}"
     # Проверяем что regex паттерн совпадает
@@ -45,7 +47,7 @@ def test_extraction_returns_segments(rom_path):
     """Проверяет что извлечение возвращает непустой список сегментов"""
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
-    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
+    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system, rom=rom)
 
     segments = plugin.get_text_segments(rom)
     assert isinstance(segments, list)
@@ -61,7 +63,7 @@ def test_segments_have_required_keys(rom_path):
     """Проверяет структуру сегментов"""
     rom = GameBoyROM(rom_path)
     pm = PluginManager()
-    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system)
+    plugin = pm.get_plugin(rom.get_game_id(), system=rom.system, rom=rom)
 
     segments = plugin.get_text_segments(rom)
     required_keys = {'name', 'start', 'end'}
