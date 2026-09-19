@@ -47,6 +47,8 @@ def ff4():
 
 @pytest.fixture(scope="module")
 def ff4_rom():
+    if not os.path.exists(FF4_PATH):
+        pytest.skip(f'Нет ROM: {os.path.basename(FF4_PATH)}')
     return GameBoyROM(FF4_PATH)
 
 
@@ -62,6 +64,8 @@ def ff5():
 
 @pytest.fixture(scope="module")
 def ff5_rom():
+    if not os.path.exists(FF5_PATH):
+        pytest.skip(f'Нет ROM: {os.path.basename(FF5_PATH)}')
     return GameBoyROM(FF5_PATH)
 
 

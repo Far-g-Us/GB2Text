@@ -24,12 +24,13 @@ GB Text Extraction Framework
 """
 
 import logging
+import queue
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from core.community_registry import CommunityRegistry, CommunityRegistryError
+from core.community_registry import CommunityRegistry
 from gui import theme, widgets
 
 logger = logging.getLogger("gb2text.gui.community_plugins")
@@ -37,6 +38,8 @@ logger = logging.getLogger("gb2text.gui.community_plugins")
 
 class CommunityPluginsDialog:
     """Модальный диалог каталога общедоступных плагинов."""
+
+    _CALLBACK_POLL_MS = 20
 
     def __init__(self, parent, owner, registry: CommunityRegistry | None = None,
                  grab: bool = True):
@@ -46,6 +49,8 @@ class CommunityPluginsDialog:
         self.plugins: list[dict] = []
         self.updates: set[str] = set()
         self._busy = False
+
+        self._callback_queue: queue.SimpleQueue = queue.SimpleQueue()
 
         self.win = tk.Toplevel(parent)
         self.win.title(owner.i18n.t("plugins.community.title"))
@@ -101,6 +106,10 @@ class CommunityPluginsDialog:
 
         theme.apply(self.win, theme.is_dark())
         self._refresh()
+        try:
+            self.win.after(self._CALLBACK_POLL_MS, self._poll_callbacks)
+        except tk.TclError:
+            logger.debug("Окно закрыто при старте поллера — пропущен")
 
     def run(self):
         self.win.wait_window(self.win)
@@ -112,18 +121,40 @@ class CommunityPluginsDialog:
             button.configure(state=state)
 
     def _safe_after(self, func, *args):
-        """win.after с защитой от уничтожения окна во время потока."""
+        """Потокобезопасная постановка callback'а в главный Tk-поток.
 
-        def _wrapped():
-            try:
-                func(*args)
-            except tk.TclError:
-                logger.debug("Окно закрыто во время callback — пропущен")
+        Может вызываться ИЗ ФОНОВОГО потока: здесь только кладём задачу
+        в очередь (thread-safe), а исполняет её поллер в главном потоке
+        (self._poll_callbacks). Никаких прямых обращений к Tk из чужого
+        потока — иначе RuntimeError и гонки.
+        """
+        self._callback_queue.put((func, args))
 
+    def _poll_callbacks(self):
+        """Поллер в главном потоке: самоперепланируется и разбирает очередь."""
         try:
-            self.win.after(0, _wrapped)
+            if not self.win.winfo_exists():
+                return
         except tk.TclError:
-            logger.debug("Окно закрыто до планирования callback — пропущен")
+            logger.debug("Окно закрыто до проверки — стоп")
+            return
+        try:
+            self.win.after(self._CALLBACK_POLL_MS, self._poll_callbacks)
+        except tk.TclError:
+            logger.debug("Окно закрыто до перепланирования поллера — стоп")
+            return
+        try:
+            while True:
+                func, args = self._callback_queue.get_nowait()
+                try:
+                    func(*args)
+                except tk.TclError:
+                    logger.debug("Окно закрыто во время callback — пропущен")
+                except Exception as exc:  # изоляция калбэка
+                    logger.exception("Ошибка в callback %s: %s",
+                                     getattr(func, "__name__", func), exc)
+        except queue.Empty:
+            pass
 
     def _refresh(self):
         """Загружает registry в фоновом потоке и обновляет таблицу."""
@@ -136,7 +167,7 @@ class CommunityPluginsDialog:
     def _load_registry(self):
         try:
             plugins = self.registry.fetch_registry()
-        except CommunityRegistryError as exc:
+        except Exception as exc:  # изоляция фоновой загрузки
             self._safe_after(self._on_load_error, str(exc))
             return
         updates = {p["id"] for p in self.registry.check_updates(plugins)}
@@ -217,7 +248,7 @@ class CommunityPluginsDialog:
             )
             if not ok:
                 return
-        self.set_busy(True)
+        self._set_busy(True)
         self.status_var.set(self.owner.i18n.t("plugins.community.installing",
                                                name=plugin.get("name", "")))
         plugin_id = plugin.get("id", "")

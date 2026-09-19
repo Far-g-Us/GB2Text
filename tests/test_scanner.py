@@ -161,15 +161,17 @@ class TestScanner:
         assert 0xA3 in charmap  # ア
 
     def test_auto_detect_charmap_russian(self):
-        """Тест автоопределения charmap для русского языка"""
-        # Создаём данные с кириллицей (CP866, ROM должен быть достаточно большим)
-        base_data = b'\xC0\xC1\xC2' * 50  # АБВ повторяется много раз
-        russian_data = base_data + b'\x00' * 400  # Добавляем padding до минимального размера
+        """Тест автоопределения charmap для русского языка (настоящий CP866)."""
+        # АБВ (0x80-0x82) + эксклюзивный хвост р-ст (0xE0-0xE2) для приоритета
+        # русского над японским (коллизия 0x80-0x9F с HIRAGANA_RANGE).
+        base_data = b'\x80\x81\x82' * 40 + b'\xE0\xE1\xE2' * 20
+        russian_data = base_data + b'\x00' * 400  # Добавляем padding для надёжного анализа
         charmap = auto_detect_charmap(russian_data, 0, len(russian_data))
         assert isinstance(charmap, dict)
         assert len(charmap) > 0
-        # Проверяем, что кириллица добавлена
-        assert 0xC0 in charmap  # А
+        # Проверяем, что кириллица определена по CP866
+        assert charmap.get(0x80) == 'А'
+        assert charmap.get(0xE0) == 'р'
 
     def test_auto_detect_charmap_small_rom(self):
         """Тест автоопределения charmap для маленького ROM"""
@@ -771,3 +773,77 @@ class TestScanner:
         text_data = b'Some text here\x00\x00\x00'
         result = analyze_text_segment(text_data, 0, len(text_data))
         assert isinstance(result, dict)
+
+
+class TestRussianCharmapCP866:
+    """F2 (breaking 1.4): auto-russian таблица = настоящий CP866."""
+
+    def _ru_charmap(self):
+        from core.scanner import _setup_russian_charmap
+
+        charmap = {}
+        _setup_russian_charmap(charmap)
+        return charmap
+
+    def test_matches_codec_byte_for_byte(self):
+        """Байты 0x20-0x7E и 0x80-0xFE совпадают с кодеком cp866 (эталон)."""
+        charmap = self._ru_charmap()
+        for start, stop in ((0x20, 0x7F), (0x80, 0xFF)):
+            expected = bytes(range(start, stop)).decode("cp866")
+            for byte, char in enumerate(expected, start=start):
+                assert charmap[byte] == char, hex(byte)
+        assert charmap[0xFF] == "\n"  # игровой терминатор, не NBSP
+
+    def test_values_unique(self):
+        """Без дубликатов значений (детерминированный reverse-map для encode)."""
+        charmap = self._ru_charmap()
+        letters = {b: c for b, c in charmap.items() if c != "\n"}
+        assert len(set(letters.values())) == len(letters)
+
+    def test_terminators_kept(self):
+        """Игровые терминаторы сохранены: 0x00/0x0A/0x0D -> newline."""
+        charmap = self._ru_charmap()
+        assert charmap[0x00] == "\n"
+        assert charmap[0x0A] == "\n"
+        assert charmap[0x0D] == "\n"
+
+    def test_roundtrip_russian_text(self):
+        """Encode/decode без потерь, включая пробел и смешанный текст."""
+        from core.decoder import CharMapDecoder
+
+        charmap = self._ru_charmap()
+        dec = CharMapDecoder(charmap)
+        for text in ("ПриветЁёЪъ", "Привет мир 123", "АБВ abc ┌─┐"):
+            raw = dec.encode(text)
+            assert dec.decode(raw, 0, len(raw)) == text
+
+
+class TestKanaUniqueness:
+    """Дедуп hiragana (0xB8/0xB9/0xC7): значения уникальны."""
+
+    def _unique_non_terminator(self, charmap):
+        values = [c for c in charmap.values() if c != "\n"]
+        assert len(set(values)) == len(values)
+
+    def test_hiragana_branch_unique(self):
+        """Ветка хираганы: первые вхождения есть, поздние дубли отсутствуют.
+
+        0xB8/0xB9/0xC7 даны ровно по 2 (freq>1 хватило бы для вставки
+        до фикса, а freq>2 для katakana-ветки — нет, ветка хираганы
+        активна). До фикса тест красный, после — зелёный.
+        """
+        data = b"\x84\x85\x86" * 50 + b"\xb8\xb9\xc7" * 2 + b"\x00" * 400
+        charmap = auto_detect_charmap(data, 0, len(data))
+        assert 0x84 in charmap
+        assert 0x85 in charmap
+        assert 0x86 in charmap
+        assert 0xB8 not in charmap
+        assert 0xB9 not in charmap
+        assert 0xC7 not in charmap
+        self._unique_non_terminator(charmap)
+
+    def test_katakana_branch_unique(self):
+        """Ветка катаканы: дубликатов не было и нет (регрессия)."""
+        data = b"\xa1\xa2\xa3" * 100 + b"\x00" * 400
+        charmap = auto_detect_charmap(data, 0, len(data))
+        self._unique_non_terminator(charmap)

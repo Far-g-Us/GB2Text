@@ -48,6 +48,13 @@ ALLOWLIST_ENV = "GB2TEXT_PLUGIN_ALLOWLIST"
 # Файл allowlist рядом с настройками (dict {"plugins": [...]} или список).
 ALLOWLIST_FILE = Path("settings") / "plugin_allowlist.json"
 
+# Модули, которые грузятся СРАЗУ при создании менеджера, а не лениво:
+# generic.py (fallback GB/GBC/GBA) и auto_detect.py (последний fallback)
+# содержат generic-классы, которые должны быть доступны в любом случае.
+# Все остальные Python-модули из plugins/ откладываются (lazy) до первого
+# get_plugin()/обращения к .plugins.
+EAGER_PYTHON_MODULES = frozenset({"generic", "auto_detect"})
+
 
 def resolve_plugin_allowlist(allowlist: set[str] | None = None) -> set[str] | None:
     """Union allowlist из env, файла settings/plugin_allowlist.json и аргумента.
@@ -125,6 +132,16 @@ class PluginManager:
         self.generic_plugins = []
         # Специфичные плагины — проверяются ПЕРВЫМИ
         self.specific_plugins = []
+        # Ленивая загрузка specific-плагинов: модули копятся в _lazy_pending,
+        # импортируются при первом get_plugin()/обращении к .plugins.
+        self._lazy_pending: list[str] = []
+        self._lazy_loaded = False
+        self._lazy_realizing = False
+        self._plugin_lock = threading.RLock()
+        # Защита от дубликатов при повторном load_plugins(): уже загруженные
+        # конфиги (по resolved-пути) и entry point классы (по точному типу).
+        self._loaded_config_paths: set = set()
+        self._loaded_entry_point_classes: set = set()
         # AutoDetect — последний fallback
         self.auto_detect = AutoDetectPlugin()
         # Allowlist плагинов: None = грузим все, set = только перечисленные.
@@ -136,7 +153,13 @@ class PluginManager:
 
     @property
     def plugins(self) -> list:
-        """Возвращает объединённый список всех плагинов (specific + generic)."""
+        """Возвращает объединённый список всех плагинов (specific + generic).
+
+        Первое обращение к этому свойству реализует отложенную загрузку
+        питоновских specific-плагинов — контракт «все плагины» сохраняется.
+        """
+        if not getattr(self, "_lazy_loaded", True):
+            self._realize_lazy_plugins()
         return self.specific_plugins + self.generic_plugins
 
     @plugins.setter
@@ -144,6 +167,9 @@ class PluginManager:
         """Устанавливает список плагинов (заменяет specific_plugins)."""
         self.specific_plugins = list(value)
         self.generic_plugins = []
+        # Ручная установка снимает ленивое состояние: pending более не нужен.
+        self._lazy_pending = []
+        self._lazy_loaded = True
 
     def _get_resource_path(self, relative_path: str) -> str:
         """Получает правильный путь к ресурсу для exe и обычного режима"""
@@ -176,40 +202,171 @@ class PluginManager:
         self._load_entry_point_plugins()
 
     def _load_python_plugins(self) -> None:
-        """Загружает Python-плагины из директории.
+        """Планирует загрузку Python-плагинов из директории.
 
-        Плагины вне allowlist не импортируются вообще: код модуля не
-        исполняется, пока имя не явно одобрено (gate ДО import_module).
+        Модули с generic-классами (EAGER_PYTHON_MODULES) импортируются и
+        инстанцируются сразу; остальные (specific) откладываются: имена
+        копятся в _lazy_pending для _realize_lazy_plugins(). и тот, и другой
+        путь гейтится allowlist-ом строго ДО import_module — код
+        specific-модуля вне allowlist не исполняется никогда (ни на старте,
+        ни лениво). Встроенные generic/auto_detect — доверенный builtin-код,
+        грузятся всегда (EAGER_PYTHON_MODULES).
+
+        Повторный вызов load_plugins() после реализованной ленивой загрузки
+        — no-op (не задваивает экземпляры). Планирование под RLock —
+        конкурентный load_plugins+realize не теряет обновления pending.
         """
-        plugins_module_path = self.plugins_dir
-        allowlist = self.allowlist
-        if os.path.exists(plugins_module_path):
+        if getattr(self, "_lazy_loaded", True):
+            return
+        lock = getattr(self, "_plugin_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._plugin_lock = lock
+        with lock:
+            allowlist = self.allowlist
+            pending = list(getattr(self, "_lazy_pending", []))
+            if not os.path.exists(self.plugins_dir):
+                self._lazy_pending = pending
+                return
             try:
-                for _, module_name, _ in pkgutil.iter_modules([plugins_module_path]):
+                for _, module_name, _ in pkgutil.iter_modules([self.plugins_dir]):
                     if allowlist is not None and module_name not in allowlist:
                         logger.debug("Плагин %s пропущен: не в allowlist", module_name)
                         continue
-                    try:
-                        module = importlib.import_module(f"plugins.{module_name}")
-                        for attribute_name in dir(module):
-                            attribute = getattr(module, attribute_name)
-                            if (
-                                    isinstance(attribute, type) and
-                                    getattr(attribute, '__module__', None) == module.__name__ and
-                                    issubclass(attribute, GamePlugin) and
-                                    attribute != GamePlugin
-                            ):
-                                plugin_instance = attribute()
-                                # Определяем, является ли плагин generic или specific
-                                if self._is_generic_plugin(attribute):
-                                    self.generic_plugins.append(plugin_instance)
-                                else:
-                                    self.specific_plugins.append(plugin_instance)
-                                logger.info(f"Загружен плагин: {attribute.__name__}")
-                    except Exception as e:
-                        logger.error(f"Ошибка загрузки модуля {module_name}: {e!s}")
+                    if module_name in EAGER_PYTHON_MODULES:
+                        self._instantiate_from_module(module_name)
+                        continue
+                    if module_name not in pending:
+                        pending.append(module_name)
             except Exception as e:
                 logger.error(f"Ошибка доступа к директории плагинов: {e!s}")
+            self._lazy_pending = pending
+
+    def _instantiate_from_module(self, module_name: str) -> list:
+        """Импортирует модуль plugins.<module_name> и инстанцирует плагины.
+
+        Возвращает экземпляры specific-плагинов (для вставки в списки);
+        generic-классы регистрируются в generic_plugins сразу (с дедупом по
+        классу — защита от повторной ленивой реализации после отмены).
+        Ошибки импорта/инстанцирования изолированы: проблемный модуль или
+        класс пропускается.
+        """
+        try:
+            module = importlib.import_module(f"plugins.{module_name}")
+        except Exception as e:
+            logger.error(f"Ошибка загрузки модуля {module_name}: {e!s}")
+            return []
+        instances: list = []
+        for attribute_name in dir(module):
+            attribute = getattr(module, attribute_name)
+            if (
+                    isinstance(attribute, type) and
+                    getattr(attribute, '__module__', None) == module.__name__ and
+                    issubclass(attribute, GamePlugin) and
+                    attribute != GamePlugin
+            ):
+                try:
+                    plugin_instance = attribute()
+                except Exception as e:
+                    logger.error(
+                        f"Ошибка инстанцирования плагина "
+                        f"{attribute.__name__} из {module_name}: {e!s}")
+                    continue
+                # Определяем, является ли плагин generic или specific
+                if self._is_generic_plugin(attribute):
+                    # Дедуп по ТОЧНОМУ классу: подклассы GenericGBPlugin
+                    # (GBC/GBA) не должны вытеснять родительский класс из списка.
+                    if not any(type(p) is attribute
+                               for p in self.generic_plugins):
+                        self.generic_plugins.append(plugin_instance)
+                else:
+                    instances.append(plugin_instance)
+                logger.info(f"Загружен плагин: {attribute.__name__}")
+        return instances
+
+    def _realize_lazy_plugins(
+            self, cancellation_token: CancellationToken | None = None) -> None:
+        """Импортирует отложенные specific-модули (ленивая загрузка).
+
+        Экземпляры вставляются В НАЧАЛО specific_plugins (specific_plugins[:0])
+        — питоновские плагины идут до config/entry-point и сохраняют порядок
+        планирования и приоритет «первый-в-списке» при равной специфичности.
+
+        Потокобезопасен через RLock: повторный вызов из любого потока
+        оказывается no-op. Реентрантный вызов (инициализатор плагина
+        callback'ом тянет менеджер) тоже no-op благодаря флагу
+        _lazy_realizing — внешняя реализация доводит дело до конца,
+        дубли specific-экземпляров не создаются. При отмене
+        (cancellation_token) pending-состояние восстанавливается целиком —
+        частично реализованные экземпляры не вставляются, повторная
+        попытка не создаёт дублей.
+        """
+        if getattr(self, "_lazy_loaded", True):
+            return
+        lock = getattr(self, "_plugin_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._plugin_lock = lock
+        with lock:
+            if self._lazy_loaded:
+                return
+            if getattr(self, "_lazy_realizing", False):
+                return
+            self._lazy_realizing = True
+            try:
+                pending = list(self._lazy_pending)
+                if not pending:
+                    self._lazy_pending = []
+                    self._lazy_loaded = True
+                    return
+                if cancellation_token and cancellation_token.is_cancellation_requested():
+                    logger.info("Ленивая загрузка плагинов отменена")
+                    return
+                realized: list = []
+                for module_name in pending:
+                    if cancellation_token and cancellation_token.is_cancellation_requested():
+                        logger.info("Ленивая загрузка плагинов отменена")
+                        return
+                    # Повторный gate до import: защита от подмены allowlist в рантайме.
+                    if self.allowlist is not None and module_name not in self.allowlist:
+                        continue
+                    realized.extend(self._instantiate_from_module(module_name))
+                self._drop_shadowed_configs(realized)
+                self.specific_plugins[0:0] = realized
+                self._lazy_pending = []
+                self._lazy_loaded = True
+            finally:
+                self._lazy_realizing = False
+
+    def _drop_shadowed_configs(self, realized: list) -> None:
+        """Убирает JSON-конфиги, затенённые реализованными python-плагинами.
+
+        Восстанавливает pre-lazy поведение: раньше python-specific грузились
+        первыми и дедуп _load_config_plugins видел их паттерны, отклоняя
+        конфиг-дубликат. Теперь дедуп при загрузке конфигов работает на
+        неполном списке (pending ещё не реализован), поэтому дубликат
+        убирается здесь — python-specific выигрывает, как и раньше.
+        """
+        patterns = {
+            getattr(p, "game_id_pattern", None) for p in realized
+        } - {None}
+        if not patterns:
+            return
+        kept = []
+        for p in self.specific_plugins:
+            if (isinstance(p, ConfigurablePlugin)
+                    and getattr(p, "game_id_pattern", None) in patterns
+                    and not p.config.get("rom_signature")):
+                # Только бесссигнатурные: сигнатурный конфиг (ROM-хак) pre-lazy
+                # сохранялся рядом с python-плагином как легитимный вариант.
+                logger.info(
+                    "Конфиг %s затенён python-плагином %s — удалён",
+                    getattr(p, "config_path", "?"),
+                    getattr(p, "game_id_pattern", "?"))
+                continue
+            kept.append(p)
+        if len(kept) != len(self.specific_plugins):
+            self.specific_plugins[:] = kept
 
     def _is_generic_plugin(self, plugin_class) -> bool:
         """Проверяет, является ли плагин generic (fallback)"""
@@ -234,6 +391,10 @@ class PluginManager:
                 continue
             if self.allowlist is not None and json_file.stem not in self.allowlist:
                 logger.debug("Конфигурация %s пропущена: не в allowlist", json_file.name)
+                continue
+            resolved = json_file.resolve()
+            if resolved in self._loaded_config_paths:
+                logger.debug("Конфигурация %s уже загружена, пропуск", json_file.name)
                 continue
             if loaded_configs >= max_configs:
                 logger.warning(f"Достигнуто максимальное количество конфигураций ({max_configs}). Остальные пропущены.")
@@ -278,6 +439,7 @@ class PluginManager:
 
                 if not is_duplicate:
                     self.specific_plugins.append(ConfigurablePlugin(config))
+                    self._loaded_config_paths.add(resolved)
                     logger.info(f"Загружена конфигурация: {json_file.name}")
                     loaded_configs += 1
             except Exception as e:
@@ -321,11 +483,15 @@ class PluginManager:
                 obj = ep.load()
                 cls = obj if isinstance(obj, type) else type(obj)
                 if issubclass(cls, GamePlugin):
+                    if cls in self._loaded_entry_point_classes:
+                        logger.debug("Entry point %s уже загружен, пропуск", ep.name)
+                        continue
                     instance = cls() if isinstance(obj, type) else obj
                     if self._is_generic_plugin(cls):
                         self.generic_plugins.append(instance)
                     else:
                         self.specific_plugins.append(instance)
+                    self._loaded_entry_point_classes.add(cls)
                     logger.info(f"Загружен entry point плагин: {ep.name} -> {cls.__name__}")
                     loaded += 1
                 else:
@@ -466,6 +632,9 @@ class PluginManager:
         более специфичный (с гейтом), при равенстве — первый по порядку.
         """
         logger.info(f"Поиск подходящего плагина для игры с ID: {game_id}, система: {system}")
+
+        # Ленивая загрузка отложенных specific-плагинов (только при первом вызове).
+        self._realize_lazy_plugins(cancellation_token)
 
         all_plugins = self.specific_plugins + self.generic_plugins
 

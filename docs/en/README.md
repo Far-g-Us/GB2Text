@@ -35,6 +35,7 @@ Nintendo, Pokémon, The Legend of Zelda, and all related trademarks are the prop
 - tkinter (usually included with Python)
 
 ### Setup
+> ⚠️ **Download GB2Text ONLY from the official GitHub repository** — the trusted, sole source (see the `git clone` URL below). Never obtain the tool from third-party mirrors, file-sharing sites, or ROM/translation forums: anyone can repackage it with altered code or malicious plugins.
 ```bash
 git clone https://github.com/Far-g-Us/GB2Text.git
 cd GB2Text
@@ -47,6 +48,12 @@ python -m venv .venv
 #   source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### 💾 Download GB2Text.exe
+
+Windows 10/11 (64-bit): standalone `GB2Text.exe`, no Python required — see
+[Download](download.md).
+
 ### 🖥️ Usage
 #### GUI Mode (Recommended) 
 
@@ -95,6 +102,20 @@ Leave static game-specific configuration files in `plugins/config/` out of the r
   ]
 }
 ```
+
+## 🧩 Community Plugins & Custom Fonts
+
+#### Plugins define game-specific ROM layouts: text offsets, pointer tables, charmaps, and encodings — no game text or copyrighted content lives in this repository.
+
+- **Community plugin configs** (`*.json` in `plugins/config/`): numeric ROM structures only (offsets, free-after sizes, pointer offsets). Static per-game configs are accepted via the [CONTRIBUTING](CONTRIBUTING.md) process only.
+- **Installing plugins** — use the **Community Plugins** dialog in the GUI, or the Agent API (`plugins` command). The registry only accepts HTTPS downloads from pre-approved hosts; each file is validated by size limit, SHA-256 checksum, and strict response schema (`{"ok": bool, ...}`). Manifest slots are validated (`game_id_pattern` + `segments`) before injection.
+- **Virus / malicious-content screening is layered**: JSON configs are validated and stored as data (numeric structures, checksums verified before use); Python plugins install as code and execute on load, so always inspect third-party configs before injecting. Plugin code runs only for games you legally own; there is no sandbox.
+
+### Custom font / charset (.tbl/.json charmaps)
+
+- **Font tables** map raw byte values to characters. You can supply your own `charmap` (per-language: ASCII, Katakana/Hiragana, Cyrillic).
+- Add extra glyphs by extending the `charmap` in a plugin config; unknown bytes decode as `{{XX}}` hex tokens.
+- GUI: **Settings → Character Table** lets you load/save `.tbl` charmaps and test encode/decode live.
 
 ## 🌐 Multi-language Support 
 

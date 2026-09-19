@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gb2text"
-version = "1.3.0"
+version = "1.4.0"
 description = "GB/GBC/GBA ROM text extraction and reinsertion framework"
 requires-python = ">=3.11"
 dependencies = [

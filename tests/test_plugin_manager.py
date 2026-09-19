@@ -780,6 +780,27 @@ class TestPluginManager:
             pm = PluginManager(os.path.join(tmpdir, "plugins"))
             pm._load_config_plugins()
 
+    def test_load_config_plugins_reload_not_duplicated(self):
+        """Повторный _load_config_plugins() не дублирует сигнатурные конфиги."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_dir = os.path.join(tmpdir, "plugins", "config")
+            os.makedirs(config_dir)
+            config = {
+                "game_id_pattern": "TESTHACK.*",
+                "rom_signature": [{"title_pattern": r"TESTHACK"}],
+                "segments": [{"name": "main", "start": 0, "end": 100}]
+            }
+            with open(os.path.join(config_dir, "hack.json"), 'w') as f:
+                json.dump(config, f)
+            pm = PluginManager(os.path.join(tmpdir, "plugins"))
+            pm._load_config_plugins()
+            count = sum(
+                1 for p in pm.specific_plugins
+                if getattr(p, 'config', {}).get('game_id_pattern') == "TESTHACK.*"
+            )
+            assert count == 1
+
     def test_get_plugin_progress_update(self):
         """Тест обновления прогресса при поиске плагина"""
         pm = PluginManager()
@@ -954,6 +975,22 @@ class TestEntryPointDiscovery:
         from tests.fake_ep_plugin import FakeSpecificEP
         assert any(isinstance(p, FakeSpecificEP) for p in pm.specific_plugins)
 
+    def test_entry_point_reload_not_duplicated(self, tmp_path, monkeypatch):
+        """Повторный _load_entry_point_plugins() не дублирует плагины."""
+        from importlib.metadata import EntryPoint
+
+        from tests.fake_ep_plugin import FakeSpecificEP
+
+        ep = EntryPoint(name='fake_ep', value='tests.fake_ep_plugin:FakeSpecificEP',
+                        group='gb2text.plugins')
+        monkeypatch.setattr('importlib.metadata.entry_points',
+                            lambda: FakeEntryPoints([ep]))
+
+        pm = self._make_pm(tmp_path)
+        pm._load_entry_point_plugins()
+        count = sum(1 for p in pm.specific_plugins if isinstance(p, FakeSpecificEP))
+        assert count == 1
+
     def test_entry_point_metadata_error(self, tmp_path, monkeypatch):
         """Сбой самой entry_points() обрабатывается без исключения."""
         def boom():
@@ -1043,7 +1080,12 @@ class TestPluginAllowlist:
         assert pm_mod.resolve_plugin_allowlist(set()) == set()
 
     def test_python_gate_checks_before_import(self, monkeypatch):
-        """Модуль вне allowlist не импортируется вообще (нет exec кода)."""
+        """Модуль вне allowlist не импортируется вообще (нет exec кода).
+
+        Ленивая загрузка: разрешённый конкретный модуль НЕ импортируется при
+        создании менеджера — только при первом качестве (get_plugin/.plugins),
+        и остаётся в списках ровно один раз.
+        """
         import types
 
         from core import plugin_manager as pm_mod
@@ -1077,8 +1119,18 @@ class TestPluginAllowlist:
         )
 
         pm = pm_mod.PluginManager("plugins", allowlist={"gba_zelda_tmc"})
+        # Старт: питоновские модули НЕ импортированы (lazy), ничего не реализовано.
+        assert [i for i in imported if not i.startswith(("plugins.generic", "plugins.auto_detect"))] == []
+        assert pm.specific_plugins == []
+
+        # Первый get_plugin реализует ровно разрешённый модуль.
+        pm.get_plugin("TEST", "gba")
         assert imported == ["plugins.gba_zelda_tmc"]
         assert len(pm.specific_plugins) == 1
+
+        # Повторный realize — no-op: импорта не появляется, экземпляр один.
+        assert len(pm.plugins) == 1
+        assert imported == ["plugins.gba_zelda_tmc"]
 
     def test_python_gate_skips_modules_not_in_allowlist(self, monkeypatch):
         """Вне allowlist — плагины не появляются в списках менеджера."""
@@ -1143,6 +1195,763 @@ def tmp_nonexistent():
     from pathlib import Path
 
     return Path("does_not_exist_allowlist") / "x.json"
+
+
+class TestLazyPluginLoading:
+    """AC2: ленивая загрузка specific-плагинов (реализация по первому обращению)."""
+
+    def _clean_allowlist(self, monkeypatch, tmp_path):
+        """Отключает внешние allowlist-источники и подменяет файл-конфиг каждый тест."""
+        import core.plugin_manager as pm_mod
+
+        monkeypatch.setattr(pm_mod, 'ALLOWLIST_FILE', tmp_path / "nope.json")
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+        return pm_mod
+
+    def test_specific_modules_imported_only_on_first_access(self, monkeypatch, tmp_path):
+        """AC2-А: при инициализации импортируются только generic-модули,
+        конкретные — при первом обращении к .plugins/get_plugin."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        real_import = pm_mod.importlib.import_module
+        imported = []
+
+        def spy_import(name):
+            if name.startswith("plugins."):
+                imported.append(name)
+            return real_import(name)
+
+        monkeypatch.setattr(pm_mod.importlib, "import_module", spy_import)
+
+        pm = pm_mod.PluginManager("plugins")
+        pending = {f"plugins.{m}" for m in pm._lazy_pending}
+        assert pending  # есть отложенные модули
+        eager_imports = {i for i in imported if i.startswith(("plugins.generic", "plugins.auto_detect"))}
+        assert eager_imports  # eager всегда загружен
+        assert not (pending & set(imported))  # ни один отложенный ещё не импортирован
+
+        before = len(pm.specific_plugins)
+        all_plugins = pm.plugins  # первое обращение реализует ленивую загрузку
+        assert pending <= set(imported)
+        assert "plugins.generic" in imported
+        sp = pm.specific_plugins
+        assert len(sp) >= before + 1
+        # Питоновские specific-плагины вставлены В НАЧАЛО списка.
+        realized_modules = {p.__class__.__module__ for p in sp[:len(sp) - before]}
+        assert realized_modules <= pending
+        assert sp[0].__class__.__module__ in pending
+        assert isinstance(all_plugins, list)
+
+    def test_lazy_import_respects_allowlist_gate(self, monkeypatch, tmp_path):
+        """AC2-Б: модуль вне allowlist не импортируется ни на старте, ни лениво."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        real_import = pm_mod.importlib.import_module
+        imported = []
+
+        def spy_import(name):
+            if name.startswith("plugins."):
+                imported.append(name)
+            return real_import(name)
+
+        monkeypatch.setattr(pm_mod.importlib, "import_module", spy_import)
+
+        pm = pm_mod.PluginManager("plugins", allowlist={"gba_zelda_tmc"})
+        # старт: никакие питоновские модули не импортированы (generic вне allowlist)
+        assert [i for i in imported if i.startswith("plugins.")] == []
+        _ = pm.plugins
+        assert imported == ["plugins.gba_zelda_tmc"]
+        assert [p.__class__.__name__ for p in pm.plugins] == ["ZeldaTMCPlugin"]
+
+    def test_concurrent_first_access_no_duplicates(self, monkeypatch, tmp_path):
+        """AC2-В: гонка двух потоков на первом get_plugin — без падения и дублей."""
+        import threading
+
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        pm = pm_mod.PluginManager("plugins")
+
+        results = {}
+        errors = []
+
+        def worker():
+            try:
+                results[threading.get_ident()] = pm.get_plugin("QXQ_XYZZY_999", "gba")
+            except Exception as exc:  # pragma: no cover - не должно возникнуть
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        assert all(r is not None for r in results.values())
+        classes = [p.__class__ for p in pm.specific_plugins]
+        assert len(classes) == len(set(classes))  # нет дублей экземпляров
+        # Повторная реализация ничего не меняет.
+        before = len(pm.specific_plugins)
+        _ = pm.plugins
+        assert len(pm.specific_plugins) == before
+
+    def test_lazy_specific_precede_entry_and_config_plugins(self, monkeypatch, tmp_path):
+        """AC2-Г: после ленивой реализации питоновские specific-плагины
+        стоят в specific_plugins ДО config/entry-point плагинов."""
+        import types
+
+        from core.plugin import GamePlugin
+
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+
+        def fake_import(name):
+            module = types.ModuleType(name)
+            module.__name__ = name
+
+            class LazyOne(GamePlugin):
+                @property
+                def game_id_pattern(self):
+                    return r'^LAZY_'
+
+                def get_text_segments(self, rom):
+                    return []
+
+            LazyOne.__module__ = name
+            module.LazyOne = LazyOne
+            return module
+
+        monkeypatch.setattr(pm_mod.importlib, "import_module", fake_import)
+        monkeypatch.setattr(
+            pm_mod.pkgutil, "iter_modules",
+            lambda path: [("", "lazy_specific_mod", False)],
+        )
+
+        class EpPlugin(GamePlugin):
+            @property
+            def game_id_pattern(self):
+                return r'^EP_'
+
+            def get_text_segments(self, rom):
+                return []
+
+        class StubEP:
+            name = "ep_one"
+
+            def load(self):
+                return EpPlugin
+
+        monkeypatch.setattr(
+            pm_mod.importlib_metadata, "entry_points",
+            lambda: _AllowlistEPs([StubEP()]),
+        )
+
+        pm = pm_mod.PluginManager(str(tmp_path))
+        # entry point загружен сразу (eager); lazy-модуль отложен.
+        assert "lazy_specific_mod" in pm._lazy_pending
+        assert pm.specific_plugins and isinstance(pm.specific_plugins[0], EpPlugin)
+
+        pm.get_plugin("TEST", "gba")
+        sp = pm.specific_plugins
+        assert sp[0].__class__.__name__ == "LazyOne"
+        assert any(isinstance(p, EpPlugin) for p in sp[1:])
+
+    def test_lazy_plugin_init_error_is_isolated(self, monkeypatch, tmp_path):
+        """P1: исключение в конструкторе плагина не ломает get_plugin/.plugins."""
+        import types
+
+        from core.plugin import GamePlugin
+
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+
+        def fake_import(name):
+            module = types.ModuleType(name)
+            module.__name__ = name
+
+            class Boom(GamePlugin):
+                @property
+                def game_id_pattern(self):
+                    return r'^BOOM_'
+
+                def __init__(self):
+                    raise RuntimeError("boom")
+
+                def get_text_segments(self, rom):
+                    return []
+
+            Boom.__module__ = name
+            module.Boom = Boom
+            return module
+
+        monkeypatch.setattr(pm_mod.importlib, "import_module", fake_import)
+        monkeypatch.setattr(
+            pm_mod.pkgutil, "iter_modules",
+            lambda path: [("", "boom_mod", False)],
+        )
+
+        pm = pm_mod.PluginManager(str(tmp_path))
+        # Не должно бросить: битый плагин пропущен, менеджер продолжает работу.
+        assert pm.get_plugin("ANY", "gba") is not None
+        assert all(p.__class__.__name__ != "Boom" for p in pm.specific_plugins)
+        assert pm._lazy_loaded
+
+    def test_plugins_setter_clears_lazy_state(self, monkeypatch, tmp_path):
+        """Ручная установка .plugins снимает ленивое состояние (без повторной реализации)."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert pm._lazy_pending == [] and not pm._lazy_loaded
+
+        class DummyPlugin:
+            game_id_pattern = "^.*$"
+
+            def get_text_segments(self, rom):
+                return []
+
+        pm.plugins = [DummyPlugin()]
+        assert pm._lazy_pending == [] and pm._lazy_loaded is True
+        plugin = pm.get_plugin("TEST GAME", "gba")
+        assert isinstance(plugin, DummyPlugin)
+        assert len(pm.specific_plugins) == 1
+
+    def test_reentrant_realize_no_duplicates(self, monkeypatch, tmp_path):
+        """Реентрантный realize (инициализатор тянет менеджер) — no-op без дублей."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        pm = pm_mod.PluginManager("plugins")
+        assert pm._lazy_pending
+        calls: list[str] = []
+        entered: list[bool] = []
+        real_instantiate = pm._instantiate_from_module
+
+        def spy(module_name):
+            calls.append(module_name)
+            if not entered:
+                entered.append(True)
+                pm._realize_lazy_plugins()  # реентрантный вызов
+            return real_instantiate(module_name)
+
+        monkeypatch.setattr(pm, "_instantiate_from_module", spy)
+        _ = pm.plugins
+        assert entered  # реентрантность реально случилась
+        assert len(calls) == len(set(calls))  # каждый модуль — ровно раз
+        ids = [id(p) for p in pm.specific_plugins]
+        assert len(ids) == len(set(ids))
+
+    def test_shadowed_config_removed_on_realize(self, monkeypatch, tmp_path):
+        """Конфиг-дубликат ещё-не-реализованного python-плагина убирается
+        при realize (pre-lazy поведение: python-specific выигрывает)."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        pm = pm_mod.PluginManager(str(tmp_path))
+        pm.specific_plugins.append(
+            ConfigurablePlugin({"game_id_pattern": "^LAZY_DUP_$"}))
+
+        class FakeSpecific:
+            game_id_pattern = "^LAZY_DUP_$"
+
+        fake = FakeSpecific()
+        monkeypatch.setattr(
+            pm, "_instantiate_from_module", lambda name: [fake])
+        pm._lazy_pending = ["fake_mod"]
+        pm._lazy_loaded = False
+        _ = pm.plugins
+        assert pm._lazy_loaded is True
+        assert fake in pm.specific_plugins
+        assert pm.specific_plugins[0] is fake
+        assert not any(
+            isinstance(p, ConfigurablePlugin)
+            and p.config.get("game_id_pattern") == "^LAZY_DUP_$"
+            for p in pm.specific_plugins)
+
+    def test_signature_config_survives_realize(self, monkeypatch, tmp_path):
+        """Сигнатурный конфиг (ROM-хак) переживает realize рядом с python."""
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        pm = pm_mod.PluginManager(str(tmp_path))
+        hack = ConfigurablePlugin({
+            "game_id_pattern": "^LAZY_DUP_$",
+            "rom_signature": [{"offset": 0, "data": "AA"}],
+        })
+        pm.specific_plugins.append(hack)
+
+        class FakeSpecific:
+            game_id_pattern = "^LAZY_DUP_$"
+
+        fake = FakeSpecific()
+        monkeypatch.setattr(
+            pm, "_instantiate_from_module", lambda name: [fake])
+        pm._lazy_pending = ["fake_mod"]
+        pm._lazy_loaded = False
+        _ = pm.plugins
+        assert fake in pm.specific_plugins
+        assert hack in pm.specific_plugins
+
+
+class TestCoverageGaps:
+    """Добивка покрытия: allowlist-источники, планирование, realize-ветки,
+    entry-points, валидация конфигов, normalize, сигнатуры, сегменты."""
+
+    def _clean_allowlist(self, monkeypatch, tmp_path):
+        import core.plugin_manager as pm_mod
+
+        monkeypatch.setattr(pm_mod, "ALLOWLIST_FILE", tmp_path / "nope.json")
+        monkeypatch.delenv(pm_mod.ALLOWLIST_ENV, raising=False)
+        return pm_mod
+
+    def _tmp_pm(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        return pm_mod, pm_mod.PluginManager(str(tmp_path))
+
+    def test_allowlist_env_only_separators(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        monkeypatch.setenv(pm_mod.ALLOWLIST_ENV, ",,,")
+        assert pm_mod.resolve_plugin_allowlist() == set()
+
+    def test_allowlist_file_scalar(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        f = tmp_path / "allow.json"
+        f.write_text("5", encoding="utf-8")
+        monkeypatch.setattr(pm_mod, "ALLOWLIST_FILE", f)
+        assert pm_mod.resolve_plugin_allowlist() == set()
+
+    def test_planning_recreates_lock(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        pm._lazy_loaded = False
+        del pm._plugin_lock
+        pm.load_plugins()
+        assert pm._plugin_lock is not None
+
+    def test_planning_missing_dir(self, monkeypatch, tmp_path):
+        import os
+        import uuid
+
+        # load_plugins() создаёт директорию ДО _load_python_plugins,
+        # поэтому ветка missing-dir достижима только прямым вызовом;
+        # uuid — pytest переиспользует нумерованные tmp-диры
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        missing = tmp_path / f"nope-{uuid.uuid4().hex}"
+        pm.plugins_dir = str(missing)
+        pm._lazy_loaded = False
+        pm._load_python_plugins()
+        assert pm._lazy_pending == []
+        assert not os.path.exists(missing)
+
+    def test_planning_iter_error(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+
+        def boom(path):
+            raise RuntimeError("io")
+
+        monkeypatch.setattr(pm_mod.pkgutil, "iter_modules", boom)
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert pm._lazy_pending == []
+
+    def test_instantiate_missing_module(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        assert pm._instantiate_from_module("definitely_no_such_module_xyz") == []
+
+    def test_realize_recreates_lock(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        pm._lazy_loaded = False
+        del pm._plugin_lock
+        pm._realize_lazy_plugins()
+        assert pm._lazy_loaded is True
+
+    def test_realize_loaded_flip(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        real_lock = pm._plugin_lock
+        pm._lazy_loaded = False
+
+        class FlipLock:
+            def __enter__(self):
+                pm._lazy_loaded = True
+                return real_lock.__enter__()
+
+            def __exit__(self, *args):
+                return real_lock.__exit__(*args)
+
+        pm._plugin_lock = FlipLock()
+        pm._realize_lazy_plugins()
+        assert pm._lazy_loaded is True
+
+    def test_realize_cancel_midloop(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        pm._lazy_pending = ["m"]
+        pm._lazy_loaded = False
+
+        class FlipToken:
+            def __init__(self):
+                self.n = 0
+
+            def is_cancellation_requested(self):
+                self.n += 1
+                return self.n > 1
+
+        pm._realize_lazy_plugins(FlipToken())
+        assert pm._lazy_loaded is False
+        assert pm._lazy_pending == ["m"]
+
+    def test_realize_allowlist_skip(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        pm.allowlist = {"other"}
+        pm._lazy_pending = ["m"]
+        pm._lazy_loaded = False
+        pm._realize_lazy_plugins()
+        assert pm._lazy_loaded is True
+        assert pm._lazy_pending == []
+
+    def test_entry_points_dict_branch(self, monkeypatch, tmp_path):
+        from core.plugin import GamePlugin
+
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+
+        class DictEPPlugin(GamePlugin):
+            @property
+            def game_id_pattern(self):
+                return r"^DICT_EP_$"
+
+            def get_text_segments(self, rom):
+                return []
+
+        class StubEP:
+            name = "dict_ep"
+
+            def load(self):
+                return DictEPPlugin
+
+        monkeypatch.setattr(
+            pm_mod.importlib_metadata, "entry_points",
+            lambda: {"gb2text.plugins": [StubEP()]},
+        )
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert any(isinstance(p, DictEPPlugin) for p in pm.specific_plugins)
+
+    def test_entry_point_generic_branch(self, monkeypatch, tmp_path):
+        from core.plugin import GamePlugin
+
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        generic_fake = type(
+            "GenericGBPlugin",
+            (GamePlugin,),
+            {"game_id_pattern": "^G$", "get_text_segments": lambda self, rom: []},
+        )
+
+        class StubEP:
+            name = "gen_ep"
+
+            def load(self):
+                return generic_fake
+
+        monkeypatch.setattr(
+            pm_mod.importlib_metadata, "entry_points",
+            lambda: _AllowlistEPs([StubEP()]),
+        )
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert any(type(p) is generic_fake for p in pm.generic_plugins)
+
+    def test_config_duplicate_path_skip(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        cfg = tmp_path / "config"
+        cfg.mkdir()
+        (cfg / "g.json").write_text(
+            '{"game_id_pattern": "^G$", "segments": []}', encoding="utf-8")
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert sum(
+            1 for p in pm.specific_plugins
+            if isinstance(p, pm_mod.ConfigurablePlugin)) == 1
+        pm.load_plugins()
+        assert sum(
+            1 for p in pm.specific_plugins
+            if isinstance(p, pm_mod.ConfigurablePlugin)) == 1
+
+    def test_valid_config_branches(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        base = {"game_id_pattern": "^X$", "segments": []}
+        assert pm._is_valid_config({**base, "segments": {}}) is False
+        assert pm._is_valid_config({**base, "rom_signature": [1]}) is False
+        assert pm._is_valid_config({**base, "rom_signature": [{}]}) is False
+        assert pm._is_valid_config(
+            {**base, "rom_signature": [{"title_pattern": "^X$", "zzz": 1}]}) is False
+        assert pm._is_valid_config(
+            {**base, "rom_signature": [{"title_pattern": "(["}]}) is False
+        assert pm._is_valid_config(
+            {**base, "rom_signature": [{"min_size": "x"}]}) is False
+        assert pm._is_valid_config(
+            {**base, "rom_signature": [{"min_size": 10, "max_size": 5}]}) is False
+        assert pm._is_valid_config(
+            {**base, "rom_signature": [{"min_size": 1, "max_size": 99}]}) is True
+
+    def test_config_safe_warning(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        cfg = {"segments": [{"charmap": {i: f"PK{i}" for i in range(60)}}]}
+        assert pm._is_config_safe(cfg) is True
+
+    def test_get_plugin_bad_regex(self, monkeypatch, tmp_path):
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+
+        class FakeBad:
+            game_id_pattern = "(["
+
+        pm.specific_plugins.append(FakeBad())
+        assert pm.get_plugin("X", "gba") is pm.auto_detect
+        assert pm.get_plugin("X", "gba", rom=object()) is pm.auto_detect
+
+    def test_validate_rom_no_signature(self, monkeypatch, tmp_path):
+        self._tmp_pm(monkeypatch, tmp_path)
+        plug = ConfigurablePlugin({"game_id_pattern": "^X$"})
+        assert plug.validate_rom(object()) is True
+
+    def test_normalize_charmap_branches(self, monkeypatch, tmp_path):
+        norm = ConfigurablePlugin._normalize_charmap
+        assert norm({0x41: "A"}) == {0x41: "A"}
+        with pytest.raises(ValueError):
+            norm({"badkey": "A"})
+        with pytest.raises(ValueError):
+            norm({"0x43-0x41": "A"})
+        with pytest.raises(ValueError):
+            norm({"0x41-0x43": "A-B"})
+        with pytest.raises(ValueError):
+            norm({"0x41-0x43": "A,B"})
+        assert norm({"0x41-0x42": "A,B"}) == {0x41: "A", 0x42: "B"}
+        assert norm({"0x41-0x42": "A-B"}) == {0x41: "A", 0x42: "B"}
+        assert norm({"0x41-0x42": "ASCII printable"}) == {0x41: "A", 0x42: "B"}
+
+    def test_signature_matches_branches(self, monkeypatch, tmp_path):
+        import types
+
+        rom = types.SimpleNamespace(header={"title": "X"}, data=bytes(100))
+        m = ConfigurablePlugin._signature_matches
+        assert m({"title_pattern": "(["}, rom) is False
+        assert m({"max_size": 10}, rom) is False
+        assert m({"title_pattern": "^X$", "min_size": 1}, rom) is True
+
+    def test_segments_hex_and_bad_addresses(self, monkeypatch, tmp_path):
+        import types
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        plug = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": "0x10", "end": "0x20"}],
+        })
+        segs = plug.get_text_segments(rom)
+        assert len(segs) == 1 and segs[0]["start"] == 0x10
+        bad = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": "zz", "end": 16}],
+        })
+        assert bad.get_text_segments(rom) == []
+
+    def test_segments_charset_fallback_and_bad_charmap(self, monkeypatch, tmp_path):
+        import types
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        plug = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": 0, "end": 16, "lang": "xx"}],
+        })
+        assert isinstance(plug.get_text_segments(rom), list)
+        bad = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": 0, "end": 16,
+                          "charmap": {"badkey": "A"}}],
+        })
+        segs = bad.get_text_segments(rom)
+        assert len(segs) == 1 and segs[0]["decoder"] is None
+
+    def test_segments_compression_branches(self, monkeypatch, tmp_path):
+        import types
+
+        from core.compression import RLEHandler
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+
+        def segs_for(comp):
+            return ConfigurablePlugin({
+                "game_id_pattern": "^X$",
+                "segments": [{"name": "s", "start": 0, "end": 16,
+                              "compression": comp}],
+            }).get_text_segments(rom)
+
+        assert segs_for("rle")[0]["compression"] is not None
+        assert segs_for("nope")[0]["compression"] is None
+        assert isinstance(segs_for(RLEHandler())[0]["compression"], RLEHandler)
+        assert segs_for(5)[0]["compression"] is None
+
+    def test_invalid_config_file_skipped(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        cfg = tmp_path / "config"
+        cfg.mkdir()
+        (cfg / "bad.json").write_text('{"foo": 1}', encoding="utf-8")
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert not any(
+            isinstance(p, pm_mod.ConfigurablePlugin) for p in pm.specific_plugins)
+
+    def test_entry_points_broken_shape(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        monkeypatch.setattr(
+            pm_mod.importlib_metadata, "entry_points", lambda: object())
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert pm is not None
+
+    def test_gate_level_and_best(self, monkeypatch, tmp_path):
+        import types
+
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+
+        class FakeSpecific:
+            game_id_pattern = "^X$"
+
+            def validate_rom(self, rom):
+                return True
+
+        pm.specific_plugins.append(FakeSpecific())
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        found = pm.get_plugin("X", "gba", rom=rom)
+        assert isinstance(found, FakeSpecific)
+
+    def test_get_plugin_cancelled_in_loop(self, monkeypatch, tmp_path):
+        from core.plugin_manager import CancellationToken
+
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+
+        class FakeSpecific:
+            game_id_pattern = "^X$"
+
+        pm.specific_plugins.append(FakeSpecific())
+        token = CancellationToken()
+        token.cancel()
+        assert pm.get_plugin("X", "gba", cancellation_token=token) is None
+
+    def test_get_plugin_rom_no_match(self, monkeypatch, tmp_path):
+        import types
+
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+
+        class FakeSpecific:
+            game_id_pattern = "^X$"
+
+        pm.specific_plugins.append(FakeSpecific())
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        assert pm.get_plugin("NOPE", "gba", rom=rom) is pm.auto_detect
+
+    def test_signature_validate_branches(self, monkeypatch, tmp_path):
+        import types
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "X"}, data=bytes(100))
+        ok = ConfigurablePlugin({
+            "game_id_pattern": "^X$", "rom_signature": [{"min_size": 1}]})
+        assert ok.validate_rom(rom) is True
+        bad = ConfigurablePlugin({
+            "game_id_pattern": "^X$", "rom_signature": [{"min_size": 1000}]})
+        assert bad.validate_rom(rom) is False
+        nomatch = ConfigurablePlugin({
+            "game_id_pattern": "^X$", "rom_signature": [{"title_pattern": "^ZZZ$"}]})
+        assert nomatch.validate_rom(rom) is False
+        toosmall = ConfigurablePlugin({
+            "game_id_pattern": "^X$", "rom_signature": [{"min_size": 1000}]})
+        assert toosmall.validate_rom(rom) is False
+
+    def test_segments_charset_ok_and_autodetect_boom(self, monkeypatch, tmp_path):
+        import types
+
+        import core.scanner as sc_mod
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        plug = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": 0, "end": 16, "lang": "en"}],
+        })
+        segs = plug.get_text_segments(rom)
+        assert len(segs) == 1 and segs[0]["decoder"] is not None
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("no scan")
+
+        monkeypatch.setattr(sc_mod, "auto_detect_charmap", boom)
+        plug2 = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": 0, "end": 16, "lang": "xx"}],
+        })
+        segs2 = plug2.get_text_segments(rom)
+        assert len(segs2) == 1 and segs2[0]["decoder"] is None
+
+    def test_segments_compression_other_type(self, monkeypatch, tmp_path):
+        import types
+
+        self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        plug = ConfigurablePlugin({
+            "game_id_pattern": "^X$",
+            "segments": [{"name": "s", "start": 0, "end": 16, "compression": 5}],
+        })
+        segs = plug.get_text_segments(rom)
+        assert len(segs) == 1 and segs[0]["compression"] is None
+
+    def test_gate_levels_and_best(self, monkeypatch, tmp_path):
+        import types
+
+        from core.plugin import GamePlugin
+
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+
+        class Plain(GamePlugin):
+            game_id_pattern = "^X$"
+
+            def get_text_segments(self, rom):
+                return []
+
+        class Gated:
+            game_id_pattern = "^X$"
+
+            def validate_rom(self, rom):
+                return True
+
+        class Boom:
+            game_id_pattern = "^X$"
+
+            def validate_rom(self, rom):
+                raise RuntimeError("nope")
+
+        class Rejector:
+            game_id_pattern = "^X$"
+
+            def validate_rom(self, rom):
+                return False
+
+        sig = ConfigurablePlugin({
+            "game_id_pattern": "^X$", "rom_signature": [{"min_size": 1}]})
+        pm.specific_plugins.extend([Plain(), Gated(), Boom(), Rejector(), sig])
+        found = pm.get_plugin("X", "gba", rom=rom)
+        assert found is sig or isinstance(found, Gated)
+        assert pm.get_plugin("X", "gba", rom=rom) is not None
+
+    def test_gate_cancel_rom_mode(self, monkeypatch, tmp_path):
+        import types
+
+        from core.plugin_manager import CancellationToken
+
+        _, pm = self._tmp_pm(monkeypatch, tmp_path)
+
+        class FakeSpecific:
+            game_id_pattern = "^X$"
+
+        pm.specific_plugins.append(FakeSpecific())
+        rom = types.SimpleNamespace(header={"title": "T"}, data=bytes(64))
+        token = CancellationToken()
+        token.cancel()
+        assert pm.get_plugin("X", "gba", rom=rom, cancellation_token=token) is None
+
+    def test_signature_config_two_warnings(self, monkeypatch, tmp_path):
+        pm_mod = self._clean_allowlist(monkeypatch, tmp_path)
+        cfg = tmp_path / "config"
+        cfg.mkdir()
+        body = ('{"game_id_pattern": "^H$", "segments": [],'
+                '"rom_signature": [{"min_size": 1}]}')
+        (cfg / "h1.json").write_text(body, encoding="utf-8")
+        (cfg / "h2.json").write_text(body, encoding="utf-8")
+        pm = pm_mod.PluginManager(str(tmp_path))
+        assert sum(
+            1 for p in pm.specific_plugins
+            if isinstance(p, pm_mod.ConfigurablePlugin)) == 2
 
 
 class _FakeEsmForTypeCheck:

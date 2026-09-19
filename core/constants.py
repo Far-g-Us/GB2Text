@@ -67,9 +67,14 @@ ASCII_PRINTABLE_END = 0x7E
 KATAKANA_RANGE = (0xA0, 0xDF)
 HIRAGANA_RANGE = (0x80, 0x9F)
 
-# === Russian Character Ranges (CP866) ===
-CYRILLIC_UPPER = (0xA0, 0xBF)
-CYRILLIC_LOWER = (0xC0, 0xFF)
+# === Russian Character Ranges (CP866, синхронизированы с настоящей
+# CP866-таблицей _setup_russian_charmap; BREAKING 1.4) ===
+# UPPER: А-Я (0x80-0x9F) + а-п (0xA0-0xAF). Пересечение с HIRAGANA_RANGE
+# (0x80-0x9F) arbitrated эксклюзивным хвостом (см. detect_multiple_languages).
+# LOWER: р-я + Ё/ё (0xE0-0xF1). Псевдографика 0xB0-0xDF НЕ считается:
+# в таблице это ░▒▓│┤…█▄▌▐▀, а не буквы.
+CYRILLIC_UPPER = (0x80, 0xAF)
+CYRILLIC_LOWER = (0xE0, 0xF1)
 
 # === System Types ===
 SYSTEM_GB = 'gb'

@@ -9,6 +9,11 @@ Welcome to the documentation for GB2Text — the GB Text Extraction Tool!
 - [English](en/README.md)
 - [Русский](ru/README.md)
 
+## 📥 Download
+
+- [English — GB2Text.exe](en/download.md)
+- [Русский — GB2Text.exe](ru/download.md)
+
 ## Select your language - Contributing
 
 - [English](en/CONTRIBUTING.md)

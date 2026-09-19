@@ -1,6 +1,6 @@
 # GB2Text Roadmap
 
-**Текущая версия:** 1.3
+**Текущая версия:** 1.4
 
 ## ✅ Версия 0.9
 
@@ -165,8 +165,9 @@
 ## 🚧 Версия 1.4
 
 ### Качество
-- [ ] Увеличить покрытие тестами
+- [x] Увеличить покрытие тестами — 100% statements+branches: check_docs_consistency, spell_checker, community_plugins_dialog, plugin_manager, injector (+ textbox, font_tiles, сканерные таблицы)
 - [x] Довести остальные плагины до состояния stub (детекция + честный пустой результат)
+- [x] Docs-consistency CI — автопроверка ссылок/роутеров/legal-канона (`scripts/check_docs_consistency.py`, жёсткий гейт)
 
 ### Инструменты починки (repair tools)
 - [ ] CRC/checksum fixer — отдельная CLI-команда для ROM, битых сторонними хекс-редакторами (header + global checksum, GB/GBC/GBA варианты)
@@ -174,15 +175,22 @@
 - [x] IPS/BPS patch generator — генерация патч-файла вместо дистрибуции патченных ROM (легальная дистрибуция перевода); core/patcher.py: bps_create/bps_apply (CRC32-верифицируемый BPS1, SourceRead/TargetRead/SourceCopy), ips_create/ips_apply (литералы + RLE), create_patch/apply_patch с автоопределением формата; round-trip на реальных ROM в test_roms/(может работать неправильно)
 - [ ] Bank-aware pointer scan (из backlog) — честная схема bank_byte + addr для GB/GBC
 
-### Агенты и API
-- [ ] MCP-сервер — обёртка над существующим api/-слоем: extract/inject/detect как MCP-инструменты для агентов (контракт SDKError переиспользуется)
-
 ### Перевод
-- [ ] Line-length / textbox simulator — симуляция переноса строк перевода в реальных границах textbox (max_length/fixed_width) до инъекции
+- [x] Орфография на этапе инжекта — мягкий гейт: каждый перевод перед записью в ROM проходит `spell_checker.check_text` (core/injector.py), отчёт в `last_spellcheck_report`, запись не блокируется
+- [x] Line-length / textbox simulator — симуляция переноса строк перевода в реальных границах textbox (max_length/fixed_width) до инъекции (core/textbox.py + `last_fit_report`, запись не блокируется)
+- [x] Настоящая CP866-таблица auto-russian (**breaking 1.4**: была game-specific пример-таблица с дупликатами; диапазоны детектора синхронизированы, см. CHANGELOG)
+- [x] Дедуп hiragana-таблицы (0xB8/0xB9/0xC7 дублировали 0x84/0x85/0x86; encode детерминирован)
 - [ ] DTE-словарь compression helper — автоматический построитель DTE-таблицы по частотному анализу би-грамм под конкретный перевод (GB/GBC, для языков длиннее английского)
+
+### Шрифты
+- [x] Фаза 0/1: исследование (слепой скан 1bpp/2bpp, `scripts_roms/font_scan.py`, отчёт `FONT_RESEARCH.md`) + `core/font_tiles.py` (2bpp round-trip, ASCII-превью, 100% тесты)
+- [ ] Фаза 2 (glyph injection) — ОТЛОЖЕНА в 1.5: шрифт позитивно не идентифицирован, риск высокий; ворота — template-match кандидата + ревью
 
 ### Плагины и платформы
 - [x] Community/shared plugin registry — каталог сторонних плагинов (статический JSON на GitHub Pages), установка без форка репо
+
+### Производительность
+- [x] Lazy loading плагинов — specific-плагины импортируются при первом обращении (allowlist-гейт сохраняется), generic остаются eager
 
 ---
 
@@ -192,7 +200,6 @@
 
 ### Перевод
 - FE Huffman для Europe ROM (адреса деревьев неизвестны)
-- Орфография на этапе инжекта (сейчас — только GUI-предупреждение)
 
 ### GB/GBC
 - Компрессия GB/GBC (RLE/LZ для Gen1/2)
@@ -200,7 +207,6 @@
 ### Плагины и платформы
 - Nintendo DS — плагины для новой платформы
 - Сторонние плагины через entry_points — демо-пакет (инфраструктура готова)
-- Community/shared plugin registry — каталог сторонних плагинов (статический JSON на GitHub Pages), установка без форка репо
 
 ### Визуальные инструменты
 - Редактор тайловой графики шрифта — просмотр/правка glyph-tiles (критично для нестандартных алфавитов: кириллица в GB-играх требует перерисовки шрифта под ширину тайла)
@@ -211,13 +217,13 @@
 - Save-file repair — починка сохранений, отдельная тема (частый запрос в ромхак-комьюнити)
 
 ### API
+- MCP-сервер (отложен из 1.4) — обёртка над api/-слоем: extract/inject/detect как MCP-инструменты для агентов
 - Webhook/callback при завершении длительных операций (актуально для больших ROM с 1500+ сегментов)
 - Дифф-эндпоинт `/diff` — сравнение текста между версиями ROM (ядро есть с 1.1, но не выведено в API)
 - Экспорт метрик (Prometheus-style `/metrics`) — для запуска сервера в CI
 
 ### Производительность
 - Асинхронная загрузка ROM в отдельном потоке (частично)
-- Lazy loading плагинов
 
 ---
 
@@ -242,4 +248,4 @@
 
 ---
 
-*Roadmap обновлён: 2026-09-16*
+*Roadmap обновлён: 2026-09-18*

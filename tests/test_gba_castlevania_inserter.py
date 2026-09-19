@@ -168,6 +168,32 @@ class TestCVASInject:
         assert injector.inject_language_block('en', ['[PAGE]x'], plugin, segments=segments) is False
         assert injector.modified_data == injector.original_data
 
+    def test_inject_table_out_of_bounds_false(self, plugin, segments, cvas_rom):
+        meta = plugin.get_pointer_table_meta()
+
+        class BadMetaPlugin(CastlevaniaGBAPlugin):
+            def get_pointer_table_meta(self):
+                return dict(meta, table=len(cvas_rom.data) + 1)
+
+        injector = TextInjector(ROM_PATH)
+        texts = _lang_texts(segments, 'en')
+        assert injector.inject_language_block('en', texts,
+                                              BadMetaPlugin(), segments=segments) is False
+        assert injector.modified_data == injector.original_data
+
+    def test_inject_bad_block_indices_false(self, plugin, segments, cvas_rom):
+        meta = plugin.get_pointer_table_meta()
+
+        class BadMetaPlugin(CastlevaniaGBAPlugin):
+            def get_pointer_table_meta(self):
+                return dict(meta, blocks=[(0, 10 ** 6, 'en')])
+
+        injector = TextInjector(ROM_PATH)
+        texts = _lang_texts(segments, 'en')
+        assert injector.inject_language_block('en', texts,
+                                              BadMetaPlugin(), segments=segments) is False
+        assert injector.modified_data == injector.original_data
+
     def test_inject_unknown_lang_false(self, plugin, segments):
         injector = TextInjector(ROM_PATH)
         assert injector.inject_language_block('ja', [], plugin, segments=segments) is False
