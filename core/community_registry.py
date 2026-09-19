@@ -128,16 +128,21 @@ class CommunityRegistry:
             return {}
         try:
             with open(self._installed_file, encoding="utf-8") as f:
-                return cast(dict[str, dict], json.load(f))
+                data = json.load(f)
         except (OSError, ValueError) as exc:
             logger.warning("Ошибка чтения community_plugins.json: %s", exc)
             return {}
+        if not isinstance(data, dict):
+            logger.warning(
+                "community_plugins.json повреждён (не объект) — игнорирован")
+            return {}
+        return cast(dict[str, dict], data)
 
     def get_local_version(self, plugin_id: str) -> str | None:
         """Версия установленного плагина или None."""
         installed = self.get_installed()
         entry = installed.get(plugin_id)
-        if entry is None:
+        if not isinstance(entry, dict):
             return None
         return entry.get("version")
 
@@ -148,7 +153,7 @@ class CommunityRegistry:
         """Проверяет, есть ли обновление для плагина."""
         local_map = installed if installed is not None else self.get_installed()
         entry = local_map.get(plugin.get("id", ""))
-        if entry is None:
+        if not isinstance(entry, dict):
             return False
         local = entry.get("version")
         if not isinstance(local, str):
@@ -184,7 +189,11 @@ class CommunityRegistry:
         self._verify_sha256(plugin, content)
 
         if plugin_type == "json":
-            self._validate_json_plugin(content.decode("utf-8"))
+            try:
+                self._validate_json_plugin(content.decode("utf-8"))
+            except UnicodeDecodeError as exc:
+                raise CommunityRegistryError(
+                    "JSON-плагин не в UTF-8") from exc
             dest = self.config_dir / f"{plugin_id}.json"
             self.config_dir.mkdir(parents=True, exist_ok=True)
         elif plugin_type == "python":
@@ -210,7 +219,7 @@ class CommunityRegistry:
         with self._lock:
             installed = self.get_installed()
             entry = installed.get(plugin_id)
-            if entry is None:
+            if not isinstance(entry, dict):
                 return False
 
             plugin_type = entry.get("type", "json")
@@ -221,9 +230,12 @@ class CommunityRegistry:
 
             if path.exists():
                 if path.is_symlink():
-                    path = path.resolve()
-                path.unlink()
-                logger.info("Файл плагина удалён: %s", path)
+                    path.unlink()  # unlink удаляет сам symlink, не цель
+                    logger.info("Символическая ссылка плагина удалена: %s",
+                                path)
+                else:
+                    path.unlink()
+                    logger.info("Файл плагина удалён: %s", path)
 
             del installed[plugin_id]
             self._write_installed(installed)
@@ -361,7 +373,9 @@ class CommunityRegistry:
             config = json.loads(content)
         except json.JSONDecodeError as exc:
             raise CommunityRegistryError(f"Невалидный JSON: {exc}") from exc
-        config = cast(dict, config)
+        if not isinstance(config, dict):
+            raise CommunityRegistryError(
+                "JSON-плагин повреждён (не объект)")
 
         if not isinstance(config.get("game_id_pattern"), str):
             raise CommunityRegistryError(
@@ -445,7 +459,11 @@ class CommunityRegistry:
             return None
         try:
             with open(self._cache_file, encoding="utf-8") as f:
-                data = cast(dict, json.load(f))
+                data = json.load(f)
+            if not isinstance(data, dict):
+                logger.warning(
+                    "Кэш-реестр повреждён (не объект) — игнорирован")
+                return None
             plugins = cast(list[dict], data.get("plugins", []))
             if validate:
                 self._validate_plugins(plugins)

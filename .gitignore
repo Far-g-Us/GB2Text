@@ -9,8 +9,8 @@ build/
 dist/
 settings/
 htmlcov/
-test_roms/
-scripts_roms/
+#test_game/
+script_game/
 tools/
 
 .pytest_cache/
@@ -19,6 +19,7 @@ tools/
 nonexistent_dir/
 nonexistent_plugins_dir/
 
+.agent/
 .opencode/
 .claude/
 opencode.json

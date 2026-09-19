@@ -1,6 +1,6 @@
 # GB2Text Roadmap
 
-**Current version:** 1.3
+**Current version:** 1.4
 
 ## ✅ Version 0.9
 
@@ -163,21 +163,32 @@
 ## 🚧 Version 1.4
 
 ### Quality
-- [ ] Increase test coverage
-- [ ] Bring the remaining plugins up to stub state (detection + honest empty result)
+- [x] Increase test coverage — 100% statements+branches: check_docs_consistency, spell_checker, community_plugins_dialog, plugin_manager, injector (+ textbox, font_tiles, scanner tables)
+- [x] Bring the remaining plugins up to stub state (detection + honest empty result)
+- [x] Docs-consistency CI — auto-check of links/routers/legal canon (`scripts/check_docs_consistency.py`, hard gate)
 
 ### Repair tools
 - [ ] CRC/checksum fixer — standalone CLI command for ROMs corrupted by third-party hex editors (header + global checksum, GB/GBC/GBA variants)
-- [ ] Pointer validator/repair — scan pointer tables for inconsistencies after manual patching, offer recovery
+- [x] Pointer validator/repair — scan pointer tables for inconsistencies after manual patching, offer recovery; core/pointer_validator.py: validate_pointer_table (statuses ok/zero/out_of_bounds/duplicate), problem_summary, repair_pointer_table (LE, addressing base + 2/4-byte pointers) (may work incorrectly)
 - [x] IPS/BPS patch generator — produce a patch file instead of distributing patched ROMs (legal translation distribution); core/patcher.py: bps_create/bps_apply (CRC32-verified BPS1, SourceRead/TargetRead/SourceCopy), ips_create/ips_apply (literals + RLE), create_patch/apply_patch with format auto-detection; round-trip verified on real ROMs in test_roms/
 - [ ] Bank-aware pointer scan (from backlog) — proper bank_byte + addr scheme for GB/GBC
 
-### Agents & API
-- [ ] MCP server — wrapper over the existing api/ layer: extract/inject/detect as MCP tools for agents (reuses the SDKError contract)
-
 ### Translation
-- [ ] Line-length / textbox simulator — simulate real textbox rendering (max_length/fixed_width) before injection
+- [x] Spell checking at the injection stage — soft gate: every translation passes `spell_checker.check_text` before writing to ROM (core/injector.py), report in `last_spellcheck_report`, writing is never blocked
+- [x] Line-length / textbox simulator — simulate real textbox rendering (max_length/fixed_width) before injection (core/textbox.py + `last_fit_report`, writing is never blocked)
+- [x] Genuine CP866 auto-Russian table (**breaking in 1.4**: was a game-specific sample table with duplicates; detector ranges synced, see CHANGELOG)
+- [x] Hiragana table dedup (0xB8/0xB9/0xC7 duplicated 0x84/0x85/0x86; encode is deterministic now)
 - [ ] DTE dictionary compression helper — automatic DTE table builder via bigram frequency analysis for a given translation (GB/GBC, for languages longer than English)
+
+### Fonts
+- [x] Phase 0/1: research (blind 1bpp/2bpp scan, `scripts_roms/font_scan.py`, `FONT_RESEARCH.md` report) + `core/font_tiles.py` (2bpp round-trip, ASCII preview, 100% tests)
+- [ ] Phase 2 (glyph injection) — DEFERRED to 1.5: font not positively identified, risk is high; gate is template-match of the candidate + review
+
+### Plugins & Platforms
+- [x] Community/shared plugin registry — third-party plugin catalog (static JSON on GitHub Pages), install without forking the repo
+
+### Performance
+- [x] Lazy plugin loading — specific plugins are imported on first access (allowlist gate preserved), generic stay eager
 
 ---
 
@@ -187,7 +198,6 @@
 
 ### Translation
 - FE Huffman for Europe ROMs (tree addresses unknown)
-- Spell checking at the injection stage (currently a GUI warning only)
 
 ### GB/GBC
 - GB/GBC compression (RLE/LZ for Gen1/2)
@@ -196,7 +206,6 @@
 ### Plugins & Platforms
 - Nintendo DS — plugins for a new platform
 - Third-party plugins via entry_points — demo package (infrastructure ready)
-- Community/shared plugin registry — third-party plugin catalog (static JSON on GitHub Pages), install without forking the repo
 
 ### Visual tools
 - Font tile graphics editor — view/edit glyph tiles (critical for non-standard alphabets: Cyrillic in GB games requires font redrawing to fit tile width)
@@ -207,13 +216,13 @@
 - Save-file repair — fixing saves, separate topic (frequent request in the romhacking community)
 
 ### API
+- MCP server (deferred from 1.4) — wrapper over the api/ layer: extract/inject/detect as MCP tools for agents
 - Webhook/callback on completion of long operations (relevant for large ROMs with 1500+ segments)
 - `/diff` endpoint — compare text between ROM versions (core exists since 1.1, not exposed in the API)
 - Metrics export (Prometheus-style `/metrics`) — for running the server in CI
 
 ### Performance
 - Async ROM loading in a separate thread (partial)
-- Lazy plugin loading
 
 ---
 
@@ -238,4 +247,4 @@
 
 ---
 
-*Roadmap updated: 2026-09-14*
+*Roadmap updated: 2026-09-18*

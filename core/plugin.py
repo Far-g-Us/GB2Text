@@ -121,10 +121,25 @@ class PluginProtocol(Protocol):
         Проверить что ROM файл подходит для этого плагина.
 
         Args:
-            rom: объект ROM
+            rom: загруженный ROM файл
 
         Returns:
             True если ROM валиден, False если нет.
+        """
+        ...
+
+    def get_font_meta(self) -> dict | None:
+        """
+        Метаданные шрифта игры для inject_glyphs (core/font_tiles).
+
+        Returns:
+            None (шрифт неизвестен/не поддерживается) или dict:
+            {'offset': int (база тайлов в ROM),
+             'bpp': 1 | 2 (по умолчанию 2),
+             'count': int (число глифов, по умолчанию до конца блока),
+             'stride': int (байт на тайл: 16 при 2bpp, 8 при 1bpp)}.
+            Отсутствующие ключи заменяются дефолтами; неизвестный bpp
+            трактуется как 2.
         """
         ...
 
@@ -142,6 +157,7 @@ class GamePlugin(ABC):
       - get_terminators(segment_name)
       - get_pointer_size(rom)
       - validate_rom(rom)
+      - get_font_meta()
 
     Атрибуты:
       - is_stub (bool) — True если плагин только детектирует игру,
@@ -193,12 +209,16 @@ class GamePlugin(ABC):
         """Сигнатурный гейт: подходит ли этот ROM плагину.
 
         Дефолт True. Переопределение маркирует плагин как «с гейтом»
-        (level 1): он принимает только ROM, подходящие под его сигнатуру,
+        (level 1): он принимает только ROM, подходящий под его сигнатуру,
         и выигрывает выбор у плагина без гейта при том же game_id_pattern.
         Для ROM-хаков validate_rom ОБЯЗАН вернуть False на ROM, не
-        подходящем под сигнатуру, иначе хак-плагин перебьёт ванильный.
+        подходящий под сигнатуру, иначе хак-плагин перебьёт ванильный.
         Исключение внутри validate_rom трактуется как False."""
         return True
+
+    def get_font_meta(self) -> dict | None:
+        """Опционально: метаданные шрифта игры (см. PluginProtocol)."""
+        return None
 
 
 class GenericGamePlugin(GamePlugin):
@@ -206,15 +226,15 @@ class GenericGamePlugin(GamePlugin):
 
     @property
     def game_id_pattern(self) -> str:
-        return r'^GAME_[0-9A-F]{2}$'
+        return r"^GAME_[0-9A-F]{2}$"
 
     def get_text_segments(self, rom: GameBoyROM) -> list[dict]:
         return [
             {
-                'name': 'main_text',
-                'start': 0x4000,
-                'end': 0x7FFF,
-                'decoder': None,  # Будет определен автоматически
-                'compression': None
+                "name": "main_text",
+                "start": 0x4000,
+                "end": 0x7FFF,
+                "decoder": None,  # Будет определен автоматически
+                "compression": None,
             }
         ]

@@ -38,8 +38,62 @@ class TextInjector:
         self._bank_segments: list = []
         self._taken_free_blocks: list[tuple[int, int]] = []
         self.last_overflow_report: list[dict] = []
+        self.last_spellcheck_report: list[dict] = []
+        self.last_fit_report: list[dict] = []
         self.last_unmapped_chars: list[str] = []
         self.logger = logging.getLogger('gb2text.injector')
+
+    def _run_spellcheck_gate(self, translations: list[str],
+                             skip_long: bool = True) -> None:
+        """Мягкая проверка орфографии переводов перед записью в ROM.
+
+        Каждая строка перевода прогоняется через
+        spell_checker.check_text(text, lang="auto", with_suggestions=False);
+        найденные опечатки аккумулируются в self.last_spellcheck_report
+        (паттерн last_overflow_report: отчёт сбрасывается при старте
+        операции). Кандидаты исправлений не считаются — на больших корпусах
+        pyspellchecker.candidates() даёт ~99% времени, а позиции и слова
+        находятся без него.
+
+        Гейт ВСЕГДА мягкий: найденные опечатки НИКОГДА не блокируют запись
+        и не влияют на возвращаемое значение инжекции — независимо от
+        skip_long. skip_long управляет только логированием и попаданием
+        опечаток в отчёт (при skip_long=False отчёт не заполняется), а не
+        самим процессом записи.
+
+        Игнор-спаны ([XX], {VAR}, %s, числа, {{XX}}) отсекаются внутри
+        spell_checker — не считаются опечатками.
+
+        Формат записи отчёта:
+        {'index', 'text', 'word', 'suggestions', 'start', 'end'}.
+        """
+        self.last_spellcheck_report = []
+        if not translations or not skip_long:
+            return
+        from core.spell_checker import check_text
+        for i, text in enumerate(translations):
+            if not isinstance(text, str) or not text.strip():
+                continue
+            try:
+                errors = check_text(text, lang="auto",
+                                    with_suggestions=False)
+            except Exception as exc:
+                self.logger.debug(
+                    f"Spellcheck failed for message {i}: {exc!s}")
+                continue
+            for start, end, word, suggestions in errors:
+                self.last_spellcheck_report.append({
+                    'index': i,
+                    'text': text,
+                    'word': word,
+                    'suggestions': list(suggestions)[:8],
+                    'start': start,
+                    'end': end,
+                })
+        if self.last_spellcheck_report:
+            self.logger.info(
+                f"Spellcheck: {len(self.last_spellcheck_report)} опечаток "
+                f"(запись не блокируется)")
 
     def collect_unmapped_chars(self) -> list[str]:
         """Собирает символы, потерянные при последнем encode переводов.
@@ -110,10 +164,12 @@ class TextInjector:
         Returns:
             True если хотя бы одно сообщение было внедрено
         """
+        self.last_overflow_report = []
+        self.last_spellcheck_report = []
+        self.last_fit_report = []
+
         if not plugin:
             return False
-
-        self.last_overflow_report = []
 
         if segments is None:
             segments = self._get_segments(plugin)
@@ -129,6 +185,16 @@ class TextInjector:
             self.logger.info(
                 f"Сегмент '{segment_name}' не поддерживает вставку (extract-only)")
             return False
+
+        self._run_spellcheck_gate(translations, skip_long)
+        from core.textbox import fit_report
+
+        try:
+            self.last_fit_report = fit_report(segment, translations)
+        except Exception as exc:
+            # Отчёт не должен менять поведение записи (report-only).
+            self.logger.debug(f"Fit-отчёт пропущен: {exc!s}")
+            self.last_fit_report = []
 
         enc = segment.get('encoder')
         if enc is not None:
@@ -259,6 +325,9 @@ class TextInjector:
         'index_of'+'lang_slots', без 'blocks') — делегируется в
         inject_interleaved_language.
         """
+        self.last_spellcheck_report = []
+        # Сегментных данных о ширине здесь нет — честное [] (см. core/textbox).
+        self.last_fit_report = []
         meta = plugin.get_pointer_table_meta() if hasattr(plugin, 'get_pointer_table_meta') else None
         if not meta or not isinstance(meta, dict):
             return False
@@ -269,6 +338,18 @@ class TextInjector:
         blocks = meta.get('blocks') or []
         if not isinstance(table_offset, int) or not isinstance(count, int) or not blocks:
             return False
+        if count <= 0 or table_offset < 0 or table_offset + 4 * count > len(self.rom.data):
+            self.logger.warning(
+                f"Некорректная таблица указателей: offset=0x{table_offset:X}, "
+                f"count={count}, rom_size={len(self.rom.data)}")
+            return False
+        if any(not (isinstance(bs, int) and isinstance(be, int)
+                    and 0 <= bs < count and 0 <= be <= count and bs < be)
+               for bs, be, _ in blocks):
+            self.logger.warning("Некорректные индексы блоков в get_pointer_table_meta")
+            return False
+
+        self._run_spellcheck_gate(texts, skip_long=True)
 
         if segments is None:
             segments = self._get_segments(plugin)
@@ -313,10 +394,10 @@ class TextInjector:
         from core.pointer_table import assemble_block, find_free_space, patch_pointer_range
 
         ranges = self._block_ranges(blocks, segments, targets, count, len(self.rom.data))
+        # block найден выше из того же списка blocks и список не мутировал —
+        # enumerate всегда находит индекс (проверка None недостижима).
         block_index = next(
-            (i for i, b in enumerate(blocks) if b[2] == lang), None)
-        if block_index is None:
-            return False
+            i for i, b in enumerate(blocks) if b[2] == lang)
         span_start, span_end = ranges[block_index]
 
         new_block = assemble_block(records)
@@ -357,6 +438,9 @@ class TextInjector:
         верх = первая цель следующего блока либо конец последней записи."""
         ranges = []
         for bs, be, blang in blocks:
+            if not (0 <= bs < count and 0 <= be <= count and bs < be):
+                ranges.append((0, 0))
+                continue
             low = targets[bs]
             if be < count:
                 high = targets[be]
@@ -385,6 +469,9 @@ class TextInjector:
         если помещаются в исходный span, иначе relocate в свободный 0x00-run
         вне всех записей всех языков и таблицы.
         """
+        self.last_spellcheck_report = []
+        # Сегментных данных о ширине здесь нет — честное [] (см. core/textbox).
+        self.last_fit_report = []
         meta = plugin.get_pointer_table_meta() if hasattr(plugin, 'get_pointer_table_meta') else None
         if not meta or not isinstance(meta, dict):
             return False
@@ -415,6 +502,8 @@ class TextInjector:
             return False
         if count == 0:
             return False
+
+        self._run_spellcheck_gate(texts, skip_long=True)
 
         encoder = plugin.make_text_encoder() if hasattr(plugin, 'make_text_encoder') else None
         if encoder is None:
@@ -597,8 +686,11 @@ class TextInjector:
 
         for k in range(len(trans_bytes)):
             self.modified_data[dest + k] = trans_bytes[k]
-        if dest + len(trans_bytes) < len(self.modified_data):
-            self.modified_data[dest + len(trans_bytes)] = 0x00
+        # Терминатор всегда влезает: _find_bank_free_block вернул pos с
+        # pos+size <= ze без IndexError, size = len+1, значит
+        # dest+len(trans_bytes) < len(modified_data) всегда (ветка иначе
+        # недостижима).
+        self.modified_data[dest + len(trans_bytes)] = 0x00
 
         if table_idx >= 0 and base + 4 * table_idx + 4 <= len(self.modified_data):
             struct.pack_into('<I', self.modified_data, base + 4 * table_idx,

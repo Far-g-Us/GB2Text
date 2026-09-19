@@ -197,10 +197,12 @@ def test_dialog_update_runs_in_background(root, owner, registry, monkeypatch):
         started = threading.Event()
         real_thread = threading.Thread
 
+        class _SpyThread(real_thread):  # type: ignore[valid-type, misc]
+            def start(self) -> None:
+                started.set()
+
         def spy_thread(*args, **kwargs):
-            thread = real_thread(*args, **kwargs)
-            thread.start = lambda: started.set()
-            return thread
+            return _SpyThread(*args, **kwargs)
 
         monkeypatch.setattr(threading, "Thread", spy_thread)
         dialog._on_update()
@@ -220,6 +222,27 @@ def test_dialog_install_no_selection(root, owner, registry):
         dialog.win.destroy()
 
 
+def _wait_uninstalled(dialog, timeout=5.0):
+    """Дожидается завершения асинхронного uninstall: фон-поток + tk-события.
+
+    Ожидает не только снятия установки, но и срабатывания tk-калбэка
+    _on_uninstall_done (он же инкрементит owner.plugin_manager_reloads).
+    """
+    import time
+
+    reload_target = dialog.owner.plugin_manager_reloads + 1
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        dialog.win.update_idletasks()
+        dialog.win.update()
+        if (not dialog.registry.is_installed("gba_test_game")
+                and dialog.owner.plugin_manager_reloads >= reload_target):
+            return
+        time.sleep(0.01)
+    raise AssertionError(
+        "uninstall либо не завершился, либо не перезагрузил менеджер плагинов")
+
+
 def test_dialog_uninstall(root, owner, registry, monkeypatch):
     monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: True)
     plug = _make_plugin()
@@ -236,6 +259,7 @@ def test_dialog_uninstall(root, owner, registry, monkeypatch):
         dialog._populate([plug], set())
         dialog.tree.selection_set("gba_test_game")
         dialog._on_uninstall()
+        _wait_uninstalled(dialog)
         assert not dialog.registry.is_installed("gba_test_game")
         assert owner.plugin_manager_reloads >= 1
     finally:
@@ -286,3 +310,315 @@ def test_safe_after_on_destroyed_window(root, owner, registry):
     dialog = _make_dialog(root, owner, registry)
     dialog.win.destroy()
     dialog._safe_after(lambda: None)
+
+
+def test_dialog_grab_default(root, owner, registry):
+    dialog = cpd.CommunityPluginsDialog(root, owner, registry=registry)
+    try:
+        assert dialog.win is not None
+    finally:
+        try:
+            dialog.win.grab_release()
+        except tk.TclError:
+            pass
+        dialog.win.destroy()
+
+
+def test_poller_start_tcl_error(root, owner, registry, monkeypatch):
+    real_after = tk.Toplevel.after
+    calls: list = []
+
+    def flaky_after(self, *args, **kwargs):
+        if not calls:
+            calls.append(1)
+            raise tk.TclError("gone")
+        return real_after(self, *args, **kwargs)
+
+    monkeypatch.setattr(tk.Toplevel, "after", flaky_after)
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        assert calls == [1]
+    finally:
+        dialog.win.destroy()
+
+
+def test_run_returns_after_destroy(root, owner, registry):
+    import time
+
+    dialog = _make_dialog(root, owner, registry)
+    worker = threading.Thread(target=dialog.run, daemon=True)
+    worker.start()
+    deadline = time.monotonic() + 5
+    while worker.is_alive() and time.monotonic() < deadline:
+        dialog.win.update()
+        time.sleep(0.01)
+    dialog.win.destroy()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+
+
+def test_poll_winfo_exists_error(root, owner, registry, monkeypatch):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        def gone():
+            raise tk.TclError("gone")
+
+        monkeypatch.setattr(dialog.win, "winfo_exists", gone)
+        dialog._poll_callbacks()
+        monkeypatch.setattr(dialog.win, "winfo_exists", lambda: False)
+        dialog._poll_callbacks()
+    finally:
+        dialog.win.destroy()
+
+
+def test_poll_reschedule_error(root, owner, registry, monkeypatch):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        def gone(*args, **kwargs):
+            raise tk.TclError("gone")
+
+        monkeypatch.setattr(tk.Toplevel, "after", gone)
+        dialog._poll_callbacks()
+    finally:
+        dialog.win.destroy()
+
+
+def test_poll_isolates_failing_callbacks(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        done: list = []
+
+        def boom_tcl():
+            raise tk.TclError("x")
+
+        def boom():
+            raise RuntimeError("y")
+
+        dialog._safe_after(boom_tcl)
+        dialog._safe_after(boom)
+        dialog._safe_after(lambda: done.append(1))
+        dialog._poll_callbacks()
+        dialog.win.update()
+        assert done == [1]
+    finally:
+        dialog.win.destroy()
+
+
+def test_refresh_when_busy(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._set_busy(True)
+        dialog._refresh()
+        assert dialog._busy is True
+    finally:
+        dialog.win.destroy()
+
+
+def test_load_registry_success(root, owner, registry, monkeypatch):
+    plug = _make_plugin()
+    monkeypatch.setattr(registry, "fetch_registry", lambda: [plug])
+    monkeypatch.setattr(registry, "check_updates", lambda plugins: set())
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._callback_queue.get_nowait()
+    except Exception:
+        pass
+    try:
+        dialog._load_registry()
+        dialog._poll_callbacks()
+        dialog.win.update()
+        assert len(dialog.tree.get_children()) == 1
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()
+
+
+def test_populate_empty(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([], set())
+        assert len(dialog.tree.get_children()) == 0
+        assert "empty" in dialog.status_var.get().lower() or \
+            "Catalog" in dialog.status_var.get()
+    finally:
+        dialog.win.destroy()
+
+
+def test_selected_plugin_unknown_id(root, owner, registry):
+    plug = _make_plugin()
+    other = _make_plugin(plugin_id="other_game")
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([plug], set())
+        dialog.tree.selection_set("gba_test_game")
+        dialog.plugins = [other]
+        assert dialog._selected_plugin() is None
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_install_when_busy(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog.tree.selection_set("gba_test_game")
+        dialog._set_busy(True)
+        dialog._on_install()
+        assert dialog._busy is True
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_install_no_selection_cb(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog._on_install()
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_update_guards(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._set_busy(True)
+        dialog._on_update()
+        assert dialog._busy is True
+        dialog._set_busy(False)
+        dialog._populate([_make_plugin()], set())
+        dialog._on_update()
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()
+
+
+def test_start_install_python_accepted(root, owner, registry, monkeypatch):
+    monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: True)
+    started: list = []
+
+    class DummyThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            started.append(1)
+
+    plug = _make_plugin(plugin_type="python")
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([plug], set())
+        dialog.tree.selection_set("gba_test_game")
+        monkeypatch.setattr(threading, "Thread", DummyThread)
+        dialog._on_install()
+        assert started == [1]
+        assert dialog._busy is True
+    finally:
+        dialog.win.destroy()
+
+
+def test_do_install_unknown_plugin(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog._do_install("no_such_plugin")
+        dialog._poll_callbacks()
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()
+
+
+def test_do_install_error_path(root, owner, registry, monkeypatch):
+    def boom(plugin):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(registry, "install", boom)
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog._do_install("gba_test_game")
+        dialog._poll_callbacks()
+        dialog.win.update()
+        assert dialog._busy is False
+        assert "boom" in dialog.status_var.get()
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_install_done(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog._on_install_done()
+        assert dialog._busy is False
+        assert owner.plugin_manager_reloads >= 1
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_uninstall_guards(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._set_busy(True)
+        dialog._on_uninstall()
+        assert dialog._busy is True
+        dialog._set_busy(False)
+        dialog._populate([_make_plugin()], set())
+        dialog._on_uninstall()
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_uninstall_not_installed(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([_make_plugin()], set())
+        dialog.tree.selection_set("gba_test_game")
+        dialog._on_uninstall()
+        assert not dialog.registry.is_installed("gba_test_game")
+    finally:
+        dialog.win.destroy()
+
+
+def test_on_uninstall_declined(root, owner, registry):
+    plug = _make_plugin()
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        config_dir = dialog.registry.plugins_dir / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "gba_test_game.json").write_text(
+            _json_content().decode("utf-8"), encoding="utf-8"
+        )
+        dialog.registry._record_install(
+            "gba_test_game", "1.0.0", "json", "https://example.com/test.json")
+        dialog._populate([plug], set())
+        dialog.tree.selection_set("gba_test_game")
+        dialog._on_uninstall()
+        assert dialog.registry.is_installed("gba_test_game")
+    finally:
+        dialog.win.destroy()
+
+
+def test_do_uninstall_error_path(root, owner, registry, monkeypatch):
+    def boom(plugin_id):
+        raise RuntimeError("gone")
+
+    monkeypatch.setattr(registry, "uninstall", boom)
+    monkeypatch.setattr(messagebox, "askyesno", lambda *a, **k: True)
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        config_dir = dialog.registry.plugins_dir / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "gba_test_game.json").write_text(
+            _json_content().decode("utf-8"), encoding="utf-8"
+        )
+        dialog.registry._record_install(
+            "gba_test_game", "1.0.0", "json", "https://example.com/test.json")
+        dialog._populate([_make_plugin()], set())
+        dialog._do_uninstall("gba_test_game")
+        dialog._poll_callbacks()
+        dialog.win.update()
+        assert dialog._busy is False
+    finally:
+        dialog.win.destroy()

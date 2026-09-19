@@ -25,8 +25,11 @@ import re
 # Слово: буквы кириллицы/латиницы (минимум 2) — одиночные буквы
 # (артикли, предлоги) не считаем опечатками.
 _WORD_RE = re.compile(r"[A-Za-zА-Яа-яЁё]{2,}")
-# Фрагменты, которые не проверяются: [XX], {VAR}, %s, числа.
+# Фрагменты, которые не проверяются: [XX], {VAR}, %s, числа
+# (включая hex-литералы 0xFF — иначе \d+ съедает только "0", а "xFF"
+# находится как слово и даёт ложную опечатку).
 _IGNORED_SPANS_RE = re.compile(
+    r"0[xX][0-9A-Fa-f]+|"
     r"\[[^\]]*\]|"
     r"\{[^}]*\}|"
     r"%\S*|"
@@ -37,6 +40,11 @@ _IGNORED_SPANS_RE = re.compile(
 _CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 _CACHE_MAX = 512
+
+# pyspellchecker.candidates() комбинаторно дорог и растёт с длиной слова.
+# Для очень длинных токенов (имена собственные, звукоподражания) подсказки
+# не считаем — слово всё равно попадает в отчёт как неизвестное.
+_MAX_SUGGESTION_WORD_LEN = 10
 
 
 def _auto_lang(text: str) -> str:
@@ -57,6 +65,13 @@ def _in_ignored(start: int, ignored_starts, ignored_ends) -> bool:
     return 0 <= i < len(ignored_ends) and start < ignored_ends[i]
 
 
+def _copy_errors(
+    errors: list[tuple[int, int, str, list[str]]],
+) -> list[tuple[int, int, str, list[str]]]:
+    """Копия результата: кэш отдаёт копии, мутация caller'ом его не травит."""
+    return [(s, e, w, list(sg)) for s, e, w, sg in errors]
+
+
 class SpellCheckService:
     """Проверка орфографии с игнором токенов и кэшем результатов.
 
@@ -66,7 +81,10 @@ class SpellCheckService:
 
     def __init__(self):
         self._checkers: dict[str, object] = {}
-        self._cache: dict[tuple[str, str], list[tuple[int, int, str, list[str]]]] = {}
+        self._cache: dict[
+            tuple[str, str, bool],
+            list[tuple[int, int, str, list[str]]],
+        ] = {}
 
     @property
     def initialized(self) -> bool:
@@ -87,12 +105,18 @@ class SpellCheckService:
         self,
         text: str,
         lang: str | None = "auto",
+        with_suggestions: bool = True,
     ) -> list[tuple[int, int, str, list[str]]]:
         """Ищет опечатки в тексте.
 
         Args:
             text: исходная строка.
             lang: "ru", "en" или "auto" (по алфавиту).
+            with_suggestions: считать ли варианты исправления через
+                pyspellchecker.candidates(). GUI передаёт True (по
+                умолчанию). Массовый инжект передаёт False: кандидаты —
+                ~99% времени проверки на больших корпусах, а позиции и
+                сами слова находятся и без них.
 
         Returns:
             Список (start, end, word, suggestions) — позиции 0-based
@@ -108,9 +132,9 @@ class SpellCheckService:
         if lang_used not in ("ru", "en"):
             lang_used = "auto"
 
-        cache_key = (text, lang_used)
+        cache_key = (text, lang_used, with_suggestions)
         if cache_key in self._cache:
-            return self._cache[cache_key]
+            return _copy_errors(self._cache[cache_key])
 
         checker = self._get_checker(lang_used)
 
@@ -123,13 +147,16 @@ class SpellCheckService:
             if _in_ignored(start, ignored_starts, ignored_ends):
                 continue
             if checker.unknown([word]):
-                suggestions = list(checker.candidates(word) or ())
+                if with_suggestions and len(word) <= _MAX_SUGGESTION_WORD_LEN:
+                    suggestions = list(checker.candidates(word) or ())
+                else:
+                    suggestions = []
                 errors.append((start, end, word, suggestions))
 
         if len(self._cache) >= _CACHE_MAX:
             self._cache.clear()
         self._cache[cache_key] = errors
-        return errors
+        return _copy_errors(errors)
 
     def clear_cache(self) -> None:
         self._cache.clear()
@@ -142,6 +169,8 @@ _service = SpellCheckService()
 def check_text(
     text: str,
     lang: str | None = "auto",
+    with_suggestions: bool = True,
 ) -> list[tuple[int, int, str, list[str]]]:
     """Module-level фасад."""
-    return _service.check_text(text, lang=lang)
+    return _service.check_text(
+        text, lang=lang, with_suggestions=with_suggestions)

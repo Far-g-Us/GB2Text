@@ -10,6 +10,16 @@
   <img src="./assets/readme/hero.svg" width="100%" alt="GB2Text: extract and reinsert text from Game Boy, Game Boy Color and Game Boy Advance ROM files with a plugin API">
 </p>
 
+## 📥 Download
+
+**Windows 10/11 (64-bit):** standalone `GB2Text.exe`, no Python required —
+
+[⬇️ Download GB2Text.exe](docs/en/download.md)
+
+Other platforms (Linux/macOS) — build from source, see the
+[Download page](docs/en/download.md). GB2Text works ONLY with ROM files you
+legally own.
+
 ## What it does
 
 - **Extracts** readable text from GB/GBC/GBA ROMs (raw text, pointer tables, LZ77/LZSS/RLE, Huffman)
