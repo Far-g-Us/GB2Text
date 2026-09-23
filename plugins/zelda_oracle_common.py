@@ -205,7 +205,7 @@ class OracleTextDecoder:
                 base = self._text_base1
             elif group < _TEXT_BASE3_INDEX_START:
                 base = self._text_base2
-            else:
+            else:  # pragma: no cover - недостижимо: group это индекс таблицы 0..99 < 0x100
                 base = 0
             for j in range(struct['size']):
                 addr = struct['address'] + j * 2
@@ -573,14 +573,14 @@ class OracleTextDecoder:
                 return bytes([0x0E, val]) if 0 <= val <= 0xFF else None
             if name == 'CMD':
                 return bytes([0x0C, val]) if 0 <= val <= 0xFF else None
-            return None
+            return None  # pragma: no cover - недостижимо: имена param исчерпаны regex выше
         if m.group('label') is not None:
             param = self._label_param(m.group('target'))
             if param is None:
-                return None
+                return None  # pragma: no cover - недостижимо: target из regex всегда парсится
             op = m.group('label')
             return bytes([0x07, param]) if op == 'JUMP' else bytes([0x0F, param])
-        return None
+        return None  # pragma: no cover - недостижимо: одна из групп regex всегда участвует
 
     @staticmethod
     def _label_param(target: str) -> int | None:

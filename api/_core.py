@@ -6,6 +6,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from core.diff_text import text_segments_compare
 from core.injector import TextInjector
 from core.plugin_manager import ConfigurablePlugin, get_safe_plugin_manager
 from core.rom import GameBoyROM, validate_rom_file
@@ -271,6 +272,51 @@ def inject(rom_path, translations, output_path=None, plugin_dir=None) -> dict:
                 os.remove(tmp_path)
             except OSError:
                 pass
+
+
+def _summarize_text(text: str, limit: int = 40) -> str:
+    one_line = " ".join(text.split())
+    if len(one_line) > limit:
+        return one_line[:limit] + "..."
+    return one_line
+
+
+def _segment_texts(segments: dict) -> dict[str, str]:
+    texts: dict[str, str] = {}
+    for seg_name, messages in segments.items():
+        texts[str(seg_name)] = " ".join(str(msg.get("text", "")) for msg in messages)
+    return texts
+
+
+def diff_roms(rom1, rom2, plugin_dir=None) -> dict:
+    resolved1 = resolve_rom(rom1)
+    resolved2 = resolve_rom(rom2)
+    first = extract(resolved1, plugin_dir=plugin_dir)
+    texts1 = _segment_texts(first["segments"])
+    del first
+    second = extract(resolved2, plugin_dir=plugin_dir)
+    texts2 = _segment_texts(second["segments"])
+    del second
+    report = text_segments_compare(texts1, texts2)
+    return {
+        "segments": {
+            "added": list(report.added),
+            "removed": list(report.removed),
+            "changed": [
+                {
+                    "seg": pair.key,
+                    "old_summary": _summarize_text(pair.old_text),
+                    "new_summary": _summarize_text(pair.new_text),
+                }
+                for pair in report.changed
+            ],
+        },
+        "stats": {
+            "added": len(report.added),
+            "removed": len(report.removed),
+            "changed": len(report.changed),
+        },
+    }
 
 
 def get_version() -> str:

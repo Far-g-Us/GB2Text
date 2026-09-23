@@ -163,7 +163,7 @@
 ## 🚧 Version 1.4
 
 ### Quality
-- [x] Increase test coverage — 100% statements+branches: check_docs_consistency, spell_checker, community_plugins_dialog, plugin_manager, injector (+ textbox, font_tiles, scanner tables)
+- [x] Full test coverage — **100% statements+branches** (core, plugins, api — 87 files, 2351 tests, `branch=True`; `gui/*` and `plugins/gba_golden_sun` in `omit` as GUI/ROM-specific, `pragma: no cover/branch` only on provably dead branches)
 - [x] Bring the remaining plugins up to stub state (detection + honest empty result)
 - [x] Docs-consistency CI — auto-check of links/routers/legal canon (`scripts/check_docs_consistency.py`, hard gate)
 
@@ -178,17 +178,32 @@
 - [x] Line-length / textbox simulator — simulate real textbox rendering (max_length/fixed_width) before injection (core/textbox.py + `last_fit_report`, writing is never blocked)
 - [x] Genuine CP866 auto-Russian table (**breaking in 1.4**: was a game-specific sample table with duplicates; detector ranges synced, see CHANGELOG)
 - [x] Hiragana table dedup (0xB8/0xB9/0xC7 duplicated 0x84/0x85/0x86; encode is deterministic now)
-- [ ] DTE dictionary compression helper — automatic DTE table builder via bigram frequency analysis for a given translation (GB/GBC, for languages longer than English)
+- [x] DTE dictionary compression helper (EXPERIMENTAL — test-only, synthetic + in-memory pilot): per-translation byte DTE table builder with atomic coder contract, disjoint/compression-refusal gates and savings estimate; injector writes — follow-up
 
-### Fonts
-- [x] Phase 0/1: research (blind 1bpp/2bpp scan, `scripts_roms/font_scan.py`, `FONT_RESEARCH.md` report) + `core/font_tiles.py` (2bpp round-trip, ASCII preview, 100% tests)
-- [ ] Phase 2 (glyph injection) — DEFERRED to 1.5: font not positively identified, risk is high; gate is template-match of the candidate + review
+### Fonts (EXPERIMENTAL — everything needs tests on real ROMs)
+- [x] Phase 0/1: font format research and basic tile operations (decoding, preview)
+- [x] F1 core: 1/2/4 bits-per-pixel depths, image import/export, strict metadata validation, safe-write gates
+- [x] Phase 2: glyph embedding mechanism with confirmations and refusals (compressed data, out-of-bounds, candidates)
+- [ ] Pilot: full pipeline run on real ROMs with emulator verification
 
 ### Plugins & Platforms
 - [x] Community/shared plugin registry — third-party plugin catalog (static JSON on GitHub Pages), install without forking the repo
 
 ### Performance
 - [x] Lazy plugin loading — specific plugins are imported on first access (allowlist gate preserved), generic stay eager
+
+---
+
+## 🚧 Version 1.5
+
+### Fonts: F1 testing + GUI editor
+- [ ] F1 pilot on real ROMs (legally-owned): candidate-gate + inject + emulator verification, dropping the experimental status
+- [x] F2 GUI editor, MR1: “Font” tab — glyph-grid preview, PNG import, write via TextInjector (read-only without ROM, undo until save, dark theme) — code done, pilot needed
+- [x] F2 GUI editor, MR2: per-pixel glyph editing + undo/redo stacks — code done, pilot needed
+
+### Playtest assistant (after F2, in order)
+- [x] `core/playtest.py`: PlaytestRunner protocol + PyBoyBackend (GB/GBC) — strictly validated input scripts, per-frame hashes, stuck/dark markers, screenshots on marks, structural diff (roundtrip only), 100% coverage on fake core — code done, pilot on a real ROM needed
+- [ ] MGBABackend (GBA): Lua driver + screenshot collector ready (API pin 0.10.x, PyBoy frame contract, pilot-gated); auto-run — second increment after pilot
 
 ---
 
@@ -208,8 +223,7 @@
 - Third-party plugins via entry_points — demo package (infrastructure ready)
 
 ### Visual tools
-- Font tile graphics editor — view/edit glyph tiles (critical for non-standard alphabets: Cyrillic in GB games requires font redrawing to fit tile width)
-- Playtest assistant via emulator — mGBA headless mode for auto-walking menus/dialogs with screenshots, checking that text doesn't overflow
+- Text baked into graphics (title logos as tiles — a separate pipeline from fonts, research)
 
 ### Tools
 - Cloud sync — translations stored in the cloud
@@ -218,7 +232,7 @@
 ### API
 - MCP server (deferred from 1.4) — wrapper over the api/ layer: extract/inject/detect as MCP tools for agents
 - Webhook/callback on completion of long operations (relevant for large ROMs with 1500+ segments)
-- `/diff` endpoint — compare text between ROM versions (core exists since 1.1, not exposed in the API)
+- [x] `/diff` endpoint — compare text between ROM versions (implemented in 1.4: `core/diff_text.py` + `POST /diff`)
 - Metrics export (Prometheus-style `/metrics`) — for running the server in CI
 
 ### Performance
@@ -247,4 +261,4 @@
 
 ---
 
-*Roadmap updated: 2026-09-18*
+*Roadmap updated: 2026-09-23*

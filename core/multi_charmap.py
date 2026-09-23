@@ -324,7 +324,7 @@ def _detect_sjis_sequences(data: bytes) -> dict[tuple[int, int], str]:
                     char = sjis.decode('shift-jis', errors='ignore')
                     if char:
                         pairs[(first, second)] = char
-                except (UnicodeDecodeError, ValueError, OverflowError):
+                except (UnicodeDecodeError, ValueError, OverflowError):  # pragma: no cover - errors='ignore' подавляет ошибки декодирования, ветвь защитная
                     pass
 
     return pairs
@@ -379,16 +379,12 @@ class EncodingDetector:
             high_ratio = high_count / total
 
             if ascii_ratio > 0.8:
-                candidate = ('ascii', ascii_ratio)
-                if candidate[1] > best_match[1]:
-                    best_match = candidate
+                best_match = ('ascii', ascii_ratio)
             elif high_ratio > 0.2:
                 # Проверяем Shift-JIS паттерны
                 sjis_score = self._score_shiftjis(data)
                 if sjis_score > 0.3:
-                    candidate = ('shift-jis', sjis_score)
-                    if candidate[1] > best_match[1]:
-                        best_match = candidate
+                    best_match = ('shift-jis', sjis_score)
 
         return best_match
 

@@ -146,8 +146,8 @@ class TextAnalyzer:
 
                 # Проверяем на наличие нечитаемых последовательностей
                 has_invalid_sequence = False
-                for i in range(len(text) - 3):
-                    if text[i:i + 4] == "[CD][":
+                for i in range(len(text) - 4):
+                    if text[i:i + 5] == "[CD][":
                         has_invalid_sequence = True
                         break
 

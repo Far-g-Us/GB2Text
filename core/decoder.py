@@ -32,7 +32,7 @@ try:
         get_detector,
     )
     MULTI_CHARMAP_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
     MULTI_CHARMAP_AVAILABLE = False
     CharTable = None
     MultiCharmapSegment = None

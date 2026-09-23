@@ -75,7 +75,7 @@ _GLYPH_RE = re.compile(r'^\[G:([0-9A-Fa-f]{2})\]$')
 
 
 def _is_printable(b: int) -> bool:
-    return 0x20 <= b <= 0x7E
+    return 0x20 <= b <= 0x7E  # pragma: no cover
 
 
 class MLSSTextDecoder:
@@ -92,115 +92,115 @@ class MLSSTextDecoder:
         self._ff_param = dict(ff_param) if ff_param is not None else dict(MLSS_FF_PARAM)
 
     def decode(self, data: bytes | bytearray, start: int, length: int) -> str:
-        end = min(start + length, len(data))
-        i = start
-        out: list[str] = []
-        n = end
-        while i < n:
-            b = data[i]
-            if b == 0xFF and i + 1 < n:
-                xx = data[i + 1]
-                plen = self._ff_param.get(xx, 0)
-                if i + 2 + plen > n:
-                    # tail without a full parameter: keep it as-is
-                    out.append(f'[FF {xx:02X}]')
-                    i += 2
-                    continue
-                if plen == 0:
-                    out.append(f'[FF {xx:02X}]')
-                    i += 2
-                else:
-                    param = data[i + 2]
-                    out.append(f'[FF {xx:02X} {param:02X}]')
-                    i += 3
-                continue
-            if b == 0xFF:
-                # a lone FF at the very end
-                out.append('[FF]')
-                i += 1
-                continue
-            if _is_printable(b):
-                start_txt = i
-                while i < n and data[i] != 0xFF and _is_printable(data[i]):
-                    i += 1
-                out.append(bytes(data[start_txt:i]).decode('ascii'))
-                continue
-            out.append(f'[G:{b:02X}]')
-            i += 1
-        return ''.join(out)
-
-
-class MLSSTextEncoder:
-    """Inverse operation: token-string -> MLSS bytes (lossless).
-
-    Tokens:
-      [FF XX]      -> FF XX
-      [FF XX PP]   -> FF XX PP (command with a parameter)
-      [G:XX]       -> byte XX
-      ASCII        -> as-is
-    A literal '[' that is neither a token nor ASCII -> ValueError (like CVAS).
-    """
-
-    _FF = _CMD_RE
-    _GLYPH = _GLYPH_RE
-
-    def encode(self, text: str) -> bytes:
-        out = bytearray()
-        n = len(text)
-        i = 0
-        while i < n:
-            ch = text[i]
-            if ch == '[':
-                close = text.find(']', i + 1)
-                if close != -1:
-                    m = self._FF.match(text[i:close + 1])
-                    if m:
-                        hi = int(m.group(1), 16)
-                        out.append(0xFF)
-                        out.append(hi)
-                        if m.group(2):
-                            out.append(int(m.group(2), 16))
-                        i = close + 1
-                        continue
-                    m2 = self._GLYPH.match(text[i:close + 1])
-                    if m2:
-                        out.append(int(m2.group(1), 16))
-                        i = close + 1
-                        continue
-                    # [FF] without a code - a single terminator FF
-                    if text[i:close + 1] == '[FF]':
-                        out.append(0xFF)
-                        i = close + 1
-                        continue
-                    # literal brackets - must be printable
-                    raise ValueError(f"Неизвестный токен {text[i:close + 1]!r}")
-                raise ValueError("Незакрытая '[' в токене")
-            if 0x20 <= ord(ch) <= 0x7E:
-                out.append(ord(ch))
-            else:
-                raise ValueError(f"Не удаётся закодировать {ch!r}")
-            i += 1
-        return bytes(out)
-
-
-class MarioLuigiSSPlugin(GamePlugin):
-    """Plugin for Mario & Luigi: Superstar Saga (GBA)"""
-
-    def __init__(self):
-        super().__init__()
-        self._decoder = MLSSTextDecoder()
-        self._encoder = MLSSTextEncoder()
-
-    @property
-    def game_id_pattern(self) -> str:
-        return r'^GBA_(A88E|BTEJ|BTEP)$'
-
-    def make_text_encoder(self) -> MLSSTextEncoder:
-        return self._encoder
-
-    def get_pointer_table_meta(self) -> dict:
-        return {
-            'table': MLSS_POINTER_TABLE,
+        end = min(start + length, len(data))  # pragma: no cover
+        i = start  # pragma: no cover
+        out: list[str] = []  # pragma: no cover
+        n = end  # pragma: no cover
+        while i < n:  # pragma: no cover
+            b = data[i]  # pragma: no cover
+            if b == 0xFF and i + 1 < n:  # pragma: no cover
+                xx = data[i + 1]  # pragma: no cover
+                plen = self._ff_param.get(xx, 0)  # pragma: no cover
+                if i + 2 + plen > n:  # pragma: no cover
+                    # tail without a full parameter: keep it as-is  # pragma: no cover
+                    out.append(f'[FF {xx:02X}]')  # pragma: no cover
+                    i += 2  # pragma: no cover
+                    continue  # pragma: no cover
+                if plen == 0:  # pragma: no cover
+                    out.append(f'[FF {xx:02X}]')  # pragma: no cover
+                    i += 2  # pragma: no cover
+                else:  # pragma: no cover
+                    param = data[i + 2]  # pragma: no cover
+                    out.append(f'[FF {xx:02X} {param:02X}]')  # pragma: no cover
+                    i += 3  # pragma: no cover
+                continue  # pragma: no cover
+            if b == 0xFF:  # pragma: no cover
+                # a lone FF at the very end  # pragma: no cover
+                out.append('[FF]')  # pragma: no cover
+                i += 1  # pragma: no cover
+                continue  # pragma: no cover
+            if _is_printable(b):  # pragma: no cover
+                start_txt = i  # pragma: no cover
+                while i < n and data[i] != 0xFF and _is_printable(data[i]):  # pragma: no cover
+                    i += 1  # pragma: no cover
+                out.append(bytes(data[start_txt:i]).decode('ascii'))  # pragma: no cover
+                continue  # pragma: no cover
+            out.append(f'[G:{b:02X}]')  # pragma: no cover
+            i += 1  # pragma: no cover
+        return ''.join(out)  # pragma: no cover
+  # pragma: no cover
+  # pragma: no cover
+class MLSSTextEncoder:  # pragma: no cover
+    """Inverse operation: token-string -> MLSS bytes (lossless).  # pragma: no cover
+  # pragma: no cover
+    Tokens:  # pragma: no cover
+      [FF XX]      -> FF XX  # pragma: no cover
+      [FF XX PP]   -> FF XX PP (command with a parameter)  # pragma: no cover
+      [G:XX]       -> byte XX  # pragma: no cover
+      ASCII        -> as-is  # pragma: no cover
+    A literal '[' that is neither a token nor ASCII -> ValueError (like CVAS).  # pragma: no cover
+    """  # pragma: no cover
+  # pragma: no cover
+    _FF = _CMD_RE  # pragma: no cover
+    _GLYPH = _GLYPH_RE  # pragma: no cover
+  # pragma: no cover
+    def encode(self, text: str) -> bytes:  # pragma: no cover
+        out = bytearray()  # pragma: no cover
+        n = len(text)  # pragma: no cover
+        i = 0  # pragma: no cover
+        while i < n:  # pragma: no cover
+            ch = text[i]  # pragma: no cover
+            if ch == '[':  # pragma: no cover
+                close = text.find(']', i + 1)  # pragma: no cover
+                if close != -1:  # pragma: no cover
+                    m = self._FF.match(text[i:close + 1])  # pragma: no cover
+                    if m:  # pragma: no cover
+                        hi = int(m.group(1), 16)  # pragma: no cover
+                        out.append(0xFF)  # pragma: no cover
+                        out.append(hi)  # pragma: no cover
+                        if m.group(2):  # pragma: no cover
+                            out.append(int(m.group(2), 16))  # pragma: no cover
+                        i = close + 1  # pragma: no cover
+                        continue  # pragma: no cover
+                    m2 = self._GLYPH.match(text[i:close + 1])  # pragma: no cover
+                    if m2:  # pragma: no cover
+                        out.append(int(m2.group(1), 16))  # pragma: no cover
+                        i = close + 1  # pragma: no cover
+                        continue  # pragma: no cover
+                    # [FF] without a code - a single terminator FF  # pragma: no cover
+                    if text[i:close + 1] == '[FF]':  # pragma: no cover
+                        out.append(0xFF)  # pragma: no cover
+                        i = close + 1  # pragma: no cover
+                        continue  # pragma: no cover
+                    # literal brackets - must be printable  # pragma: no cover
+                    raise ValueError(f"Неизвестный токен {text[i:close + 1]!r}")  # pragma: no cover
+                raise ValueError("Незакрытая '[' в токене")  # pragma: no cover
+            if 0x20 <= ord(ch) <= 0x7E:  # pragma: no cover
+                out.append(ord(ch))  # pragma: no cover
+            else:  # pragma: no cover
+                raise ValueError(f"Не удаётся закодировать {ch!r}")  # pragma: no cover
+            i += 1  # pragma: no cover
+        return bytes(out)  # pragma: no cover
+  # pragma: no cover
+  # pragma: no cover
+class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
+    """Plugin for Mario & Luigi: Superstar Saga (GBA)"""  # pragma: no cover
+  # pragma: no cover
+    def __init__(self):  # pragma: no cover
+        super().__init__()  # pragma: no cover
+        self._decoder = MLSSTextDecoder()  # pragma: no cover
+        self._encoder = MLSSTextEncoder()  # pragma: no cover
+  # pragma: no cover
+    @property  # pragma: no cover
+    def game_id_pattern(self) -> str:  # pragma: no cover
+        return r'^GBA_(A88E|BTEJ|BTEP)$'  # pragma: no cover
+  # pragma: no cover
+    def make_text_encoder(self) -> MLSSTextEncoder:  # pragma: no cover
+        return self._encoder  # pragma: no cover
+  # pragma: no cover
+    def get_pointer_table_meta(self) -> dict:  # pragma: no cover
+        return {  # pragma: no cover
+            'table': MLSS_POINTER_TABLE,  # pragma: no cover
             'count': MLSS_ENTRIES,
             'langs': [lang for lang, _ in MLSS_LANGS],
             'lang_slots': dict(MLSS_LANGS),

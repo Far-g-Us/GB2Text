@@ -134,9 +134,9 @@ python main.py your_game.gb --output json
 
 | Интерфейс | Точка входа | Примечания |
 |-----------|-------------|------------|
-| **Python SDK** | `from api import _core` (REPL / Jupyter) | `resolve_rom`, `detect`, `extract`, `inject`, `list_plugins`, `get_version`, `load_json_file` |
+| **Python SDK** | `from api import _core` (REPL / Jupyter) | `resolve_rom`, `detect`, `extract`, `inject`, `diff_roms`, `list_plugins`, `get_version`, `load_json_file` |
 | **CLI** | `python -m api.cli <command> --json` | Подкоманды: `plugins`, `detect`, `extract`, `inject`, `serve` — коды выхода 0/1/2 |
-| **HTTP / JSON** | `python -m api.cli serve` (по умолчанию 127.0.0.1:8080) | Эндпоинты: `/health`, `/plugins`, `/detect`, `/extract`, `/inject` — лимиты размера, таймаут, 503 BUSY |
+| **HTTP / JSON** | `python -m api.cli serve` (по умолчанию 127.0.0.1:8080) | Эндпоинты: `/health`, `/plugins`, `/detect`, `/extract`, `/inject`, `/diff` — лимиты размера, таймаут, 503 BUSY |
 
 Все три возвращают стабильную схему ответа: `{"ok": bool, "data": ... | "error": {"code", "message"}}`.
 

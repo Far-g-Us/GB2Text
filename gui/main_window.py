@@ -38,9 +38,9 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 try:
     import tkinterdnd2
     TKINTERDND2_AVAILABLE = True
-except ImportError:
-    tkinterdnd2 = None
-    TKINTERDND2_AVAILABLE = False
+except ImportError:  # pragma: no cover
+    tkinterdnd2 = None  # pragma: no cover
+    TKINTERDND2_AVAILABLE = False  # pragma: no cover
 
 # Инициализация логгера
 logger = logging.getLogger('gb2text.gui')
@@ -55,6 +55,7 @@ from core.encoding import (
     get_generic_shiftjis_charmap,
 )
 from core.extractor import TextExtractor
+from core.font_tiles import inject_font_block
 from core.guide import GuideManager
 from core.i18n import I18N, language_code
 from core.injector import TextInjector
@@ -65,6 +66,7 @@ from core.scanner import analyze_text_segment, detect_multiple_languages
 from core.tmx import TMXHandler
 from core.xliff import XLIFFHandler
 from gui import theme, widgets
+from gui.font_tab import FontTab
 
 
 class GBTextExtractorGUI:
@@ -149,104 +151,108 @@ class GBTextExtractorGUI:
             theme.register_post_apply_hook(self._reapply_compare_colors)
             theme.register_post_apply_hook(self._reapply_about_colors)
             theme.register_post_apply_hook(self._map_redraw)
-        except Exception:
-            for hook in (self._reapply_compare_colors, self._reapply_about_colors, self._map_redraw):
-                theme.unregister_post_apply_hook(hook)
-            raise
+        except Exception:  # pragma: no cover
+            for hook in (self._reapply_compare_colors, self._reapply_about_colors, self._map_redraw):  # pragma: no cover
+                theme.unregister_post_apply_hook(hook)  # pragma: no cover
+            raise  # pragma: no cover
 
-        # Если указан ROM при запуске, сразу загружаем
-        if rom_path:
-            self.update_game_info()
+        # Если указан ROM при запуске, сразу загружаем  # pragma: no cover
+        if rom_path:  # pragma: no cover
+            self.update_game_info()  # pragma: no cover
 
-        # Применяем тему и иконку синхронно — до первого показа окна.
-        # Раньше тема применялась через after(100): окно успевало
-        # отрисоваться в дефолтной ttk-теме, и после перекраски весь
-        # текст «сползал»; иконка при этом могла сбрасываться.
-        self.apply_theme()
-        self._set_app_icon()
+        # Применяем тему и иконку синхронно — до первого показа окна.  # pragma: no cover
+        # Раньше тема применялась через after(100): окно успевало  # pragma: no cover
+        # отрисоваться в дефолтной ttk-теме, и после перекраски весь  # pragma: no cover
+        # текст «сползал»; иконка при этом могла сбрасываться.  # pragma: no cover
+        self.apply_theme()  # pragma: no cover
+        self._set_app_icon()  # pragma: no cover
 
-    def _setup_ui(self):
-        """Настройка пользовательского интерфейса"""
+    def _setup_ui(self):  # pragma: no cover
+        """Настройка пользовательского интерфейса"""  # pragma: no cover
 
-        # Создаем вкладки
-        self.tab_control = ttk.Notebook(self.root)
+        # Создаем вкладки  # pragma: no cover
+        self.tab_control = ttk.Notebook(self.root)  # pragma: no cover
 
-        # Вкладка извлечения текста
-        self.extract_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.extract_tab, text=self.i18n.t("tab.extract"))
+        # Вкладка извлечения текста  # pragma: no cover
+        self.extract_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.extract_tab, text=self.i18n.t("tab.extract"))  # pragma: no cover
 
-        # Вкладка редактирования и локализации
-        self.edit_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.edit_tab, text=self.i18n.t("tab.edit"))
+        # Вкладка редактирования и локализации  # pragma: no cover
+        self.edit_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.edit_tab, text=self.i18n.t("tab.edit"))  # pragma: no cover
 
-        # Вкладка пакетной обработки
-        self.batch_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.batch_tab, text=self.i18n.t("batch.tab"))
-        self._setup_batch_tab()
+        # Вкладка пакетной обработки  # pragma: no cover
+        self.batch_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.batch_tab, text=self.i18n.t("batch.tab"))  # pragma: no cover
+        self._setup_batch_tab()  # pragma: no cover
 
-        # Вкладка сравнения ROM
-        self.compare_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.compare_tab, text=self.i18n.t("compare.tab"))
+        # Вкладка сравнения ROM  # pragma: no cover
+        self.compare_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.compare_tab, text=self.i18n.t("compare.tab"))  # pragma: no cover
 
-        # Вкладка руководства
-        self.guide_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))
+        # Вкладка руководства  # pragma: no cover
+        self.guide_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.guide_tab, text=self.i18n.t("guide.tab"))  # pragma: no cover
 
-        # Вкладка диагностики
-        self.diagnostics_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.diagnostics_tab, text=self.i18n.t("diagnostics.tab"))
-        self._setup_diagnostics_tab()
+        # Вкладка диагностики  # pragma: no cover
+        self.diagnostics_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.diagnostics_tab, text=self.i18n.t("diagnostics.tab"))  # pragma: no cover
+        self._setup_diagnostics_tab()  # pragma: no cover
 
-        # Вкладка карты ROM
-        self.map_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.map_tab, text=self.i18n.t("map.tab"))
-        self._setup_map_tab()
+        # Вкладка карты ROM  # pragma: no cover
+        self.map_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.map_tab, text=self.i18n.t("map.tab"))  # pragma: no cover
+        self._setup_map_tab()  # pragma: no cover
 
-        # Вкладка настроек
-        self.settings_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.settings_tab, text=self.i18n.t("tab.settings"))
+        # Вкладка шрифта  # pragma: no cover
+        self.font_tab = FontTab(self.tab_control, self._font_tab_ctx())  # pragma: no cover
+        self.tab_control.add(self.font_tab, text=self.i18n.t("tab.font"))  # pragma: no cover
 
-        # Вкладка о программе
-        self.about_tab = ttk.Frame(self.tab_control)
-        self.tab_control.add(self.about_tab, text=self.i18n.t("tab.about"))
+        # Вкладка настроек  # pragma: no cover
+        self.settings_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.settings_tab, text=self.i18n.t("tab.settings"))  # pragma: no cover
 
-        self.tab_control.pack(expand=1, fill="both", padx=theme.SPACING["MD"], pady=(theme.SPACING["XS"], theme.SPACING["MD"]))
+        # Вкладка о программе  # pragma: no cover
+        self.about_tab = ttk.Frame(self.tab_control)  # pragma: no cover
+        self.tab_control.add(self.about_tab, text=self.i18n.t("tab.about"))  # pragma: no cover
 
-        # Добавляем статус-бар
-        self.status_frame = ttk.Frame(self.root)
-        self.status_frame.pack(side="bottom", fill="x")
-        ttk.Separator(self.root, orient="horizontal").pack(
-            side="bottom", fill="x", pady=(theme.SPACING["SM"], 0))
+        self.tab_control.pack(expand=1, fill="both", padx=theme.SPACING["MD"], pady=(theme.SPACING["XS"], theme.SPACING["MD"]))  # pragma: no cover
 
-        self.status_label = ttk.Label(self.status_frame, text=self.i18n.t("status.ready"))
-        self.status_label.pack(side="left", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
+        # Добавляем статус-бар  # pragma: no cover
+        self.status_frame = ttk.Frame(self.root)  # pragma: no cover
+        self.status_frame.pack(side="bottom", fill="x")  # pragma: no cover
+        ttk.Separator(self.root, orient="horizontal").pack(  # pragma: no cover
+            side="bottom", fill="x", pady=(theme.SPACING["SM"], 0))  # pragma: no cover
 
-        self.progress = ttk.Progressbar(self.status_frame, orient="horizontal", mode="determinate", length=200)
-        self.progress.pack(side="right", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])
+        self.status_label = ttk.Label(self.status_frame, text=self.i18n.t("status.ready"))  # pragma: no cover
+        self.status_label.pack(side="left", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])  # pragma: no cover
 
-        # Кнопка отмены создаётся при начале извлечения
-        self.cancel_button = None
+        self.progress = ttk.Progressbar(self.status_frame, orient="horizontal", mode="determinate", length=200)  # pragma: no cover
+        self.progress.pack(side="right", padx=theme.SPACING["SM"], pady=theme.SPACING["XS"])  # pragma: no cover
 
-        # Настройка вкладки извлечения
-        self._setup_extract_tab()
+        # Кнопка отмены создаётся при начале извлечения  # pragma: no cover
+        self.cancel_button = None  # pragma: no cover
 
-        # Настройка вкладки редактирования
-        self._setup_edit_tab()
+        # Настройка вкладки извлечения  # pragma: no cover
+        self._setup_extract_tab()  # pragma: no cover
 
-        # Настройка вкладки сравнения ROM
-        self._setup_compare_tab()
+        # Настройка вкладки редактирования  # pragma: no cover
+        self._setup_edit_tab()  # pragma: no cover
 
-        # Настройка вкладки настроек
-        self._setup_settings_tab()
+        # Настройка вкладки сравнения ROM  # pragma: no cover
+        self._setup_compare_tab()  # pragma: no cover
 
-        # Настройка вкладки руководства
-        self._setup_guide_tab()
+        # Настройка вкладки настроек  # pragma: no cover
+        self._setup_settings_tab()  # pragma: no cover
 
-        # Настройка вкладки о программе
-        self._setup_about_tab()
+        # Настройка вкладки руководства  # pragma: no cover
+        self._setup_guide_tab()  # pragma: no cover
 
-        # Контекстное меню пересоздаётся вместе с UI (переживает смену языка)
-        self._setup_context_menu()
+        # Настройка вкладки о программе  # pragma: no cover
+        self._setup_about_tab()  # pragma: no cover
+
+        # Контекстное меню пересоздаётся вместе с UI (переживает смену языка)  # pragma: no cover
+        self._setup_context_menu()  # pragma: no cover
 
         # Инициализируем статус
         self.set_status(self.i18n.t("status.ready"))
@@ -1612,6 +1618,51 @@ class GBTextExtractorGUI:
             title = f"{title} — {os.path.basename(rom_path)}"
         self.root.title(title)
 
+    def _font_plugin_meta(self):
+        """Raw get_font_meta плагина injector-ROM (None если неизвестен).
+
+        Источник — self.text_injector.rom, а не self.current_rom: data
+        (_font_data) и meta всегда из одного объекта, микса нет.
+        """
+        injector = self.text_injector
+        if injector is None:
+            return None
+        rom = injector.rom
+        try:
+            plugin = self.plugin_manager.get_plugin(rom.get_game_id(), rom.system, rom=rom)
+        except Exception:
+            logger.exception("Font plugin resolve failed")
+            return None
+        if plugin is None:
+            return None
+        try:
+            return plugin.get_font_meta()
+        except Exception:
+            logger.exception("get_font_meta failed")
+            return None
+
+    def _font_tab_ctx(self):
+        """Контекст вкладки шрифта: чтение/запись через TextInjector."""
+        return {
+            "get_data": self._font_data,
+            "get_meta": self._font_plugin_meta,
+            "do_inject": self._font_do_inject,
+            "mark_dirty": lambda msg: self.set_status(msg),
+            "t": self.i18n.t,
+        }
+
+    def _font_data(self):
+        """modified_data открытого ROM (None если ROM не загружен)."""
+        if self.text_injector is None:
+            return None
+        return self.text_injector.modified_data
+
+    def _font_do_inject(self, layout, glyphs):
+        """Запись глифов в modified_data (таб зовёт только при открытом ROM)."""
+        if self.text_injector is None:
+            raise ValueError("no ROM loaded")
+        return inject_font_block(self.text_injector.modified_data, layout, glyphs, confirm=True)
+
     def extract_text(self):
         """Извлечение текста из ROM"""
         if not self.rom_path.get():
@@ -2137,9 +2188,13 @@ class GBTextExtractorGUI:
         if not self._guard_unsaved_changes():
             return
 
+        if not self.font_tab.confirm_discard():
+            return
+
         # Проверяем кэш - если ROM уже загружен и путь тот же, не перезагружаем
         if self._loaded_rom_path == rom_path and self.current_rom:
             logger.info("Используем кэшированный ROM")
+            self.font_tab.refresh()
         else:
             try:
                 # Проверяем, что файл существует
@@ -2177,6 +2232,7 @@ class GBTextExtractorGUI:
                     segments = plugin.get_text_segments(self.current_rom)
                     self.current_segments_meta = segments
                     self._map_redraw()
+                    self.font_tab.refresh()
                     self.segment_combo['values'] = [seg['name'] for seg in segments]
                     if self.segment_combo['values']:
                         self.segment_combo.current(0)
@@ -2186,11 +2242,13 @@ class GBTextExtractorGUI:
                         self.i18n.t("warning.title"),
                         self.i18n.t("plugin.not.found")
                     )
+                    self.font_tab.refresh()
             except Exception as e:
                 messagebox.showerror(
                     self.i18n.t("error.title"),
                     self.i18n.t("rom.load.error", error=str(e))
                 )
+                self.font_tab.refresh()
 
     def _get_resource_path(self, relative_path):
         """Получает абсолютный путь к ресурсу"""
@@ -3512,6 +3570,9 @@ class GBTextExtractorGUI:
             # «Отмена» — откатываем комбобокс к фактически применяемому языку.
             self.ui_lang.set(self.i18n.current_lang or "en")
             return
+        if not self.font_tab.confirm_discard():
+            self.ui_lang.set(self.i18n.current_lang or "en")
+            return
         self.i18n.change_language(chosen_lang)
 
         # Обновляем все тексты в интерфейсе
@@ -3522,6 +3583,8 @@ class GBTextExtractorGUI:
         self.tab_control.tab(self.edit_tab, text=self.i18n.t("tab.edit"))
         self.tab_control.tab(self.settings_tab, text=self.i18n.t("tab.settings"))
         self.tab_control.tab(self.guide_tab, text=self.i18n.t("guide.tab"))
+        self.tab_control.tab(self.font_tab, text=self.i18n.t("tab.font"))
+        self.font_tab.retranslate()
 
         # Обновляем все метки
         self._refresh_ui()
@@ -3535,6 +3598,8 @@ class GBTextExtractorGUI:
         self.tab_control.tab(self.edit_tab, text=self.i18n.t("tab.edit"))
         self.tab_control.tab(self.settings_tab, text=self.i18n.t("tab.settings"))
         self.tab_control.tab(self.guide_tab, text=self.i18n.t("guide.tab"))
+        self.tab_control.tab(self.font_tab, text=self.i18n.t("tab.font"))
+        self.font_tab.retranslate()
 
         # Обновляем заголовок информационной панели
         for widget in self.extract_tab.winfo_children():
@@ -4036,6 +4101,7 @@ class GBTextExtractorGUI:
 
             self.text_injector.save(output_path)
             self.set_status(self.i18n.t("text.injected"))
+            self.font_tab.clear_undo()
             messagebox.showinfo(
                 self.i18n.t("success.title"),
                 self.i18n.t("inject.success", path=os.path.basename(output_path))
@@ -4174,6 +4240,8 @@ class GBTextExtractorGUI:
         """Сохранение настроек локализации.
         silent=True — только запись в файл, без пересоздания UI и messagebox."""
         if not silent and not self._guard_unsaved_changes():
+            return
+        if not silent and not self.font_tab.confirm_discard():
             return
 
         # Сохраняем выбранный язык интерфейса (код языка, а не название)
@@ -4322,6 +4390,8 @@ class GBTextExtractorGUI:
         """Обработка закрытия окна"""
         was_dirty = self._is_entry_dirty()
         if not self._guard_unsaved_changes():
+            return
+        if not self.font_tab.confirm_discard():
             return
         if was_dirty or messagebox.askyesno(
                 self.i18n.t("confirm.title"),

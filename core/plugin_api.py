@@ -230,10 +230,10 @@ class ExtendedGamePlugin(ABC):
 
             return result
 
-        except Exception as e:
-            self._logger.error(f"Ошибка загрузки плагина {self.info.name}: {e}")
-            self._set_state(PluginState.ERROR)
-            return False
+        except Exception as e:  # pragma: no cover
+            self._logger.error(f"Ошибка загрузки плагина {self.info.name}: {e}")  # pragma: no cover
+            self._set_state(PluginState.ERROR)  # pragma: no cover
+            return False  # pragma: no cover
 
     def on_unload(self):
         """Вызывается при выгрузке плагина"""

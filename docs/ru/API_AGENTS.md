@@ -132,10 +132,11 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
   - POST /detect   -> body {"rom": "/abs/path"}
   - POST /extract  -> body {"rom", "max_segments", "lang"}
   - POST /inject   -> body {"rom", "translations", "output"}
+  - POST /diff     -> body {"rom1", "rom2"} (read-only сравнение текста двух ROM)
 - Content-Type: только `application/json` (413->нет, 415 VOID), иначе 415.
   Browser form-POST (CSRF) отклоняется без CORS-разборов.
 - Body limit: `max_content_length = 50 MB` (покрывает MAX_ROM_SIZE 64MB? НЕТ —
-  поэтому дробью: для /detect,/extract дефолт 1MB+path, для /inject до MAX_ROM_SIZE
+  поэтому дробью: для /detect,/extract,/diff дефолт 1MB+path, для /inject до MAX_ROM_SIZE
   ограничение отдельно). UB: если Content-Length > лимита -> 413 PAYLOAD_TOO_LARGE
   до чтения body. Без Content-Length — читать с лимитом.
 - Таймаут: `timeout_read_body = 10s` ТОЛЬКО на чтение body (после чтения

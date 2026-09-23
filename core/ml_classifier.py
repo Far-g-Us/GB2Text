@@ -13,7 +13,7 @@ logger = logging.getLogger('gb2text.ml_classifier')
 try:
     import numpy as np
     NUMPY_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
     np = None  # type: ignore[assignment]
     NUMPY_AVAILABLE = False
 
@@ -22,7 +22,7 @@ try:
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
     SKLEARN_AVAILABLE = False
     RandomForestClassifier = None
     StandardScaler = None

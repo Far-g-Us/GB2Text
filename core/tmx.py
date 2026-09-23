@@ -117,7 +117,7 @@ class TMXHandler:
             reparsed = minidom.parseString(rough_string)
             pretty = reparsed.toprettyxml(indent="  ", encoding=None)
             # minidom добавляет <?xml version="1.0" ?> — заменяем на правильную декларацию
-            if pretty.startswith('<?xml'):
+            if pretty.startswith('<?xml'):  # pragma: no branch - minidom всегда эмитит декларацию, False-ветвь недостижима
                 # Заменяем декларацию на стандартную с encoding
                 newline_pos = pretty.index('\n')
                 pretty = '<?xml version="1.0" encoding="utf-8"?>' + pretty[newline_pos:]

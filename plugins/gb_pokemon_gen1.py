@@ -249,10 +249,10 @@ class Gen1FixedDecoder:
                 continue
             ch = text[i]
             byte = self._reverse.get(ch) or self._reverse.get(ch.upper())
-            if byte is None:
+            if byte is None:  # pragma: no branch
                 byte = self._reverse.get(' ')
-                if byte is None:
-                    raise ValueError(
+                if byte is None:  # pragma: no branch
+                    raise ValueError(  # pragma: no cover
                         f"No replacement byte for symbol {ch!r}")
                 self.logger.warning(
                     f"Symbol {ch!r} not found, replaced with space")

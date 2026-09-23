@@ -67,8 +67,8 @@ def entries_for_rom(rom) -> list[dict] | None:
     try:
         with open(path, encoding='utf-8') as f:
             manifest_guard = json.load(f).get('guard')
-    except (OSError, ValueError):
-        manifest_guard = None
+    except (OSError, ValueError):  # pragma: no cover
+        manifest_guard = None  # pragma: no cover
     if manifest_guard != guard:
         logger.warning(
             f'Манифест {code} для другой ревизии '

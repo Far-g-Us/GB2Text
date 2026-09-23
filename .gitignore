@@ -9,7 +9,7 @@ build/
 dist/
 settings/
 htmlcov/
-#test_game/
+test_game/
 script_game/
 tools/
 
@@ -32,6 +32,9 @@ diagnostics_*
 *.log
 *.tmp
 gb2text.log
+cov_*.json
+cov_*.txt
+coverage_artifacts/
 
 # Robot Framework результаты тестов
 test_logs/

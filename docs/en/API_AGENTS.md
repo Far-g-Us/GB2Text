@@ -132,9 +132,10 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
   - POST /detect   -> body {"rom": "/abs/path"}
   - POST /extract  -> body {"rom", "max_segments", "lang"}
   - POST /inject   -> body {"rom", "translations", "output"}
+  - POST /diff     -> body {"rom1", "rom2"} (read-only text compare of two ROMs)
 - Content-Type: `application/json` only, otherwise 415 (browser form-POST/CSRF
   rejected without CORS handling).
-- Body limit: per-endpoint. /detect,/extract: 1 MB; /inject: MAX_ROM_SIZE +
+- Body limit: per-endpoint. /detect,/extract,/diff: 1 MB; /inject: MAX_ROM_SIZE +
   margin. If Content-Length exceeds the limit -> 413 PAYLOAD_TOO_LARGE before
   reading the body. Missing Content-Length — read with a hard limit.
 - Timeout: `timeout_read_body = 10s` ONLY on body read (after reading,
