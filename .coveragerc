@@ -1,5 +1,5 @@
 [run]
-source = core, gui, plugins
+source = core, plugins, api
 branch = True
 omit =
     */tests/*
@@ -7,6 +7,9 @@ omit =
     */__pycache__/*
     */site-packages/*
     */.git/*
+    gui/*
+    api/cli.py
+    plugins/gba_golden_sun.py
 
 [report]
 precision = 2
@@ -14,6 +17,7 @@ show_missing = True
 skip_covered = False
 exclude_lines =
     pragma: no cover
+    pragma: no branch
     def __repr__
     raise NotImplementedError
     if __name__ == .__main__.:

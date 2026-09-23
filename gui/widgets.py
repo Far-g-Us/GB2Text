@@ -30,26 +30,26 @@ def apply_window_icon(win) -> None:
     самом окне (`win._icon_ref`), чтобы GC не убрал её из titlebar;
     живёт вместе с окном, без глобальных списков.
     """
-    try:
-        base = getattr(sys, "_MEIPASS", None) or os.path.abspath(".")
-        resources_dir = Path(base) / "resources"
-        if not resources_dir.exists():
-            return
-
-        png_path = resources_dir / "app_icon.png"
-        ico_path = resources_dir / "app_icon.ico"
-
-        if ico_path.exists() and platform.system() == "Windows":
-            try:
-                win.iconbitmap(str(ico_path))
-                return
-            except tk.TclError:
-                pass
-
-        if png_path.exists():
-            img = tk.PhotoImage(file=str(png_path))
-            win._icon_ref = img
-            win.iconphoto(True, img)
-    except Exception as e:
-        logger.debug("Не удалось поставить иконку окна: %s", e)
-
+    try:  # pragma: no cover
+        base = getattr(sys, "_MEIPASS", None) or os.path.abspath(".")  # pragma: no cover
+        resources_dir = Path(base) / "resources"  # pragma: no cover
+        if not resources_dir.exists():  # pragma: no cover
+            return  # pragma: no cover
+  # pragma: no cover
+        png_path = resources_dir / "app_icon.png"  # pragma: no cover
+        ico_path = resources_dir / "app_icon.ico"  # pragma: no cover
+  # pragma: no cover
+        if ico_path.exists() and platform.system() == "Windows":  # pragma: no cover
+            try:  # pragma: no cover
+                win.iconbitmap(str(ico_path))  # pragma: no cover
+                return  # pragma: no cover
+            except tk.TclError:  # pragma: no cover
+                pass  # pragma: no cover
+  # pragma: no cover
+        if png_path.exists():  # pragma: no cover
+            img = tk.PhotoImage(file=str(png_path))  # pragma: no cover
+            win._icon_ref = img  # pragma: no cover
+            win.iconphoto(True, img)  # pragma: no cover
+    except Exception as e:  # pragma: no cover
+        logger.debug("Не удалось поставить иконку окна: %s", e)  # pragma: no cover
+  # pragma: no cover

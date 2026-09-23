@@ -16,3 +16,6 @@ pdoc>=16.0.0
 # Spelling checks
 pymorphy3>=2.0.6
 pyspellchecker==0.9.0
+
+# Emulator (playtest, GB/GBC headless)
+pyboy==2.7.1

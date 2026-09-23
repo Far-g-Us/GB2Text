@@ -235,7 +235,7 @@ def bps_apply(rom: bytes, patch: bytes) -> bytes:
             raise PatchError("BPS: команда превышает целевой размер")
 
     if target_len != tgt_size:
-        raise PatchError(
+        raise PatchError(  # pragma: no cover - недостижимо: цикл выходит при ==, превышение ловит гард выше
             f"BPS: итоговый размер {target_len} != ожидаемый {tgt_size}"
         )
     result = bytes(target)

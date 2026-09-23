@@ -112,9 +112,9 @@ in the cartridge header (Super Game Boy extensions on SNES).
 |--------|-------|-------|
 | ✅ Full | 23 | FFTA (GBA), Zelda TMC (GBA), FF5 Advance (GBA), FF4 Advance (GBA), Golden Sun (GBA), Mario & Luigi SS (GBA), Castlevania AoS (GBA), Metroid Fusion (GBA), Wario Land 4 (GBA), Pokemon Emerald (GBA), Pokemon Ruby (GBA), Pokemon Sapphire (GBA), Pokemon FireRed (GBA), Pokemon LeafGreen (GBA), Pokemon Red/Blue/Green/Yellow (GB/GBC), Pokemon Gold (GBC), Zelda Link's Awakening (GB + DX), Zelda Oracle of Seasons (GBC), Golden Sun: The Lost Age (GBA) |
 | ⚠️ Partial | 0 | — |
-| ❌ Broken | 0 | |
+| ❌ Broken | 0 | — |
 | 🔧 Stub | 28 | Astro Boy, Sonic Advance ×2, Kingdom Hearts CoM, Phoenix Wright, FF6 Advance, Fire Emblem ×2, Mega Man Battle Network ×2, Advance Wars, Mega Man Zero, Shining Force, CT Special Forces, Custom Robo GX, Metroid ZM, FF1&2 Dawn of Souls, Castlevania CotM/HoD, Breath of Fire, Telefang 2, Harvest Moon 1/2/3, Resident Evil Gaiden, SMT Devil Children, Super Mario Bros. Deluxe, Fire Emblem Reincarnation (T-En) |
-| — No plugin | 0 | |
+| — No plugin | 0 | — |
 
 Total: 51 ROMs in test_roms (36 GBA + 10 GBC + 5 GB); 51 covered by plugins (36 GBA + 10 GBC + 5 GB).
 

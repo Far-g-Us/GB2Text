@@ -144,7 +144,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             return
         if not self._require_auth():
             return
-        if self.path in ("/detect", "/extract", "/inject"):
+        if self.path in ("/detect", "/extract", "/inject", "/diff"):
             self._wire(405, "METHOD_NOT_ALLOWED", "Эндпоинт принимает только POST")
             return
         if self.path == "/plugins":
@@ -153,7 +153,7 @@ class ApiHandler(BaseHTTPRequestHandler):
             self._wire(404, "NOT_FOUND", "Неизвестный endpoint")
 
     def do_POST(self):
-        if self.path not in ("/detect", "/extract", "/inject"):
+        if self.path not in ("/detect", "/extract", "/inject", "/diff"):
             self._wire(404, "NOT_FOUND", "Неизвестный endpoint")
             return
         if not self._require_auth():
@@ -185,6 +185,16 @@ class ApiHandler(BaseHTTPRequestHandler):
                     language=body.get("lang", "en"),
                 )
             )
+        elif self.path == "/diff":
+            if not self._require(body, "rom1", "rom2"):
+                return
+            self._handle(
+                lambda: _core.diff_roms(
+                    body["rom1"],
+                    body["rom2"],
+                    plugin_dir=self.api_server.plugin_dir,
+                )
+            )
         elif self.path == "/inject":
             if not self._require(body, "rom", "translations"):
                 return
@@ -194,8 +204,16 @@ class ApiHandler(BaseHTTPRequestHandler):
             except _core.SDKError as exc:
                 self._contract_error(exc)
                 return
-            lock = self.api_server.lock_for_output(target)
-            acquired = lock.acquire(timeout=10)
+            try:
+                lock = self.api_server.lock_for_output(target)
+                acquired = lock.acquire(timeout=10)
+            except Exception:
+                logger.exception("Ошибка захвата lock output")
+                self._reply(
+                    {"ok": False, "error": {"code": "INTERNAL", "message": "Внутренняя ошибка сервера"}},
+                    status=500,
+                )
+                return
             if not acquired:
                 self._wire(409, "CONFLICT", "Занят другой инъекцией в этот файл")
                 return

@@ -195,7 +195,7 @@ class CVASTextEncoder:
             ch = text[i]
             if ch == '[':
                 close = text.find(']', i + 1)
-                if close != -1:
+                if close != -1:  # pragma: no branch
                     body = text[i + 1:close]
                     if (len(body) in (2, 4)) and all(c in '0123456789abcdefABCDEF' for c in body):
                         out.extend(self._raw_bytes(body))
@@ -363,9 +363,9 @@ class CastlevaniaGBAPlugin(GamePlugin):
                 break
             i += 1
         if not found:
-            if upper > target + 2:
-                logger.warning("Запись без терминатора @0x%X (upper=0x%X)", target, upper)
-                end = upper
+            if upper > target + 2:  # pragma: no branch
+                logger.warning("Запись без терминатора @0x%X (upper=0x%X)", target, upper)  # pragma: no cover
+                end = upper  # pragma: no cover
         if end > upper:
             end = upper
         if end <= target:

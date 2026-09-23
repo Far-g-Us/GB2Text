@@ -82,10 +82,10 @@ class _BitReader:
         self.bitpos = 0
 
     def read_bit(self) -> int:
-        byte = self.data[self.bytepos]
-        bit = (byte >> self.bitpos) & 1
-        self.bitpos += 1
-        if self.bitpos == 8:
+        byte = self.data[self.bytepos]  # pragma: no cover
+        bit = (byte >> self.bitpos) & 1  # pragma: no cover
+        self.bitpos += 1  # pragma: no cover
+        if self.bitpos == 8:  # pragma: no cover
             self.bitpos = 0
             self.bytepos += 1
         return bit

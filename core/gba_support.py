@@ -100,7 +100,7 @@ class GBALZ77Handler(CompressionHandler):
 
         # Обрезаем до заявленной длины на всякий случай
         if len(out) > decomp_len:
-            out = out[:decomp_len]
+            out = out[:decomp_len]  # pragma: no cover - недостижимо: все append под гардом len(out) < decomp_len
 
         consumed = i - start
         return bytes(out), consumed

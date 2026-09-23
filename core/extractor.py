@@ -151,7 +151,7 @@ class TextExtractor:
                 results[name] = messages
                 if len(segments_to_process) > 0:
                     progress = 20 + int(75 * (i + 1) / len(segments_to_process))
-                else:
+                else:  # pragma: no cover - недостижимо: цикл не выполняется на пустом списке
                     progress = 95
                 self._report_progress(
                     f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
@@ -168,7 +168,7 @@ class TextExtractor:
                 results[name] = messages
                 if len(segments_to_process) > 0:
                     progress = 20 + int(75 * (i + 1) / len(segments_to_process))
-                else:
+                else:  # pragma: no cover - недостижимо: цикл не выполняется на пустом списке
                     progress = 95
                 self._report_progress(
                     f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
@@ -218,7 +218,7 @@ class TextExtractor:
             # Обновляем прогресс
             if len(segments_to_process) > 0:
                 progress = 20 + int(75 * (i + 1) / len(segments_to_process))
-            else:
+            else:  # pragma: no cover - недостижимо: цикл не выполняется на пустом списке
                 progress = 95
             self._report_progress(
                 f"{self._t('processing.segment')} {i + 1}/{len(segments_to_process)}: {name}",
@@ -447,7 +447,7 @@ class TextExtractor:
         recommendations = self.guide.get('recommendations', {})
 
         if 'decoder_adjustments' in recommendations:
-            for seg_name, adjustments in recommendations['decoder_adjustments'].items():
+            for seg_name, adjustments in recommendations['decoder_adjustments'].items():  # pragma: no branch - arc выхода через исключение в заголовке for не фиксируется замером (исполнение доказано мутацией в test_extractor_guide_not_dict)
                 for segment in self.plugin.get_text_segments(self.rom):
                     if segment['name'] == seg_name and segment['decoder']:
                         # Применение корректировок к декодеру

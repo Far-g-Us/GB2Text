@@ -134,12 +134,15 @@ class PluginProtocol(Protocol):
 
         Returns:
             None (шрифт неизвестен/не поддерживается) или dict:
-            {'offset': int (база тайлов в ROM),
-             'bpp': 1 | 2 (по умолчанию 2),
+            {'offset': int (база тайлов в ROM, обязателен),
+             'bpp': 1 | 2 | 4 (по умолчанию 2),
              'count': int (число глифов, по умолчанию до конца блока),
-             'stride': int (байт на тайл: 16 при 2bpp, 8 при 1bpp)}.
-            Отсутствующие ключи заменяются дефолтами; неизвестный bpp
-            трактуется как 2.
+             'stride': int (байт на тайл: 8 при 1bpp, 16 при 2bpp,
+              32 при 4bpp; обязан совпадать с bpp)}.
+            Неизвестный bpp — строгий отказ в validate_font_meta
+            (fallback на 2 запрещён). Relocate шрифта — non-goal:
+            только in-place через inject_font_block/preview_font_block
+            с confirm=True и compressed-отказом.
         """
         ...
 
