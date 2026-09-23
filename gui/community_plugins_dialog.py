@@ -27,13 +27,16 @@ import logging
 import queue
 import threading
 import tkinter as tk
+from functools import partial
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import font as tkfont, messagebox, ttk
 
 from core.community_registry import CommunityRegistry
 from gui import theme, widgets
 
 logger = logging.getLogger("gb2text.gui.community_plugins")
+
+_SORTABLE = ("name", "author", "version", "status", "type")
 
 
 class CommunityPluginsDialog:
@@ -49,6 +52,9 @@ class CommunityPluginsDialog:
         self.plugins: list[dict] = []
         self.updates: set[str] = set()
         self._busy = False
+        self._sort_col = "name"
+        self._sort_rev = False
+        self._installed: dict = {}
 
         self._callback_queue: queue.SimpleQueue = queue.SimpleQueue()
 
@@ -88,16 +94,19 @@ class CommunityPluginsDialog:
 
         columns = ("name", "author", "version", "status", "type")
         self.tree = ttk.Treeview(frame, columns=columns, show="headings")
-        self.tree.heading("name", text=owner.i18n.t("plugins.community.name"))
-        self.tree.heading("author", text=owner.i18n.t("plugins.community.author"))
-        self.tree.heading("version", text=owner.i18n.t("plugins.community.version"))
-        self.tree.heading("status", text=owner.i18n.t("plugins.community.status"))
-        self.tree.heading("type", text=owner.i18n.t("plugins.community.type"))
-        self.tree.column("name", width=220, anchor="w")
-        self.tree.column("author", width=120, anchor="w")
-        self.tree.column("version", width=80, anchor="center")
-        self.tree.column("status", width=140, anchor="w")
-        self.tree.column("type", width=80, anchor="center")
+        self._base_headings = {
+            col: owner.i18n.t(f"plugins.community.{col}") for col in columns
+        }
+        for col in columns:
+            self.tree.heading(col, text=self._base_headings[col],
+                              command=partial(self._sort_by, col))
+        self.tree.column("name", width=220, anchor="w", stretch=True)
+        self.tree.column("author", width=120, anchor="w", stretch=False)
+        self.tree.column("version", width=80, anchor="center", stretch=False)
+        self.tree.column("status", width=140, anchor="w", stretch=False)
+        self.tree.column("type", width=80, anchor="center", stretch=False)
+        self._update_heading_marks()
+        self._fit_columns()
         scrollbar = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scrollbar.set)
         self.tree.pack(side="left", fill="both", expand=True)
@@ -113,6 +122,84 @@ class CommunityPluginsDialog:
 
     def run(self):
         self.win.wait_window(self.win)
+
+    def _measure(self, text: str) -> int:
+        try:
+            font = tkfont.nametofont("TkHeadingFont")
+        except tk.TclError:
+            font = tkfont.nametofont("TkDefaultFont")
+        return font.measure(text) + 28
+
+    def _fit_columns(self):
+        """Минимальная ширина колонок под текст заголовков (i18n-safe)."""
+        for col, text in self._base_headings.items():
+            need = self._measure(text)
+            self.tree.column(col, minwidth=need)
+            if need > self.tree.column(col, "width"):
+                self.tree.column(col, width=need)
+
+    def _status_text(self, plugin: dict) -> str:
+        plugin_id = plugin["id"]
+        entry = self._installed.get(plugin_id)
+        if entry is None:
+            text = self.owner.i18n.t("plugins.community.not_installed")
+        elif plugin_id in self.updates:
+            text = self.owner.i18n.t("plugins.community.update_available")
+        else:
+            text = self.owner.i18n.t("plugins.community.installed")
+        return str(text)
+
+    def _sort_key(self, plugin: dict):
+        col = self._sort_col
+        if col == "status":
+            return (1, self._status_text(plugin).casefold())
+        if col in ("name", "author"):
+            return (1, str(plugin.get(col, plugin.get("id", ""))).casefold())
+        if col == "version":
+            return (1, self._version_key(str(plugin.get("version", ""))))
+        return (1, str(plugin.get(col, "")))
+
+    @staticmethod
+    def _version_key(version: str) -> tuple:
+        """Числовые компоненты для естественного порядка, остальное строкой."""
+        parts: list = []
+        for chunk in version.replace("-", ".").split("."):
+            parts.append((0, int(chunk)) if chunk.isdigit() else (1, chunk))
+        return tuple(parts)
+
+    def _update_heading_marks(self):
+        for name, base in self._base_headings.items():
+            mark = ""
+            if name == self._sort_col:
+                mark = " \u25bc" if self._sort_rev else " \u25b2"
+            self.tree.heading(name, text=base + mark)
+
+    def _sorted_plugins(self) -> list[dict]:
+        return sorted(self.plugins, key=self._sort_key, reverse=self._sort_rev)
+
+    def _sort_by(self, col: str):
+        if col == self._sort_col:
+            self._sort_rev = not self._sort_rev
+        else:
+            self._sort_col = col
+            self._sort_rev = False
+        self._update_heading_marks()
+        self._fit_columns()
+        if self._busy:
+            return
+        if self.plugins or self.updates:
+            self._populate(self.plugins, self.updates)
+
+    def _autosize_values(self, max_width: int = 400):
+        """Растягивает колонки под длинные значения (RU-статусы и имена)."""
+        widths: dict[str, int] = {}
+        for child in self.tree.get_children():
+            values = self.tree.item(child, "values")
+            for col, value in zip(_SORTABLE, values, strict=False):
+                widths[col] = max(widths.get(col, 0), self._measure(str(value)))
+        for col, need in widths.items():
+            if need > self.tree.column(col, "width"):
+                self.tree.column(col, width=min(need, max_width))
 
     def _set_busy(self, busy: bool):
         self._busy = busy
@@ -186,25 +273,23 @@ class CommunityPluginsDialog:
     def _populate(self, plugins: list[dict], updates: set[str]):
         self.plugins = plugins
         self.updates = updates
+        selected = set(self.tree.selection())
         self.tree.delete(*self.tree.get_children())
-        installed = self.registry.get_installed()
-        for plugin in plugins:
+        self._installed = self.registry.get_installed()
+        for plugin in self._sorted_plugins():
             plugin_id = plugin["id"]
-            entry = installed.get(plugin_id)
-            if entry is None:
-                status = self.owner.i18n.t("plugins.community.not_installed")
-            elif plugin_id in updates:
-                status = self.owner.i18n.t("plugins.community.update_available")
-            else:
-                status = self.owner.i18n.t("plugins.community.installed")
             plugin_type = plugin.get("type", "json")
             self.tree.insert("", "end", iid=plugin_id, values=(
                 plugin.get("name", plugin_id),
                 plugin.get("author", ""),
                 plugin.get("version", ""),
-                status,
+                self._status_text(plugin),
                 plugin_type,
             ))
+        self._autosize_values()
+        keep = [iid for iid in selected if self.tree.exists(iid)]
+        if keep:
+            self.tree.selection_set(keep)
         self._set_busy(False)
         if not plugins:
             self.status_var.set(self.owner.i18n.t("plugins.community.empty"))
