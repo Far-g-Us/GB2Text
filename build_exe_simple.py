@@ -9,6 +9,71 @@ import sys
 from pathlib import Path
 
 
+def _fix_console_encoding() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_fix_console_encoding()
+
+# Канонический список — обязан совпадать с HIDDEN_IMPORTS в build_exe.py.
+HIDDEN_IMPORTS = [
+    "tkinter",
+    "tkinter.ttk",
+    "tkinter.scrolledtext",
+    "tkinter.filedialog",
+    "tkinter.messagebox",
+    "json",
+    "logging",
+    "pathlib",
+    "collections",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageTk",
+    "spellchecker",
+    "tkinterdnd2",
+    "core.extractor",
+    "core.scanner",
+    "core.analyzer",
+    "core.decoder",
+    "core.compression",
+    "core.gba_support",
+    "core.multi_charmap",
+    "core.plugin_api",
+    "core.tmx",
+    "core.ml_classifier",
+    "core.translation_validator",
+    "core.translation_filler",
+    "core.encoding",
+    "core.charset",
+    "core.guide",
+    "core.mbc",
+    "core.rom_cache",
+    "core.i18n",
+    "core.machine_translation",
+    "core.injector",
+    "core.database",
+    "core.font_tiles",
+    "core.font_ui",
+    "core.playtest",
+    "core.dte",
+    "core.pointer_table",
+    "core.textbox",
+    "core.plugin_manager",
+    "core.rom",
+    "gui.main_window",
+    "gui.font_tab",
+    "gui.glyph_editor",
+    "plugins.auto_detect",
+]
+
+
 def create_simple_exe():
     """Создает exe файл с минимальными настройками для надежности"""
 
@@ -60,38 +125,11 @@ def create_simple_exe():
         "--console",  # Всегда с консолью для отладки
         "--clean",
         "--name=GB2Text-Debug",
-        "--hidden-import=gui.main_window",
-        "--hidden-import=core.extractor",
-        "--hidden-import=core.scanner",
-        "--hidden-import=core.analyzer",
-        "--hidden-import=core.decoder",
-        "--hidden-import=core.compression",
-        "--hidden-import=core.gba_support",
-        "--hidden-import=core.multi_charmap",
-        "--hidden-import=core.plugin_api",
-        "--hidden-import=core.tmx",
-        "--hidden-import=core.ml_classifier",
-        "--hidden-import=core.translation_validator",
-        "--hidden-import=core.translation_filler",
-        "--hidden-import=core.encoding",
-        "--hidden-import=core.charset",
-        "--hidden-import=core.guide",
-        "--hidden-import=core.mbc",
-        "--hidden-import=core.rom_cache",
-        "--hidden-import=core.i18n",
-        "--hidden-import=core.machine_translation",
-        "--hidden-import=spellchecker",
-        "--hidden-import=plugins.auto_detect",
-        "--hidden-import=tkinter",
-        "--hidden-import=tkinter.ttk",
-        "--hidden-import=tkinter.scrolledtext",
-        "--hidden-import=tkinter.filedialog",
-        "--hidden-import=tkinter.messagebox",
-        "--hidden-import=json",
-        "--hidden-import=logging",
-        "--hidden-import=pathlib",
-        "--hidden-import=collections",
     ]
+    cmd.extend(f"--hidden-import={name}" for name in HIDDEN_IMPORTS)
+    spec_dir = gb2text_dir / "build" / "specs"
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    cmd.append(f"--specpath={spec_dir}")
 
     version_file = gb2text_dir / "VERSION"
     if version_file.exists():

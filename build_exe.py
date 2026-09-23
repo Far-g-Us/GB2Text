@@ -10,6 +10,72 @@ import sys
 from pathlib import Path
 
 
+def _fix_console_encoding() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+_fix_console_encoding()
+
+# Единый канонический список hidden imports (CLI-команды + spec-шаблон
+# + build_exe_simple.py обязаны совпадать; расхождение = риск silent death).
+HIDDEN_IMPORTS = [
+    "tkinter",
+    "tkinter.ttk",
+    "tkinter.scrolledtext",
+    "tkinter.filedialog",
+    "tkinter.messagebox",
+    "json",
+    "logging",
+    "pathlib",
+    "collections",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageTk",
+    "spellchecker",
+    "tkinterdnd2",
+    "core.decoder",
+    "core.scanner",
+    "core.extractor",
+    "core.injector",
+    "core.compression",
+    "core.gba_support",
+    "core.multi_charmap",
+    "core.plugin_api",
+    "core.tmx",
+    "core.ml_classifier",
+    "core.translation_validator",
+    "core.translation_filler",
+    "core.analyzer",
+    "core.database",
+    "core.encoding",
+    "core.charset",
+    "core.guide",
+    "core.mbc",
+    "core.rom_cache",
+    "core.i18n",
+    "core.machine_translation",
+    "core.font_tiles",
+    "core.font_ui",
+    "core.playtest",
+    "core.dte",
+    "core.pointer_table",
+    "core.textbox",
+    "core.plugin_manager",
+    "core.rom",
+    "gui.main_window",
+    "gui.font_tab",
+    "gui.glyph_editor",
+    "plugins.auto_detect",
+]
+
+
 def create_exe():
     """Создает exe файл используя PyInstaller"""
 
@@ -86,6 +152,15 @@ import traceback
 import logging
 from pathlib import Path
 
+for _stream_name in ("stdout", "stderr"):
+    _stream = getattr(sys, _stream_name, None)
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if callable(_reconfigure):
+        try:
+            _reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Настройка логирования в файл
 log_file = Path(__file__).parent / "gb2text_debug.log"
 logging.basicConfig(
@@ -100,22 +175,23 @@ logging.basicConfig(
 try:
     logging.info("Запуск GB2Text Debug версии...")
 
-    # Импортируем и запускаем основную программу
-    import main
+    # Запускаем main() напрямую (main.py уже в бандле как модуль;
+    # import main GUI не стартует из-за guard __main__)
+    from main import main
+    sys.exit(main())
 
+except SystemExit as e:
+    if e.code not in (None, 0):
+        logging.error(f"Выход с кодом: {e.code}")
+        print(f"\\nОШИБКА: выход с кодом {e.code}")
 except Exception as e:
     logging.error(f"Критическая ошибка: {e}")
     logging.error(f"Трассировка: {traceback.format_exc()}")
-    print(f"\\n❌ ОШИБКА: {e}")
-    print(f"📝 Подробности сохранены в: {log_file}")
-    print("\\n" + "="*50)
-    print("ПОЛНАЯ ТРАССИРОВКА ОШИБКИ:")
-    print("="*50)
-    traceback.print_exc()
-    print("="*50)
+    print(f"\\nОШИБКА: {e}")
+    print(f"Подробности сохранены в: {log_file}")
 
 finally:
-    print("\\n🔍 Для закрытия нажмите Enter...")
+    print("\\nДля закрытия нажмите Enter...")
     try:
         input()
     except (EOFError, KeyboardInterrupt):
@@ -136,37 +212,12 @@ finally:
             "--onefile",                    # Один exe файл (портативный)
             "--clean",                      # Очистка кэша
             f"--name={version['name']}",    # Имя exe файла
-            "--hidden-import=tkinter",
-            "--hidden-import=tkinter.ttk",
-            "--hidden-import=tkinter.scrolledtext",
-            "--hidden-import=tkinter.filedialog",
-            "--hidden-import=tkinter.messagebox",
-            "--hidden-import=json",
-            "--hidden-import=logging",
-            "--hidden-import=pathlib",
-            "--hidden-import=collections",
-            "--hidden-import=core.decoder",
-            "--hidden-import=core.scanner",
-            "--hidden-import=core.extractor",
-            "--hidden-import=core.injector",
-            "--hidden-import=core.compression",
-            "--hidden-import=core.gba_support",
-            "--hidden-import=core.multi_charmap",
-            "--hidden-import=core.plugin_api",
-            "--hidden-import=core.tmx",
-            "--hidden-import=core.ml_classifier",
-            "--hidden-import=core.translation_validator",
-            "--hidden-import=core.translation_filler",
-            "--hidden-import=core.analyzer",
-            "--hidden-import=core.database",
-            "--hidden-import=core.encoding",
-            "--hidden-import=core.charset",
-            "--hidden-import=core.guide",
-            "--hidden-import=core.mbc",
-            "--hidden-import=core.rom_cache",
-            "--hidden-import=core.i18n",
-            "--hidden-import=core.machine_translation",
-            "--hidden-import=spellchecker",
+        ]
+        cmd.extend(f"--hidden-import={name}" for name in HIDDEN_IMPORTS)
+        spec_dir = gb2text_dir / "build" / "specs"
+        spec_dir.mkdir(parents=True, exist_ok=True)
+        cmd.append(f"--specpath={spec_dir}")
+        cmd.extend([
             "--exclude-module=posix",
             "--exclude-module=pwd",
             "--exclude-module=grp",
@@ -181,9 +232,8 @@ finally:
             "--exclude-module=numpy",
             "--exclude-module=pandas",
             "--exclude-module=scipy",
-            "--exclude-module=PIL",
             "--exclude-module=cv2",
-        ]
+        ])
 
         if not version['console']:
             cmd.append("--windowed")
@@ -387,10 +437,11 @@ def create_spec_file():
         if folder_path.exists():
             if folder == 'locales':
                 for root, _, files in os.walk(folder_path):
-                    for f in files:
-                        full_path = Path(root) / f
+                    for fname in files:
+                        full_path = Path(root) / fname
                         rel_path = os.path.relpath(full_path, gb2text_dir)
-                        folders_to_include.append(f"    ('{full_path}', '{rel_path}'),")
+                        # Относительные пути: spec переносим между машинами
+                        folders_to_include.append(f"    (r'{rel_path}', r'{os.path.dirname(rel_path)}'),")
             else:
                 folders_to_include.append(f"    ('{folder}', '{folder}'),")
             print(f"✅ Найдена папка для включения: {folder}")
@@ -402,7 +453,11 @@ def create_spec_file():
     if not datas_entries:
         datas_entries = "    # No additional data files"
 
+    # Единый список и для spec-шаблона (см. HIDDEN_IMPORTS выше)
+    hiddenimports_spec = ",\n        ".join(f"'{name}'" for name in HIDDEN_IMPORTS)
     spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+# Портативный spec: только относительные пути, CWD — корень проекта.
+from pathlib import Path
 
 block_cipher = None
 
@@ -414,18 +469,7 @@ a = Analysis(
 {datas_entries}
     ],
     hiddenimports=[
-        'tkinter',
-        'tkinter.ttk',
-        'tkinter.scrolledtext',
-        'tkinter.filedialog',
-        'tkinter.messagebox',
-        'json',
-        're',
-        'logging',
-        'pathlib',
-        'collections',
-        'unicodedata',
-        'spellchecker'
+        {hiddenimports_spec}
     ],
     hookspath=[],
     hooksconfig={{}},
@@ -445,7 +489,6 @@ a = Analysis(
         'numpy',
         'pandas',
         'scipy',
-        'PIL',
         'cv2',
     ],
     win_no_prefer_redirects=False,

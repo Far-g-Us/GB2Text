@@ -622,3 +622,120 @@ def test_do_uninstall_error_path(root, owner, registry, monkeypatch):
         assert dialog._busy is False
     finally:
         dialog.win.destroy()
+
+
+def _sort_plugins():
+    a = _make_plugin(plugin_id="b_game", version="2.0.0")
+    a.update({"name": "Beta", "author": "zeta"})
+    b = _make_plugin(plugin_id="a_game", version="10.0.0")
+    b.update({"name": "alpha", "author": "Alpha"})
+    return [a, b]
+
+
+def test_sort_by_name(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate(_sort_plugins(), set())
+        assert [dialog.tree.item(c, "values")[0] for c in dialog.tree.get_children()] == ["alpha", "Beta"]
+        dialog._sort_by("name")
+        assert [dialog.tree.item(c, "values")[0] for c in dialog.tree.get_children()] == ["Beta", "alpha"]
+        assert "▼" in dialog.tree.heading("name", "text")
+        dialog._sort_by("author")
+        assert [dialog.tree.item(c, "values")[1] for c in dialog.tree.get_children()] == ["Alpha", "zeta"]
+        assert "▲" in dialog.tree.heading("author", "text")
+        assert "▼" not in dialog.tree.heading("name", "text")
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_by_version_string(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate(_sort_plugins(), set())
+        dialog._sort_by("version")
+        assert [dialog.tree.item(c, "values")[2] for c in dialog.tree.get_children()] == ["2.0.0", "10.0.0"]
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_version_natural(root, owner, registry):
+    a = _make_plugin(plugin_id="x", version="1.9.0")
+    b = _make_plugin(plugin_id="y", version="1.10.0")
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate([b, a], set())
+        dialog._sort_by("version")
+        assert [dialog.tree.item(c, "values")[2] for c in dialog.tree.get_children()] == ["1.9.0", "1.10.0"]
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_initial_mark(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        assert "▲" in dialog.tree.heading("name", "text")
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_busy_guard(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate(_sort_plugins(), set())
+        before = [dialog.tree.item(c, "values")[0] for c in dialog.tree.get_children()]
+        dialog._set_busy(True)
+        dialog._sort_by("author")
+        assert dialog._sort_col == "author"
+        assert dialog._busy is True
+        assert [dialog.tree.item(c, "values")[0] for c in dialog.tree.get_children()] == before
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_keeps_selection(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._populate(_sort_plugins(), set())
+        dialog.tree.selection_set("a_game")
+        dialog._sort_by("author")
+        assert dialog.tree.selection() == ("a_game",)
+    finally:
+        dialog.win.destroy()
+
+
+def test_sort_empty_no_crash(root, owner, registry):
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        dialog._sort_by("author")
+        assert dialog._sort_col == "author"
+    finally:
+        dialog.win.destroy()
+
+
+def test_columns_fit_headers(root, owner, registry):
+    from tkinter import font as tkfont
+
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        try:
+            font = tkfont.nametofont("TkHeadingFont")
+        except tk.TclError:
+            font = tkfont.nametofont("TkDefaultFont")
+        for col in ("name", "author", "version", "status", "type"):
+            need = font.measure(dialog._base_headings[col]) + 28
+            assert dialog.tree.column(col, "width") >= need
+            assert dialog.tree.column(col, "minwidth") >= need
+    finally:
+        dialog.win.destroy()
+
+
+def test_autosize_long_status(root, owner, registry):
+    plug = _make_plugin()
+    plug["name"] = "Очень длинное название плагина для проверки ширины колонки"
+    dialog = _make_dialog(root, owner, registry)
+    try:
+        before = dialog.tree.column("name", "width")
+        dialog._populate([plug], set())
+        assert dialog.tree.column("name", "width") >= before
+    finally:
+        dialog.win.destroy()

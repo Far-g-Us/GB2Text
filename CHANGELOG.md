@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   checks, masked-pair encode, `build_for_translation` with mandatory
   `extra_used` and honest post-assignment savings stats, in-memory
   Cyrillic pilot. Injector writes stay a follow-up.
+- **Community dialog sorting + portable specs + build fixes.**
+  Clickable Treeview headers (name/author/version/status/type, asc/desc
+  with ▲▼ marks, semantic version order, selection preserved,
+  i18n-safe column autosize); both `.spec` files portable (relative
+  paths, `--specpath` into `build/specs`); build scripts ship a single
+  `HIDDEN_IMPORTS` list incl. Pillow (previously excluded → silent
+  onefile death) and new modules; debug wrapper runs `main()` with
+  cp1251-safe output.
 
 ## [1.4.0] — 2026-09-23
 
