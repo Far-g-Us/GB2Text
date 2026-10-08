@@ -24,7 +24,7 @@ def _fix_console_encoding() -> None:
 _fix_console_encoding()
 
 # Единый канонический список hidden imports (CLI-команды + spec-шаблон
-# + build_exe_simple.py обязаны совпадать; расхождение = риск silent death).
+# + build_exe_debug.py обязаны совпадать; расхождение = риск silent death).
 HIDDEN_IMPORTS = [
     "tkinter",
     "tkinter.ttk",
@@ -113,8 +113,11 @@ def create_exe():
     print(f"✅ Найдена папка GB2Text: {gb2text_dir}")
 
     main_script = gb2text_dir / "main.py"
-    dist_dir = gb2text_dir / "dist"
-    build_dir = gb2text_dir / "build"
+    # Каждый скрипт сборки живёт в своей папке: build_exe.py -> dist/gui,
+    # build_exe_debug.py -> dist/debug. Иначе они затирали бы друг друга,
+    # потому что оба чистили общий dist/ перед сборкой.
+    dist_dir = gb2text_dir / "dist" / "gui"
+    build_dir = gb2text_dir / "build" / "gui"
 
     required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
     existing_folders = []
@@ -127,18 +130,28 @@ def create_exe():
         else:
             print(f"⚠️ Папка не найдена: {folder}")
 
-    # Очищаем предыдущие сборки
+    # Очищаем только свою папку: сборка другой версии не должна пропадать
     if dist_dir.exists():
         shutil.rmtree(dist_dir)
     if build_dir.exists():
         shutil.rmtree(build_dir)
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
 
+    # Здесь собирается ТОЛЬКО обычная GUI-версия, одним файлом.
+    # Debug-сборку (console + numpy/scikit-learn, onedir) собирает
+    # build_exe_debug.py. Держать обе версии в этом скрипте нельзя:
+    # у них разный формат и разный набор зависимостей, а имя у обеих
+    # `GB2Text-Debug`, поэтому один скрипт затирал бы вывод другого.
+    # Разделение ответственности между двумя скриптами сборки:
+    #   build_exe.py        -> GUI, onefile, БЕЗ numpy/sklearn/scipy
+    #   build_exe_debug.py -> Debug, onedir, С numpy + scikit-learn
+    # Исключения ниже намеренные: production-код не импортирует numpy
+    # ни sklearn (`core/ml_classifier.py` импортирует их лениво, а
+    # `auto_detect_segments_ml` вызывает только тесты), поэтому в GUI
+    # сборке они были бы мёртвым грузом. В debug-сборке они нужны,
+    # чтобы диагностировать проблему с реальным ML-окружением.
     versions = [
-        {
-            'name': 'GB2Text-Debug',
-            'console': True,
-            'description': 'версия с консолью для отладки'
-        },
         {
             'name': 'GB2Text',
             'console': False,
@@ -146,66 +159,10 @@ def create_exe():
         }
     ]
 
-    debug_wrapper_content = '''
-import sys
-import traceback
-import logging
-from pathlib import Path
 
-for _stream_name in ("stdout", "stderr"):
-    _stream = getattr(sys, _stream_name, None)
-    _reconfigure = getattr(_stream, "reconfigure", None)
-    if callable(_reconfigure):
-        try:
-            _reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
-# Настройка логирования в файл
-log_file = Path(__file__).parent / "gb2text_debug.log"
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_file, encoding='utf-8'),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-
-try:
-    logging.info("Запуск GB2Text Debug версии...")
-
-    # Запускаем main() напрямую (main.py уже в бандле как модуль;
-    # import main GUI не стартует из-за guard __main__)
-    from main import main
-    sys.exit(main())
-
-except SystemExit as e:
-    if e.code not in (None, 0):
-        logging.error(f"Выход с кодом: {e.code}")
-        print(f"\\nОШИБКА: выход с кодом {e.code}")
-except Exception as e:
-    logging.error(f"Критическая ошибка: {e}")
-    logging.error(f"Трассировка: {traceback.format_exc()}")
-    print(f"\\nОШИБКА: {e}")
-    print(f"Подробности сохранены в: {log_file}")
-
-finally:
-    print("\\nДля закрытия нажмите Enter...")
-    try:
-        input()
-    except (EOFError, KeyboardInterrupt):
-        import time
-        time.sleep(10)  # Ждем 10 секунд если input не работает
-'''
-
-    debug_wrapper_path = gb2text_dir / "debug_main.py"
-    with open(debug_wrapper_path, 'w', encoding='utf-8') as f:
-        f.write(debug_wrapper_content)
 
     for version in versions:
         print(f"\n🔨 Создание {version['description']}...")
-        entry_script = debug_wrapper_path if version['console'] else main_script
 
         cmd = [
             sys.executable, "-m", "PyInstaller",  # Используем Python модуль вместо прямого вызова
@@ -217,6 +174,8 @@ finally:
         spec_dir = gb2text_dir / "build" / "specs"
         spec_dir.mkdir(parents=True, exist_ok=True)
         cmd.append(f"--specpath={spec_dir}")
+        cmd.append(f"--distpath={dist_dir}")
+        cmd.append(f"--workpath={build_dir}")
         cmd.extend([
             "--exclude-module=posix",
             "--exclude-module=pwd",
@@ -235,8 +194,7 @@ finally:
             "--exclude-module=cv2",
         ])
 
-        if not version['console']:
-            cmd.append("--windowed")
+        cmd.append("--windowed")
 
         version_file = gb2text_dir / "VERSION"
         if version_file.exists():
@@ -244,6 +202,17 @@ finally:
             print("✅ Добавлен файл VERSION")
         else:
             print(f"⚠️ Файл VERSION не найден в {version_file}")
+
+        # Офлайн-каталог плагинов. core/community_registry.py ищет его в
+        # _MEIPASS, и без него окно «Плагины» падает при недоступной сети.
+        # Раньше файл добавлялся только в create_spec_file(), которого
+        # сборка не касается, поэтому в поставку он не попадал.
+        registry_file = gb2text_dir / "registry.json"
+        if registry_file.exists():
+            cmd.extend([f"--add-data={registry_file};."])
+            print("✅ Добавлен файл registry.json")
+        else:
+            print(f"⚠️ Файл registry.json не найден в {registry_file}")
 
         for folder in existing_folders:
             folder_path = gb2text_dir / folder
@@ -268,7 +237,7 @@ finally:
         else:
             print("⚠️ Иконка не найдена, используется стандартная")
 
-        cmd.append(str(entry_script))
+        cmd.append(str(main_script))
 
         print(f"🚀 Запуск команды: {' '.join(str(x) for x in cmd)}")
 
@@ -296,70 +265,8 @@ finally:
             print(f"❌ Исключение при создании {version['description']}: {e}")
             print(f"🔧 Тип ошибки: {type(e).__name__}")
 
-    if debug_wrapper_path.exists():
-        debug_wrapper_path.unlink()
-
-    create_portable_package(gb2text_dir, dist_dir)
-
     return True
 
-def create_portable_package(gb2text_dir, dist_dir):
-    """Создает портативный пакет с exe файлом"""
-
-    print("\n📦 Создание портативного пакета...")
-
-    portable_dir = gb2text_dir.parent / "GB2Text-Portable"
-    if portable_dir.exists():
-        shutil.rmtree(portable_dir)
-    portable_dir.mkdir()
-
-    # Копируем exe файлы
-    for exe_name in ["GB2Text.exe", "GB2Text-Debug.exe"]:
-        exe_path = dist_dir / exe_name
-        if exe_path.exists():
-            shutil.copy2(exe_path, portable_dir / exe_name)
-            print(f"✅ Скопирован {exe_name}")
-
-    # Копируем папку locales, если она существует
-    locales_dir = gb2text_dir / "locales"
-    if locales_dir.exists():
-        shutil.copytree(locales_dir, portable_dir / "locales")
-        print("✅ Скопирована папка locales")
-    else:
-        print("⚠️ Папка locales не найдена в исходниках")
-
-    # Создаем README для пользователя
-    readme_content = """GB2Text - Портативная версия
-
-ФАЙЛЫ:
-- GB2Text.exe - основная программа (без консоли)
-- GB2Text-Debug.exe - версия с консолью для отладки ошибок
-
-ИСПОЛЬЗОВАНИЕ:
-1. Запустите GB2Text.exe для обычной работы
-2. Если программа не запускается или работает неправильно,
-   запустите GB2Text-Debug.exe чтобы увидеть ошибки в консоли
-
-ОТЛАДКА ОШИБОК:
-- Debug версия создает файл gb2text_debug.log с подробными ошибками
-- Консоль не закрывается автоматически - нажмите Enter для выхода
-- Все ошибки сохраняются в лог файл для анализа
-
-ТРЕБОВАНИЯ:
-- Windows 7/8/10/11
-- Не требует установки Python или других программ
-- Все необходимые файлы включены в exe
-
-ПОДДЕРЖКА:
-- Если возникают проблемы, запустите Debug версию
-- Скопируйте текст ошибок из консоли или gb2text_debug.log для диагностики
-"""
-
-    with open(portable_dir / "README.txt", 'w', encoding='utf-8') as f:
-        f.write(readme_content)
-
-    print(f"✅ Портативный пакет создан: {portable_dir}")
-    print("📋 Включает обе версии exe и инструкции")
 
 def create_spec_file():
     """Создает .spec файл для более тонкой настройки"""
@@ -554,12 +461,15 @@ exe = EXE(
 )
 {tail}'''
 
-    for spec_name, console, onefile in (("GB2Text.spec", False, True), ("GB2Text-Debug.spec", True, False)):
-        spec_path = gb2text_dir / spec_name
-        with open(spec_path, 'w', encoding='utf-8') as spec_file:
-            spec_file.write(render_spec(spec_name[:-5], console, onefile))
+    # Спека описывает ровно ту сборку, которую делает этот скрипт, —
+    # одну GUI-версию одним файлом. Спеки для debug здесь нет: debug
+    # собирает build_exe_debug.py, у него другой формат (onedir) и
+    # другой набор зависимостей.
+    spec_path = gb2text_dir / 'GB2Text.spec'
+    with open(spec_path, 'w', encoding='utf-8') as spec_file:
+        spec_file.write(render_spec('GB2Text', False, True))
 
-    print("✅ Созданы файлы GB2Text.spec / GB2Text-Debug.spec для настройки сборки")
+    print("✅ Создан файл GB2Text.spec для настройки сборки")
 
 if __name__ == "__main__":
     print("GB2Text - Создание exe файла")

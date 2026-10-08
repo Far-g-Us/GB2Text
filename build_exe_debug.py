@@ -108,14 +108,17 @@ def create_simple_exe():
     print(f"✅ Найдена папка GB2Text: {gb2text_dir}")
 
     main_script = gb2text_dir / "main.py"
-    dist_dir = gb2text_dir / "dist"
-    build_dir = gb2text_dir / "build"
+    # Своя папка: build_exe.py собирает в dist/gui, этот скрипт - в dist/debug.
+    dist_dir = gb2text_dir / "dist" / "debug"
+    build_dir = gb2text_dir / "build" / "debug"
 
-    # Очищаем предыдущие сборки
+    # Очищаем только свою папку: сборка другой версии не должна пропадать
     if dist_dir.exists():
         shutil.rmtree(dist_dir)
     if build_dir.exists():
         shutil.rmtree(build_dir)
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    build_dir.mkdir(parents=True, exist_ok=True)
 
     print("\n🔨 Создание debug версии с консолью...")
 
@@ -130,6 +133,8 @@ def create_simple_exe():
     spec_dir = gb2text_dir / "build" / "specs"
     spec_dir.mkdir(parents=True, exist_ok=True)
     cmd.append(f"--specpath={spec_dir}")
+    cmd.append(f"--distpath={dist_dir}")
+    cmd.append(f"--workpath={build_dir}")
 
     version_file = gb2text_dir / "VERSION"
     if version_file.exists():
@@ -137,6 +142,15 @@ def create_simple_exe():
         print("✅ Добавлен файл VERSION")
     else:
         print(f"⚠️ Файл VERSION не найден в {version_file}")
+
+    # Офлайн-каталог плагинов: core/community_registry.py ищет его в _MEIPASS,
+    # и без него окно «Плагины» падает при недоступной сети.
+    registry_file = gb2text_dir / "registry.json"
+    if registry_file.exists():
+        cmd.extend([f"--add-data={registry_file};."])
+        print("✅ Добавлен файл registry.json")
+    else:
+        print(f"⚠️ Файл registry.json не найден в {registry_file}")
 
     # Добавляем папки проекта
     required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
@@ -180,21 +194,8 @@ def create_simple_exe():
             if exe_path.exists():
                 print(f"✅ Debug версия создана: {exe_path}")
                 print(f"📁 Размер: {exe_path.stat().st_size / 1024 / 1024:.1f} MB")
-
-                bat_content = f'''@echo off
-echo Запуск GB2Text Debug версии...
-echo Если возникнут ошибки, они будут показаны в этом окне
-echo.
-"{exe_path}"
-echo.
-echo Программа завершена. Нажмите любую клавишу для закрытия...
-pause > nul
-'''
-                bat_path = dist_dir / "Запуск GB2Text.bat"
-                with open(bat_path, 'w', encoding='cp1251') as f:
-                    f.write(bat_content)
-                print(f"✅ Создан bat файл для запуска: {bat_path}")
-
+                # Bat-файл не нужен: сборка помечена --console, поэтому
+                # окно консоли и так открывается при запуске exe.
                 return True
             else:
                 print("❌ Exe файл не найден после сборки")
