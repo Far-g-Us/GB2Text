@@ -263,8 +263,8 @@ def ips_create(source: bytes, target: bytes) -> bytes:
 
     # Совпадающие участки пропускаются срезами: сравнение
     # срезов выполняется на уровне C, а не побайтовом в Python.
-    # На 32 МиБ разной ROM это было 4-8 секунд из-за 32 миллионов
-    # итераций; теперь осталось единицы на блоках.
+    # На 32 МиБ разной ROM старая реализация делала десятки миллионов
+    # итераций в Python; теперь остаются единицы на блоках.
     while t < tgt_len:
         block_end = min(t + _SCAN_BLOCK, tgt_len)
         if block_end <= src_len and source[t:block_end] == target[t:block_end]:
