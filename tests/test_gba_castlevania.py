@@ -16,7 +16,7 @@ from plugins.gba_castlevania import (
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms',
+    'test_game',
     'Castlevania - Aria of Sorrow (USA).gba',
 )
 
@@ -24,7 +24,7 @@ ROM_PATH = os.path.join(
 @pytest.fixture(scope="module")
 def cvas_rom() -> GameBoyROM:
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Castlevania - Aria of Sorrow (USA).gba")
+        pytest.skip("Отсутствует test_game/Castlevania - Aria of Sorrow (USA).gba")
     return GameBoyROM(ROM_PATH)
 
 

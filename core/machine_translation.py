@@ -25,6 +25,15 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 
 
+class MachineTranslationError(Exception):
+    """Ошибка перевода/сервиса машинного перевода.
+
+    Раньше был подключен к общему исключению, но пока самист исключения
+    сетевых библиотек (googletrans/deepl бросают свои типы), а не весь Exception подряд.
+    Наследование Exception в аллоках потребителей сохранается всем.
+    """
+
+
 class Translator(ABC):
     """Базовый класс для переводчиков"""
 
@@ -52,14 +61,16 @@ class GoogleTranslator(Translator):
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         if not self.is_available():
-            raise Exception("Google Translate недоступен")
+            raise MachineTranslationError("Google Translate недоступен")
 
         try:
             result = self.translator.translate(text, src=source_lang, dest=target_lang)
-            return result.text
+            # result приходит из нетипизированного googletrans: приводим к
+            # строке явно, иначе наружу уходит Any.
+            return str(result.text)
         except Exception as e:
             logger.error(f"Ошибка Google Translate: {e}")
-            raise
+            raise MachineTranslationError(f"Ошибка Google Translate: {e}") from e
 
     def is_available(self) -> bool:
         return self.translator is not None
@@ -81,7 +92,7 @@ class DeepLTranslator(Translator):
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         if not self.is_available():
-            raise Exception("DeepL недоступен")
+            raise MachineTranslationError("DeepL недоступен")
 
         # Преобразование языков в формат DeepL
         lang_map = {
@@ -95,10 +106,10 @@ class DeepLTranslator(Translator):
 
         try:
             result = self.translator.translate_text(text, source_lang=source, target_lang=target)
-            return result.text
+            return str(result.text)
         except Exception as e:
             logger.error(f"Ошибка DeepL: {e}")
-            raise
+            raise MachineTranslationError(f"Ошибка DeepL: {e}") from e
 
     def is_available(self) -> bool:
         if self.translator is None:
@@ -127,7 +138,7 @@ class BingTranslator(Translator):
 
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         if not self.is_available():
-            raise Exception("Bing Translator недоступен")
+            raise MachineTranslationError("Bing Translator недоступен")
 
         try:
             import requests
@@ -136,15 +147,18 @@ class BingTranslator(Translator):
             response = requests.post(url, headers=self.headers, json=body, timeout=15)
             response.raise_for_status()
             result = response.json()
-            return result[0]["translations"][0]["text"]
+            return str(result[0]["translations"][0]["text"])
         except ImportError:
-            raise Exception("requests не установлен") from None
+            raise MachineTranslationError("requests не установлен") from None
         except Exception as e:
             logger.error(f"Ошибка Bing: {e}")
-            raise
+            raise MachineTranslationError(f"Ошибка Bing: {e}") from e
 
     def is_available(self) -> bool:
-        return self.available and self.api_key
+        # Раньше возвращался api_key (строка) под видом bool: условие
+        # было истинным и для непустого ключа, и для пустого — в зависимости
+        # от того, что стоит левее. Явный bool убирает двусмысленность.
+        return bool(self.available and self.api_key)
 
 
 class MachineTranslation:
@@ -180,13 +194,13 @@ class MachineTranslation:
     def translate(self, text: str, source_lang: str, target_lang: str) -> str:
         """Перевести текст текущим сервисом"""
         if not self.current_service:
-            raise Exception("Сервис перевода не выбран")
+            raise MachineTranslationError("Сервис перевода не выбран")
 
         translator = self.translators.get(self.current_service)
         if not translator:
-            raise Exception(f"Переводчик {self.current_service} не найден")
+            raise MachineTranslationError(f"Переводчик {self.current_service} не найден")
 
-        return translator.translate(text, source_lang, target_lang)
+        return str(translator.translate(text, source_lang, target_lang))
 
     def translate_with_fallback(self, text: str, source_lang: str, target_lang: str) -> str:
         """
@@ -222,13 +236,13 @@ class MachineTranslation:
                         f"Перевод выполнен через {service} (fallback) "
                         f"вместо {self.current_service}"
                     )
-                return result
+                return str(result)
             except Exception as e:
                 last_error = e
                 logger.warning(f"Сервис {service} недоступен: {e}")
                 continue
 
-        raise Exception(
+        raise MachineTranslationError(
             f"Все сервисы перевода недоступны. "
             f"Последняя ошибка: {last_error}"
         )

@@ -62,7 +62,7 @@ CHARMAP_POKEMON_GBA: dict[int, str] = {
     0xA1: '0', 0xA2: '1', 0xA3: '2', 0xA4: '3', 0xA5: '4',
     0xA6: '5', 0xA7: '6', 0xA8: '7', 0xA9: '8', 0xAA: '9',
     0xAB: '!', 0xAC: '?', 0xAD: '.', 0xAE: '-', 0xAF: '·', 0xB0: '…',
-    0xB1: '\u201c', 0xB2: '\u201d', 0xB3: '\u2018', 0xB4: '\u2019',
+    0xB1: '“', 0xB2: '”', 0xB3: '‘', 0xB4: '’',
     0xB5: '♂', 0xB6: '♀', 0xB7: '¥', 0xB8: ',', 0xB9: '×', 0xBA: '/',
     0xBB: 'A', 0xBC: 'B', 0xBD: 'C', 0xBE: 'D', 0xBF: 'E',
     0xC0: 'F', 0xC1: 'G', 0xC2: 'H', 0xC3: 'I', 0xC4: 'J',
@@ -88,6 +88,33 @@ CHARMAP_FIRERED: dict[int, str] = {
     0xB1: '«', 0xB2: '»', 0xB3: '<', 0xB4: "'",
     0xB5: '|m|', 0xB6: '|w|', 0xB7: '$', 0xB9: '*',
 }
+
+# Cyrillic extension (RU translation pilot, EXPERIMENTAL — display needs
+# font glyphs for these indices, see get_font_meta/F1 Phase 2).
+# Byte choice: absent from base charmap, engine controls
+# (F7-F9, FA-FC, FD, FE, FF), 0x00 space and Crown full-text re-encoding.
+# Gaps are occupied base keys (0x84-0x86, 0x2D/0x2E, 0x54='MN', ...);
+# decode of ROMs where these bytes never occur is unchanged (Crown: none).
+# Evidence generator: scripts_roms/cyrillic_free_bytes.py
+_CYRILLIC_UPPER = [chr(0x410 + i) for i in range(32)]
+_CYRILLIC_LOWER = [chr(0x430 + i) for i in range(32)]
+_CYRILLIC_BYTES = [
+    0x80, 0x81, 0x82, 0x83, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D,
+    0x8E, 0x8F, 0x90, 0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98,
+    0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F,
+    0x29, 0x2A, 0x2B, 0x2C, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x34,
+    0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F, 0x40,
+    0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4A,
+    0x4B, 0x4C, 0x4D, 0x4E, 0x4F, 0x50, 0x55,
+]
+CYRILLIC_FIRERED: dict[int, str] = dict(zip(
+    _CYRILLIC_BYTES,
+    _CYRILLIC_UPPER + _CYRILLIC_LOWER + ['Ё', 'ё'],
+    strict=True,
+))
+if len(CYRILLIC_FIRERED) != 66:
+    raise ValueError("CYRILLIC_FIRERED must hold 66 unique bytes")  # pragma: no cover - проверка инварианта на импорте
+CHARMAP_FIRERED.update(CYRILLIC_FIRERED)
 
 # FC commands (0xFC prefix + subcommand)
 FC_COMMANDS: dict[int, str] = {
@@ -189,7 +216,9 @@ POKEMON_GAME_CODES: dict[str, str] = {
 POKEMON_STUB_CODES = {'BPEJ', 'AXVJ', 'AXPJ'}
 
 # ── Fixed-width name/move tables (verified against real ROMs) ───────────────
-# Slot layout: text + 0xFF (EOS) + 0x00 padding up to `width`.
+# Slot layout in pristine ROMs: text + 0xFF (EOS) + 0x00 padding up to `width`.
+# The injector pads shortened translations with pad_byte=0xFF instead —
+# decode-equivalent (decode stops at the first 0xFF either way).
 FIXED_TABLES: dict[str, list[dict]] = {
     'emerald': [
         {'name': 'names', 'addr': 0x3185C8, 'width': 11, 'count': 412},
@@ -233,8 +262,8 @@ class PokemonTextDecoder:
     def decode(self, data: bytes, start: int, length: int) -> str:
         return _decode_pokemon_text_static(data[start:start + length], self.charmap)
 
-    def encode(self, text: str) -> bytes:
-        return _encode_pokemon_text(text, self.charmap)
+    def encode(self, text: str, strict: bool = False) -> bytes:
+        return _encode_pokemon_text(text, self.charmap, strict)
 
 
 class PokemonFixedTextDecoder:
@@ -243,6 +272,7 @@ class PokemonFixedTextDecoder:
     One slot = one record of `width` bytes. The record stops at the first
     0xFF (EOS); 0x00 inside is a space, NOT a terminator. Blank slots
     (all '?' padding) are skipped by the extractor, not by this decoder.
+    `encode` maps `[HH]` back to a raw byte (explicit intent, strict-proof).
     """
 
     def __init__(self, charmap: dict[int, str]):
@@ -272,32 +302,41 @@ class PokemonFixedTextDecoder:
             i += 1
         return ''.join(result)
 
-    def encode(self, text: str) -> bytes:
-        result: list[int] = []  # pragma: no cover
-        i = 0  # pragma: no cover
-        n = len(text)  # pragma: no cover
-        while i < n:  # pragma: no branch
+    def encode(self, text: str, strict: bool = False) -> bytes:
+        result: list[int] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            # Сырой байт [HH] (показ неизвестных байтов decode) — обратно в байт.
+            # Коллизий нет: ни одна запись charmap не выглядит как [HH].
+            if text[i] == '[' and i + 3 < n and text[i + 3] == ']' and all(
+                    c in '0123456789ABCDEFabcdef' for c in text[i + 1:i + 3]):
+                result.append(int(text[i + 1:i + 3], 16))
+                i += 4
+                continue
             matched = False
-            for token in self._tokens:  # pragma: no branch
-                if text.startswith(token, i):  # pragma: no branch
+            for token in self._tokens:
+                if text.startswith(token, i):
                     result.append(self._reverse[token])
                     i += len(token)
                     matched = True
                     break
-            if matched:  # pragma: no branch
+            if matched:
                 continue
             byte = self._reverse.get(text[i])
-            if byte is None:  # pragma: no branch
+            if byte is None:
                 upper = self._reverse.get(text[i].upper())
-                if upper is not None:  # pragma: no branch
+                if upper is not None:
                     byte = upper
-            if byte is None:  # pragma: no branch
+            if byte is None:
+                if strict:
+                    raise ValueError(f"char {text[i]!r} not in charmap (strict)")
                 byte = self._reverse.get(' ', 0x00)
                 self.logger.warning(
                     f"Символ '{text[i]}' не найден в таблице, заменён пробелом")
             result.append(byte)
             i += 1
-        return bytes(result)  # pragma: no cover
+        return bytes(result)
 
 
 def _decode_pokemon_text_static(data: bytes, charmap: dict[int, str]) -> str:
@@ -404,13 +443,15 @@ def _build_f9_glyphs(charmap: dict[int, str]) -> list[tuple[str, int]]:
     return sorted(glyphs.items(), key=lambda kv: len(kv[0]), reverse=True)
 
 
-def _encode_pokemon_text(text: str, charmap: dict[int, str]) -> bytes:
+def _encode_pokemon_text(text: str, charmap: dict[int, str], strict: bool = False) -> bytes:
     """Encode a Pokemon string back to raw bytes (round-trip compatible).
 
     Грамматика токенов строго соответствует выводу _decode_pokemon_text_static:
     [SCROLL]/[PARA]/[END]/[DYN], [CHS:a_b_c], [FONT:X]/[COLOR:X]/
     [HIGHLIGHT:X]/[SHADOW:X], [BTN_XX]/[SYM_XX], [A]..[↔], [cmd_name],
     {PLAYER}/{VAR_XX}. Простые символы — через charmap.
+    strict=True: неизвестный символ — громкий ValueError (место потери),
+    иначе тихая замена пробелом как раньше.
     """
     reverse = {v: k for k, v in charmap.items() if len(v) == 1}
     multi_tokens = sorted(
@@ -503,7 +544,9 @@ def _encode_pokemon_text(text: str, charmap: dict[int, str]) -> bytes:
                 byte = reverse.get(ch)
                 if byte is None:
                     byte = reverse.get(ch.upper(), 0x00)
-                    if byte == 0x00 and ch != ' ':  # pragma: no branch
+                    if byte == 0x00 and ch != ' ':
+                        if strict:
+                            raise ValueError(f"char {ch!r} not in charmap (strict)")
                         logger.warning(
                             f"Символ {ch!r} не найден в таблице, заменён пробелом")
                 out.append(byte)
@@ -590,6 +633,28 @@ class PokemonGBAPlugin(GamePlugin):
     def get_terminators(self, segment_name: str) -> list[int]:
         """Byte terminators for Pokémon GBA"""
         return POKEMON_TERMINATORS
+
+    def get_font_meta(self) -> dict | None:
+        """Latin-шрифт FireRed (EXPERIMENTAL, только чтение мета).
+
+        Блоб [0x1FF2F0, 0x2032F0): 256 слотов по 0x40, арт — halves-тайлы
+        +0x10/+0x30 (см. core/font_tiles decode_frlg_latin_glyph).
+        Доказательство: PNG-рендеры слотов 0x00 (пробел), 0x01 (À),
+        0xA1-0xA3 (0/1/2), 0xBB-0xBD (A/B/C), 0xD5-0xD8/E3 (a/b/c/d/o)
+        на Crown (база 0x1FF330 из font_blob_found.txt была сдвинута
+        на слот — исправлено по рендерам).
+        Доказательство: scripts_roms/cyrillic_free_bytes.py (байты),
+        .agent/tasks/phase2-crown-font/raw/font_blob_found.txt
+        (Crown == vanilla кроме глифа 0xB6). Гейт сужен до firered:
+        для leafgreen смещение не доказано (assumed) — расширить после
+        sha1-сверки слотов 0xA1/0xBB на BPGE-ROM. Возвращает meta только
+        после get_text_segments (нужен game_code), иначе None. У RSE
+        шрифты другие. GUI-превью split пока честно отказывает
+        (core/font_ui), запись глифов — follow-up Фазы 2.
+        """
+        if POKEMON_GAME_CODES.get(self._game_code, '') != 'firered':
+            return None
+        return {"offset": 0x1FF2F0, "bpp": 2, "stride": 0x40, "count": 256, "halves": [0x10, 0x30]}
 
     def get_compression_handler(self, segment_name: str):
         """Pokémon GBA does not use compression for the main text"""

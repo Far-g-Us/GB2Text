@@ -6,7 +6,13 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from core.machine_translation import BingTranslator, DeepLTranslator, GoogleTranslator, MachineTranslation
+from core.machine_translation import (
+    BingTranslator,
+    DeepLTranslator,
+    GoogleTranslator,
+    MachineTranslation,
+    MachineTranslationError,
+)
 
 
 class TestGoogleTranslator:
@@ -27,7 +33,7 @@ class TestGoogleTranslator:
         mock_translator_class.return_value = mock_instance
 
         translator = GoogleTranslator()
-        with pytest.raises(Exception):
+        with pytest.raises(MachineTranslationError):
             translator.translate("Hola", "es", "en")
 
     @patch('googletrans.Translator')
@@ -143,7 +149,7 @@ class TestMachineTranslation:
 
     def test_translate_without_service(self):
         mt = MachineTranslation()
-        with pytest.raises(Exception):
+        with pytest.raises(MachineTranslationError):
             mt.translate("Hola", "es", "en")
 
     @patch('googletrans.Translator')
@@ -234,7 +240,7 @@ class TestBingTranslatorEdgeCases:
     def test_translate_api_error(self, mock_post):
         mock_post.side_effect = Exception("API Error")
         translator = BingTranslator("fake_key", "global")
-        with pytest.raises(Exception):
+        with pytest.raises(MachineTranslationError):
             translator.translate("test", "en", "ru")
 
 

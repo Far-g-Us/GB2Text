@@ -2,7 +2,11 @@ import pytest
 
 from core.i18n import language_code
 from core.injector import TextInjector
-from core.machine_translation import DeepLTranslator, MachineTranslation
+from core.machine_translation import (
+    DeepLTranslator,
+    MachineTranslation,
+    MachineTranslationError,
+)
 from core.rom_cache import ROMCache
 from core.translation_validator import (
     BatchTranslationValidator,
@@ -40,10 +44,14 @@ class _RaisingDeepL:
 
 
 def test_deepl_translate_error():
+    # Сбой внешней библиотеки оборачивается в MachineTranslationError —
+    # единый тип ошибки для всех переводчиков (см. core/machine_translation).
+    # Причина сохраняется в __cause__, поэтому исходный RuntimeError виден.
     translator = DeepLTranslator("key")
     translator.translator = _RaisingDeepL()
-    with pytest.raises(RuntimeError):
+    with pytest.raises(MachineTranslationError) as excinfo:
         translator.translate("hi", "en", "ru")
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 class _FakeService:

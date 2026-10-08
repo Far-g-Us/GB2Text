@@ -33,7 +33,7 @@ class SyntheticHackPlugin(GamePlugin):
         return []
 
     def validate_rom(self, rom: GameBoyROM) -> bool:
-        return rom.header.get('title', '') == 'POKEMON HACK'
+        return bool(rom.header.get('title', '') == 'POKEMON HACK')
 
 
 class TestRomHackSupport:
@@ -237,6 +237,14 @@ class TestConfigSignature:
 class TestRomPassthrough:
     """Только rom (без game_id) прокидывается во все реальные вызовы."""
 
+    # Минимум известных мест вызова. Раньше здесь было точное `== 7`, и тест
+    # падал в CI каждый раз, когда добавляли ещё один вызов get_plugin, хотя
+    # проверяемая семантика («ни один вызов не забыл rom=») не менялась.
+    # Проверка выше по файлу всё так же строгая: она ловит вызов без rom=,
+    # а число ниже защищает от вырождения проверки (например, если файл
+    # перестанут парсить и попадание станет нулевым).
+    MIN_GUI_GET_PLUGIN_SITES = 7
+
     def test_gui_calls_pass_rom(self):
         """Все вызовы get_plugin в gui/main_window.py передают rom=."""
         src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -253,7 +261,7 @@ class TestRomPassthrough:
                 assert 'rom=' in '\n'.join(lines), \
                     f"main_window.py:{i + 1}: get_plugin без rom="
                 spots.append(i + 1)
-        assert len(spots) == 7, spots
+        assert len(spots) >= self.MIN_GUI_GET_PLUGIN_SITES, spots
 
     def test_extractor_passes_rom(self):
         src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),

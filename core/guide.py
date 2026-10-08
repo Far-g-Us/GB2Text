@@ -46,7 +46,12 @@ class GuideManager:
         if guide_path.exists():
             try:
                 with open(guide_path, encoding='utf-8') as f:
-                    return json.load(f)
+                    loaded = json.load(f)
+                    # json.load отдаёт Any: контракт объявлен как dict,
+                    # поэтому проверяем форму и отдаём типизированное.
+                    if not isinstance(loaded, dict):
+                        raise ValueError('гайд должен быть объектом JSON')
+                    return dict(loaded)
             except (OSError, json.JSONDecodeError) as e:
                 logger.warning(f"Ошибка чтения руководства для {game_id}: {e}")
         return None

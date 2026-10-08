@@ -40,6 +40,8 @@ def resolve_font_view(data: bytes | bytearray | None, raw_meta: dict | None) -> 
         return {"status": "invalid", "error": str(exc)}
     if layout["count"] > _PREVIEW_MAX_TILES:
         return {"status": "invalid", "error": f"font too large to preview: {layout['count']} > {_PREVIEW_MAX_TILES}"}
+    if "halves" in layout:
+        return {"status": "invalid", "error": "split halves layout: core decodes it, GUI preview is a follow-up"}
     if is_likely_compressed(data, layout["offset"]):
         return {"status": "compressed", "layout": layout}
     grids = [decode_tile(raw, layout["bpp"]) for raw in tiles_from_rom(data, layout["offset"], layout["count"], layout["stride"])]
@@ -84,6 +86,8 @@ def map_imported_grids(raw_meta: dict, rom_len: int, imported: list) -> dict[int
     под bpp (ValueError наружу).
     """
     layout = validate_font_meta(raw_meta, rom_len)
+    if "halves" in layout:
+        raise ValueError("split halves layout needs a glyph-aware path (follow-up), raw tiles refused")
     if not isinstance(imported, (list, tuple)):
         raise ValueError(f"imported must be a list, got {type(imported).__name__}")
     if len(imported) != layout["count"]:

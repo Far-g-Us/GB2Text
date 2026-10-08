@@ -4,9 +4,7 @@
 import os
 import tempfile
 
-import pytest
-
-from core.plugin import GamePlugin, GenericGamePlugin, PluginProtocol
+from core.plugin import GamePlugin, GenericGamePlugin
 from core.rom import GameBoyROM
 from plugins.generic import GenericGBAPlugin, GenericGBCPlugin, GenericGBPlugin
 

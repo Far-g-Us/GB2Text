@@ -18,7 +18,7 @@ from plugins.gba_zelda_tmc import (
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms',
+    'test_game',
     'Legend of Zelda, The - The Minish Cap (USA).gba',
 )
 
@@ -26,7 +26,7 @@ ROM_PATH = os.path.join(
 @pytest.fixture(scope="module")
 def tmc_rom() -> GameBoyROM:
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Legend of Zelda, The - The Minish Cap (USA).gba")
+        pytest.skip("Отсутствует test_game/Legend of Zelda, The - The Minish Cap (USA).gba")
     return GameBoyROM(ROM_PATH)
 
 

@@ -861,6 +861,65 @@ class TestCoverageGaps:
         finally:
             os.unlink(path)
 
+    def test_pointer_dialogues_idempotent_bytes(self):
+        dec = CharMapDecoder(SIMPLE_CHARMAP)
+        base = {"name": "p", "start": 0x4000, "end": 0x4020,
+                "decoder": dec, "kind": "pointer_dialogues"}
+        path = _build_test_rom({0x4000: b"AB\xff" + b"\xff" * 13})
+        try:
+            inj = TextInjector(path)
+            seg = {**base, "manifest": [
+                {"target": 0x4000, "free_after": 16,
+                 "raw": b"AB", "original": "AB"}]}
+            assert inj.inject_segment(
+                "p", ["AB"], _plugin([seg]), segments=[seg]) is True
+            assert bytes(inj.modified_data[0x4000:0x4010]) == b"AB\xff" + b"\xff" * 13
+            bad = {**base, "manifest": [
+                {"target": 0xFFFFFF, "free_after": 16,
+                 "raw": b"AB", "original": "AB"}]}
+            assert inj.inject_segment(
+                "p", ["AB"], _plugin([bad]), segments=[bad]) is False
+        finally:
+            os.unlink(path)
+        path = _build_test_rom({0x4000: b"\xff" * 16})
+        try:
+            inj = TextInjector(path)
+            seg = {**base, "manifest": [{"target": 0x4000, "free_after": 16}]}
+            assert inj.inject_segment(
+                "p", ["AB"], _plugin([seg]), segments=[seg]) is True
+            assert bytes(inj.modified_data[0x4000:0x4010]) == b"AB\xff" + b"\xff" * 13
+        finally:
+            os.unlink(path)
+        path = _build_test_rom({0x4000: b"ABCD\xff" + b"\xff" * 11})
+        try:
+            inj = TextInjector(path)
+            seg = {**base, "manifest": [{"target": 0x4000, "free_after": 16}]}
+            assert inj.inject_segment(
+                "p", ["A"], _plugin([seg]), segments=[seg]) is True
+            assert bytes(inj.modified_data[0x4000:0x4010]) == b"A\xffCD\xff" + b"\xff" * 11
+        finally:
+            os.unlink(path)
+
+    def test_pointer_dialogues_absolute_decode_convention(self):
+        class AbsDecoder:
+            def decode(self, data, addr, max_len):
+                return f"@{addr}"
+
+            def encode(self, text):
+                return b"Q"
+
+        path = _build_test_rom({0x4000: b"\xff" * 16})
+        try:
+            inj = TextInjector(path)
+            seg = {"name": "p", "start": 0x4000, "end": 0x4020,
+                   "decoder": AbsDecoder(), "kind": "pointer_dialogues",
+                   "manifest": [{"target": 0x4000, "free_after": 16}]}
+            assert inj.inject_segment(
+                "p", ["@16384"], _plugin([seg]), segments=[seg]) is True
+            assert bytes(inj.modified_data[0x4000:0x4010]) == b"\xff" * 16
+        finally:
+            os.unlink(path)
+
     def test_extract_no_trailing_terminator(self):
         path = _build_test_rom({0x4000: b"AB\x00CD"})
         try:

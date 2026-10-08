@@ -6,6 +6,7 @@ GB Text Extraction Framework
 анализа ROM-файлов, законно принадлежащих пользователю.
 """
 
+import gc
 import tkinter as tk
 
 import pytest
@@ -33,6 +34,9 @@ def root():
     root.withdraw()
     theme.apply(root, dark=False)
     yield root
+    # gc.collect() ДО destroy(): иначе финализатор tkinter.Variable придёт в
+    # уже мёртвый Tcl и уронит воркер xdist.
+    gc.collect()
     root.destroy()
 
 

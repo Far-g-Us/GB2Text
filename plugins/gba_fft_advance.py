@@ -38,6 +38,7 @@ Author dialogs and story content are not included.
 
 import logging
 import re
+from typing import ClassVar
 
 from core.compression import FFTA_LZSSHandler
 from core.plugin import GamePlugin
@@ -283,6 +284,17 @@ FFTA_STRING_TABLES = [
 # CRN data (character name strings)
 FFTA_CRN_OFFSET = 0x55128C  # CRN data starts here (ROM offset, without the GBA base)
 FFTA_CRN_POINTERS = 0x5516D0  # CRN pointer table (ROM offset)
+# Число имён в области CRN. Жёстко: скан делает ровно столько итераций,
+# поэтому лишний ноль-разделитель после сокращения тратит целую итерацию
+# (см. комментарий в _read_crn_data).
+#
+# Хвостовой риск: пропуск серии нулей доведёт offset до следующей области, если
+# CRN заканчивается нулями, а итерации ещё остались. CRN сканируется не
+# последним (сразу за ним идёт _scan_lzss_dialogues), так что зацепление за
+# чужую область реально. Старый код имел ту же экспозицию — регрессии нет.
+# При росте CRN_COUNT риск перестанет быть гипотетическим, и потребуется
+# граница области.
+CRN_COUNT = 107
 
 # Game codes for detection
 FFTA_GAME_CODES = ['AFXE', 'AGBJ', 'AGBE']
@@ -340,25 +352,44 @@ class FFTATextDecoder:
         r'|(.)'
     )
 
-    def __init__(self):
-        self.rev_multi: dict[str, int] = {}
+    # Обратные таблицы выводятся ТОЛЬКО из констант модуля и не зависят от
+    # экземпляра, поэтому строятся один раз на процесс. Раньше каждый
+    # экземпляр декодера пересобирал три словаря заново: в тестах декодер
+    # создаётся 4651 раз (на каждый текстовый блок), и это была чистая
+    # потеря 1.5 с.
+    _TABLES: ClassVar[tuple | None] = None
+
+    @classmethod
+    def _tables(cls) -> tuple:
+        cached = cls._TABLES
+        if cached is not None:
+            return cached
+        rev_multi: dict[str, int] = {}
         for code, ch in CHARMAP_FFTA_MULTI.items():
-            if ch not in self.rev_multi:
-                self.rev_multi[ch] = code
-        self.rev_ctrl: dict[str, int] = {}
+            if ch not in rev_multi:
+                rev_multi[ch] = code
+        rev_ctrl: dict[str, int] = {}
         for code, token in FFTA_CTRL_40.items():
-            if code in self._FFTA_SPECIAL_CTRL_NONRAW:
+            if code in cls._FFTA_SPECIAL_CTRL_NONRAW:
                 continue
             if token.startswith('[') and token.endswith(']'):
-                self.rev_ctrl.setdefault(token[1:-1], code)
+                rev_ctrl.setdefault(token[1:-1], code)
             else:
-                self.rev_ctrl.setdefault(token, code)
-        self.rev_char_names: dict[str, int] = {
+                rev_ctrl.setdefault(token, code)
+        rev_char_names: dict[str, int] = {
             name: idx for idx, name in FFTA_CHAR_NAMES.items()
         }
-        self.rev_crn_names: dict[str, int] = {}
+        rev_crn_names: dict[str, int] = {}
         for idx, name in FFTA_CRN_NAMES.items():
-            self.rev_crn_names.setdefault(name, idx)
+            rev_crn_names.setdefault(name, idx)
+        cached = (rev_multi, rev_ctrl, rev_char_names, rev_crn_names)
+        cls._TABLES = cached
+        return cached
+
+    def __init__(self, force_multi: bool = False):
+        self.force_multi = force_multi
+        (self.rev_multi, self.rev_ctrl, self.rev_char_names,
+         self.rev_crn_names) = self._tables()
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         text, _ = _decode_ffta_text(data, start, length)
@@ -367,7 +398,7 @@ class FFTATextDecoder:
     def encode(self, text: str, force_multi: bool = False) -> bytes:
         return _encode_ffta_text(
             text, self.rev_multi, self.rev_ctrl,
-            self.rev_char_names, self.rev_crn_names, force_multi
+            self.rev_char_names, self.rev_crn_names, force_multi or self.force_multi
         )
 
 
@@ -839,7 +870,7 @@ class FFTAdvancePlugin(GamePlugin):
 
         offset = FFTA_CRN_OFFSET
         name_counts: dict[str, int] = {}
-        for idx in range(107):  # 107 CRN names  # pragma: no branch
+        for idx in range(CRN_COUNT):  # pragma: no branch
             if offset >= len(data):
                 break
 
@@ -861,19 +892,34 @@ class FFTAdvancePlugin(GamePlugin):
                 if name_counts[base_name] > 1:
                     base_name = f'{base_name}_{name_counts[base_name]}'
 
+                # CRN area mixes forms: 0x01-prefix = single-byte, else
+                # multi-byte 0x80XX. The encoder must reproduce the record's
+                # own form, otherwise lengths shift and the chained scan
+                # desyncs (CRN_Celia vanished after a short write).
+                multi = bytes(data[str_start:str_start + 1]) != b'\x01'
                 segments.append({
                     'name': base_name,
                     'start': str_start,
                     'end': str_start + bytes_consumed,
                     'text': text,
-                    'decoder': FFTATextDecoder(),
+                    'decoder': FFTATextDecoder(force_multi=multi),
                     'compression': None,
                     'charmap': CHARMAP_FFTA_MULTI,
                     'terminators': FFTA_TERMINATORS,
                     'pad_byte': 0x00,
                 })
 
-            offset += 1  # Skip the 0x00 terminator
+            # Пропуск разделителя: не ОДИН 0x00, а всю серию нулей.
+            # Записи идут вплотную, разделены ровно одним 0x00, поэтому цикл
+            # рассинхронизируется, если запись сократили: инжектор дописывает
+            # `pad_byte=0x00` до прежней длины, и после записи остаётся НЕСКОЛЬКО
+            # нулей подряд. Прежний `offset += 1` на КАЖДЫЙ лишний ноль тратил
+            # отдельную итерацию `range(107)`, и скан просто не доходил до конца
+            # области: измерено, из 107 имён оставалось 21, то есть 86 последних
+            # не находились вовсе (записи при этом не «терялись» поимённо —
+            # доезжали только первые).
+            while offset < len(data) and data[offset] == 0x00:
+                offset += 1
 
         return segments
 

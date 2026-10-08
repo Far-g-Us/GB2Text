@@ -16,7 +16,7 @@ from plugins.gba_wario_land_4 import (
 )
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROM_DIR = os.path.join(BASE, 'test_roms')
+ROM_DIR = os.path.join(BASE, 'test_game')
 WL4_ROM = os.path.join(ROM_DIR, 'Wario Land 4 (USA, Europe).gba')
 
 

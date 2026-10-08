@@ -18,11 +18,14 @@ from api._core import (
     C_UNSUPPORTED_SYSTEM,
     C_VALIDATION_ERROR,
     SDKError,
+    audit_fixed_slots,
     detect,
     extract,
+    fixsum,
     get_version,
     inject,
     list_plugins,
+    picture,
 )
 
 __all__ = [
@@ -33,11 +36,14 @@ __all__ = [
     "C_UNSUPPORTED_SYSTEM",
     "C_VALIDATION_ERROR",
     "SDKError",
+    "audit_fixed_slots",
     "detect",
     "extract",
+    "fixsum",
     "get_version",
     "inject",
     "list_plugins",
+    "picture",
 ]
 
 

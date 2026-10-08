@@ -16,7 +16,7 @@ from plugins.gba_metroid_fusion import (
 )
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROM_DIR = os.path.join(BASE, 'test_roms')
+ROM_DIR = os.path.join(BASE, 'test_game')
 MF_ROM = os.path.join(ROM_DIR, 'Metroid Fusion (USA).gba')
 
 

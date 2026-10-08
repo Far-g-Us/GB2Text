@@ -18,6 +18,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.rom import GameBoyROM
 from plugins.gba_golden_sun_tla import (
+    TLA_CREDITS_AT,
+    TLA_CREDITS_COUNT,
+    TLA_CREDITS_REGION_END,
+    TLA_CREDITS_REGION_START,
+    TLA_CREDITS_WIN,
     GoldenSunTLAPlugin,
     GoldenSunTLATextDecoder,
 )
@@ -25,7 +30,7 @@ from plugins.gba_golden_sun_tla import (
 # SHA1 golden sun tla rom not exposed; game code AGFE
 TLA_ROM = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms', 'Golden Sun - The Lost Age (USA, Europe).gba',
+    'test_game', 'Golden Sun - The Lost Age (USA, Europe).gba',
 )
 
 
@@ -227,3 +232,90 @@ def test_real_rom_roundtrip():
             before_texts = [m['text'] for m in before.get(seg['name'], [])]
             after_texts = [m['text'] for m in after.get(seg['name'], [])]
             assert before_texts == after_texts, seg['name']
+
+
+class TestTLACredits:
+    """ASCII-кредиты TLA — раньше не извлекались вообще."""
+
+    def test_credits_extracted(self, tla_rom, tla_segments):
+        creds = [s for s in tla_segments
+                 if s['name'].startswith('gs_tla_credits_')]
+        assert len(creds) == TLA_CREDITS_COUNT, (
+            f'TLA: {len(creds)} кредитов, ожидаем {TLA_CREDITS_COUNT}')
+        texts = {s.get('raw_text') for s in creds}
+        for expected in ('NINTENDO', 'CAMELOT', 'STAFF'):
+            assert expected in texts, (
+                f'в кредитах TLA нет ожидаемого {expected!r}')
+
+    def test_credits_region_bounds_are_measured(self, tla_rom, tla_segments):
+        from plugins.gba_golden_sun import credits_region
+
+        start, end = credits_region(tla_rom.data, TLA_CREDITS_WIN[0],
+                                    TLA_CREDITS_WIN[1],
+                                    fixed_at=TLA_CREDITS_AT)
+        # Сверяется с измерением, а не с константой: при сдвиге якоря внутрь
+        # строки проверка отвергла бы его, но прошла бы 399 сегментов вместо 101.
+        assert start == TLA_CREDITS_REGION_START, (
+            f'область стартовала с {start:#x}, измеренное начало '
+            f'{TLA_CREDITS_REGION_START:#x}')
+        assert end == TLA_CREDITS_REGION_END, (
+            f'область закончилась на {end:#x}, измеренный конец '
+            f'{TLA_CREDITS_REGION_END:#x}')
+        creds = [s for s in tla_segments
+                 if s['name'].startswith('gs_tla_credits_')]
+        assert creds, 'кредиты не извлечены, а область непуста'
+        assert creds[0]['start'] == TLA_CREDITS_REGION_START, (
+            f'первый сегмент {creds[0]["start"]:#x}, измеренное начало '
+            f'{TLA_CREDITS_REGION_START:#x}')
+        assert creds[0]['name'] == 'gs_tla_credits_1a1a10', creds[0]['name']
+
+    def test_wrong_anchor_falls_back_to_scan(self, tla_rom):
+        # Якорь не на строке кредитов отвергается, и область ищется сканером.
+        from plugins.gba_golden_sun import ascii_credits_segments, credits_region
+
+        segs_bad = ascii_credits_segments(tla_rom.data, TLA_CREDITS_WIN[0],
+                                          TLA_CREDITS_WIN[1], 'x',
+                                          fixed_at=TLA_CREDITS_WIN[0])
+        assert len(segs_bad) == TLA_CREDITS_COUNT, (
+            f'откат дал {len(segs_bad)} сегментов вместо {TLA_CREDITS_COUNT}')
+        start, end = credits_region(tla_rom.data, TLA_CREDITS_WIN[0],
+                                    TLA_CREDITS_WIN[1],
+                                    fixed_at=TLA_CREDITS_WIN[0])
+        # Сканер возвращает на байт раньше якоря: он
+        # смещении относит NUL перед печатным прогоном. Расхождение
+        # сегментов то же, потому что поведение якоря не важно.
+        assert start == 0x1A1A0F, (
+            f'сканер возвратил {start:#x}, ожидалось 0x1A1A0F')
+        assert end == TLA_CREDITS_REGION_END
+
+    def test_short_credit_is_present(self, tla_rom, tla_segments):
+        texts = {s.get('raw_text') for s in tla_segments
+                 if s['name'].startswith('gs_tla_credits_')}
+        assert 'and' in texts, (
+            'кредит 'and' (3 символа) не попал в манифест — длина короче '
+            '_CREDITS_MIN_RUN не должна быть в отборе')
+
+    def test_credits_survive_shortening(self, tla_rom):
+        from core.extractor import TextExtractor
+        from core.injector import TextInjector
+        from tests.test_realrom_pipeline import _inject_all, _shorten
+
+        plugin = GoldenSunTLAPlugin()
+        before = TextExtractor(TLA_ROM).extract()
+        names = {n for n in before if n.startswith('gs_tla_credits_')}
+        assert names
+        with tempfile.TemporaryDirectory() as td:
+            work = os.path.join(td, 'w.gba')
+            shutil.copyfile(TLA_ROM, work)
+            inj = TextInjector(work)
+            segmeta = {s['name']: s for s in inj._get_segments(plugin)
+                       if isinstance(s, dict)}
+            _inject_all(inj, plugin, before, segmeta, _shorten)
+            out = os.path.join(td, 'o.gba')
+            inj.save(out)
+            after = TextExtractor(out).extract()
+        after_names = {n for n in after if n.startswith('gs_tla_credits_')}
+        lost = names - after_names
+        assert not lost, (
+            f'потеряно кредитов: {len(lost)} из {len(names)}: '
+            f'{sorted(lost)[:5]}')

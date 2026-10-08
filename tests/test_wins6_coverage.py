@@ -89,7 +89,7 @@ def test_gba_ff4_pointer_table_edge():
     for i in range(1, 6287):
         rom[0x2E3680 + i * 4 : 0x2E3680 + i * 4 + 2] = (0xFF00).to_bytes(2, "little")
     segments = plugin.get_text_segments(SimpleNamespace(data=bytes(rom)))
-    assert any(s["name"] == "ff4_text_0" for s in segments)
+    assert any(s["name"].startswith("ff4_text_0") for s in segments)
 
 
 def test_gba_fft_lzss_noise_and_short():

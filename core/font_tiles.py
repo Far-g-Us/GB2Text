@@ -11,11 +11,20 @@ GBA 4bpp (32 байта: 4 байта на строку, младший нибб
 Relocate шрифта — non-goal: шрифт адресуется кодом загрузки в VRAM, а не
 pointer table, свободное место под него через pointer-механику не ищется.
 Сжатый шрифт (LZ77 0x10 / Huffman) — отказ, recompress не делается.
+
+Split-раскладка FireRed-latin (FRLG): stored stride 0x40, арт — два 8x8-тайла
+halves-порядка (верх +0x10, низ +0x30), пады +0x00/+0x20 нули. halves-тайл:
+левые 4 px строки — нечётный байт пары, правые 4 px — чётный (high-byte-first
+по DecompressGlyphTile из pokefirered, старший бит байта — левый пиксель).
+Мета с halves=[0x10, 0x30] принимает validate_font_meta/_require_layout;
+побайтово-контигуальные пути (preview/inject/candidate) для split честно
+отказывают — нужна глиф-aware запись (follow-up Фазы 2).
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from itertools import pairwise
 
 from PIL import Image
 
@@ -158,6 +167,75 @@ def encode_4bpp_tile(grid: Sequence[Sequence[int]]) -> bytes:
     return bytes(raw)
 
 
+def decode_2bpp_halves_tile(raw: bytes | bytearray) -> list[list[int]]:
+    """16 байт -> матрица 8x8 значений 0-3 (halves-порядок FireRed).
+
+    Строка r: левые 4 px — байт raw[2r+1], правые 4 px — байт raw[2r],
+    в каждом байте старший бит — левый пиксель (high-byte-first по
+    DecompressGlyphTile из pokefirered). От planar decode_2bpp_tile
+    отличается: там пара — битовые плоскости 8 px, здесь — две упакованные
+    половины по 4 px.
+
+    Raises:
+        ValueError: raw короче 16 байт (лишние байты игнорируются).
+    """
+    _require_data(raw)
+    if len(raw) < TILE_BYTES:
+        raise ValueError(f"tile needs {TILE_BYTES} bytes, got {len(raw)}")
+    grid: list[list[int]] = []
+    for row in range(TILE_SIZE):
+        left = raw[row * 2 + 1]
+        right = raw[row * 2]
+        line = [((left >> bit) & 3) for bit in (6, 4, 2, 0)]
+        line += [((right >> bit) & 3) for bit in (6, 4, 2, 0)]
+        grid.append(line)
+    return grid
+
+
+def encode_2bpp_halves_tile(grid: Sequence[Sequence[int]]) -> bytes:
+    """Матрица 8x8 значений 0-3 -> 16 байт (обратное к decode_2bpp_halves_tile)."""
+    _check_grid(grid, 3)
+    raw = bytearray(TILE_BYTES)
+    for row in range(TILE_SIZE):
+        left = 0
+        right = 0
+        for k in range(4):
+            left |= (grid[row][k] & 3) << (6 - 2 * k)
+            right |= (grid[row][4 + k] & 3) << (6 - 2 * k)
+        raw[row * 2 + 1] = left
+        raw[row * 2] = right
+    return bytes(raw)
+
+
+_FRLG_LATIN_STRIDE = 0x40
+_FRLG_LATIN_HALVES = (0x10, 0x30)
+
+
+def decode_frlg_latin_glyph(slot: bytes | bytearray) -> tuple[list[list[int]], list[list[int]]]:
+    """64-байтный слот latin-шрифта FRLG -> (верх 8x8, низ 8x8).
+
+    Арт — halves-тайлы +0x10 (верх) и +0x30 (низ); пады +0x00/+0x20
+    игнорируются без валидации (в ROM нули, формат их не требует).
+
+    Raises:
+        ValueError: слот короче 64 байт (лишние байты игнорируются).
+    """
+    _require_data(slot)
+    if len(slot) < _FRLG_LATIN_STRIDE:
+        raise ValueError(f"frlg glyph needs {_FRLG_LATIN_STRIDE} bytes, got {len(slot)}")
+    top = decode_2bpp_halves_tile(bytes(slot[0x10 : 0x10 + TILE_BYTES]))
+    bottom = decode_2bpp_halves_tile(bytes(slot[0x30 : 0x30 + TILE_BYTES]))
+    return top, bottom
+
+
+def encode_frlg_latin_glyph(top: Sequence[Sequence[int]], bottom: Sequence[Sequence[int]]) -> bytes:
+    """(верх 8x8, низ 8x8) -> 64-байтный слот FRLG с нулевыми падами."""
+    raw = bytearray(_FRLG_LATIN_STRIDE)
+    raw[0x10 : 0x10 + TILE_BYTES] = encode_2bpp_halves_tile(top)
+    raw[0x30 : 0x30 + TILE_BYTES] = encode_2bpp_halves_tile(bottom)
+    return bytes(raw)
+
+
 def decode_tile(raw: bytes | bytearray, bpp: int) -> list[list[int]]:
     """Декодирует тайл указанной глубины (строгий bpp)."""
     _require_bpp(bpp)
@@ -199,15 +277,37 @@ def tile_to_ascii(grid: Sequence[Sequence[int]], palette: str = _PIXELS) -> list
     return art
 
 
-def validate_font_meta(meta: dict, rom_len: int) -> dict[str, int]:
+def _require_halves(halves: object, stride: int, bpp: int) -> list[int]:
+    tile = stride_for_bpp(bpp)
+    if not isinstance(halves, (list, tuple)) or not halves:
+        raise ValueError(f"font halves must be a non-empty list, got {halves!r}")
+    offsets: list[int] = []
+    for half in halves:
+        if isinstance(half, bool) or not isinstance(half, int) or half < 0 or half + tile > stride:
+            raise ValueError(f"bad halves offset {half!r} for stride {stride:#x}")
+        offsets.append(half)
+    if len(set(offsets)) != len(offsets):
+        raise ValueError(f"font halves overlap: {offsets!r}")
+    ordered = sorted(offsets)
+    for first, second in pairwise(ordered):
+        if first + tile > second:
+            raise ValueError(f"font halves overlap: {offsets!r}")
+    return offsets
+
+
+def validate_font_meta(meta: dict, rom_len: int) -> dict:
     """Нормализует метаданные шрифта из GamePlugin.get_font_meta.
 
     Дефолты: bpp=2, stride по bpp, count до конца данных. Неизвестный bpp —
     строгий ValueError (fallback на 2 запрещён: молча портит данные).
+    Split-раскладка: meta['halves'] — список смещений арт-тайлов внутри
+    stride (FRLG latin: [0x10, 0x30] при stride 0x40); порядок значим,
+    halves[0] — верх глифа. Без halves stride обязан совпадать с bpp
+    (контигуальный блок).
 
     Raises:
-        ValueError: meta не dict, offset/bpp/stride/count вне диапазона,
-            блок выходит за rom_len.
+        ValueError: meta не dict, offset/bpp/stride/count/halves вне
+            диапазона, блок выходит за rom_len.
     """
     if not isinstance(meta, dict):
         raise ValueError(f"font meta must be a dict, got {type(meta).__name__}")
@@ -219,13 +319,19 @@ def validate_font_meta(meta: dict, rom_len: int) -> dict[str, int]:
     bpp = meta.get("bpp", 2)
     stride = meta.get("stride", None)
     count = meta.get("count", None)
+    halves = meta.get("halves", None)
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0 or offset >= rom_len:
         raise ValueError(f"bad font offset: {offset!r} for rom size {rom_len}")
     _require_bpp(bpp)
     if stride is None:
         stride = stride_for_bpp(bpp)
-    if isinstance(stride, bool) or not isinstance(stride, int) or stride != stride_for_bpp(bpp):
-        raise ValueError(f"bad stride {stride!r} for bpp={bpp}")
+    if halves is None:
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride != stride_for_bpp(bpp):
+            raise ValueError(f"bad stride {stride!r} for bpp={bpp}")
+    else:
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride <= 0:
+            raise ValueError(f"bad stride {stride!r} for split layout")
+        halves = _require_halves(halves, stride, bpp)
     if count is None:
         count = (rom_len - offset) // stride
         if count < 1:
@@ -234,10 +340,13 @@ def validate_font_meta(meta: dict, rom_len: int) -> dict[str, int]:
         raise ValueError(f"bad font count: {count!r}")
     if offset + count * stride > rom_len:
         raise ValueError(f"font [{offset:#x}:{offset + count * stride:#x}] exceeds rom size {rom_len}")
-    return {"offset": offset, "bpp": bpp, "stride": stride, "count": count}
+    norm: dict = {"offset": offset, "bpp": bpp, "stride": stride, "count": count}
+    if halves is not None:
+        norm["halves"] = halves
+    return norm
 
 
-def _require_layout(layout: dict) -> dict[str, int]:
+def _require_layout(layout: dict) -> dict:
     if not isinstance(layout, dict):
         raise ValueError(f"font layout must be a dict, got {type(layout).__name__}")
     try:
@@ -250,11 +359,25 @@ def _require_layout(layout: dict) -> dict[str, int]:
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise ValueError(f"bad font offset: {offset!r}")
     _require_bpp(bpp)
-    if isinstance(stride, bool) or not isinstance(stride, int) or stride != stride_for_bpp(bpp):
-        raise ValueError(f"bad stride {stride!r} for bpp={bpp}")
+    halves = layout.get("halves", None)
+    if halves is None:
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride != stride_for_bpp(bpp):
+            raise ValueError(f"bad stride {stride!r} for bpp={bpp}")
+    else:
+        if isinstance(stride, bool) or not isinstance(stride, int) or stride <= 0:
+            raise ValueError(f"bad stride {stride!r} for split layout")
+        halves = _require_halves(halves, stride, bpp)
     if isinstance(count, bool) or not isinstance(count, int) or count < 1:
         raise ValueError(f"bad font count: {count!r}")
-    return {"offset": offset, "bpp": bpp, "stride": stride, "count": count}
+    norm: dict = {"offset": offset, "bpp": bpp, "stride": stride, "count": count}
+    if halves is not None:
+        norm["halves"] = halves
+    return norm
+
+
+def _reject_split(norm: dict) -> None:
+    if "halves" in norm:
+        raise ValueError("split halves layout needs a glyph-aware path (follow-up), raw tiles refused")
 
 
 def is_likely_compressed(data: bytes | bytearray, offset: int) -> bool:
@@ -276,21 +399,81 @@ def is_likely_compressed(data: bytes | bytearray, offset: int) -> bool:
     return True
 
 
+def _glyph_signatures(data: bytes | bytearray, offset: int, stride: int,
+                      count: int, bpp: int) -> tuple[int, int, list[int], list[float]]:
+    """Собирает признаки тайлов: число пустых, различных, уровней, однородности.
+
+    Однородность — доля пикселей самого частого значения в тайле. У глифа
+    фон доминирует (обычно > 0.5), у шума при 4bpp она около 1/16. Именно
+    эта пара признаков отличает шрифт от произвольных данных: проверки
+    «непусто» и «не один штамп» шум проходит всегда.
+
+    `distinct` — число РАЗЛИЧНЫХ непустых тайлов (не число непустых):
+    блок из одного повторяющегося тайла должен отсекаться, и для этого нужны
+    именно различные, а не сосчитанные.
+    """
+    blank = 0
+    seen: set[bytes] = set()
+    levels: list[int] = []
+    uniform: list[float] = []
+    for i in range(count):
+        raw = bytes(data[offset + i * stride : offset + (i + 1) * stride])
+        grid = decode_tile(raw, bpp)
+        flat = [pixel for row in grid for pixel in row]
+        if all(pixel == 0 for pixel in flat):
+            blank += 1
+            continue
+        seen.add(raw)
+        levels.append(len(set(flat)))
+        top = max(flat.count(v) for v in set(flat))
+        uniform.append(top / len(flat))
+    return blank, len(seen), levels, uniform
+
+
+#: Среднее число уровней на тайл, выше которого блок не шрифт.
+#:
+#: Измерено на реальных данных (`scripts_roms/out/font_gate_real_roms.txt`):
+#: настоящий латинский блок FireRed — 7.07-7.33 уровня на тайл при
+#: однородности 0.61-0.67; произвольные данные FF4 Advance при bpp=4 — 12.16,
+#: шум — 15.78. Порог 10.0 разделяет их с запасом с обеих сторон.
+#:
+#: Для 2bpp положительного контроля нет (ни одного подтверждённого 2bpp-шрифта
+#: в проекте), значение 3.5 выбрано по устройству формата: глиф использует
+#: 2-3 значения из 4, а шум — все 4. Для 1bpp признаки не работают: у
+#: 1bpp-глифа и у шума одинаковое число уровней, поэтому порог отключён.
+_MAX_MEAN_LEVELS = {1: None, 2: 3.5, 4: 10.0}
+#: Средняя однородность, ниже которой блок не шрифт (шум при 4bpp — 0.12).
+_MIN_MEAN_UNIFORM = {1: None, 2: 0.35, 4: 0.35}
+
+
 def validate_font_candidate(
     data: bytes | bytearray,
     layout: dict,
     *,
     empty_ratio_max: float = 0.95,
     min_nonempty: int = 1,
+    max_mean_levels: float | None = None,
+    min_mean_uniform: float | None = None,
 ) -> dict:
-    """Гейт кандидата шрифта: блок не пуст и не состоит из одного штампа.
+    """Гейт кандидата шрифта: блок не пуст, не один штамп и не шум.
 
     Эвристика против позитивной mis-идентификации (см. фазу 0): доля пустых
     тайлов и число различных непустых обязаны пройти пороги. Сложность O(count):
     для огромных блоков layout обязан быть сужен вызывающей стороной, сверх
     _CANDIDATE_MAX_TILES — отказ.
+
+    Одних «непусто» и «не один штамп» НЕДОСТАТОЧНО: на реальном FF4 Advance
+    при bpp=4 так проходили первые же смещения (empty_ratio 0.000, 32
+    различных тайла из 32), то есть гейт принимал произвольные данные.
+    Поэтому добавлены два признака, которые у настоящего шрифта есть, а у
+    шума нет: мало уровней на тайл и высокая однородность (фон глифа
+    доминирует). После их добавления на том же FF4 Advance принято 0
+    смещений из 512, а подтверждённый латинский блок FireRed проходит
+    (7.07 уровня, однородность 0.67). Числа и пороги — в
+    _MAX_MEAN_LEVELS / _MIN_MEAN_UNIFORM.
     """
     norm = _require_layout(layout)
+    _reject_split(norm)
     if norm["count"] > _CANDIDATE_MAX_TILES:
         raise ValueError(f"font too large to scan: {norm['count']} > {_CANDIDATE_MAX_TILES}, narrow layout")
     _require_data(data)
@@ -306,21 +489,32 @@ def validate_font_candidate(
     count = norm["count"]
     if offset + count * stride > len(data):
         raise ValueError(f"font [{offset:#x}:{offset + count * stride:#x}] exceeds data size {len(data)}")
-    blank = 0
-    seen: set[bytes] = set()
-    for i in range(count):
-        raw = bytes(data[offset + i * stride : offset + (i + 1) * stride])
-        grid = decode_tile(raw, bpp)
-        if all(pixel == 0 for row in grid for pixel in row):
-            blank += 1
-        else:
-            seen.add(raw)
+    levels_max = _MAX_MEAN_LEVELS[bpp] if max_mean_levels is None \
+        else max_mean_levels
+    uniform_min = _MIN_MEAN_UNIFORM[bpp] if min_mean_uniform is None \
+        else min_mean_uniform
+    for name, value in (('max_mean_levels', levels_max),
+                        ('min_mean_uniform', uniform_min)):
+        if value is not None and (isinstance(value, bool)
+                                  or not isinstance(value, (int, float))):
+            raise ValueError(f"bad {name}: {value!r}")
+    blank, seen, levels, uniform = _glyph_signatures(data, offset, stride,
+                                                 count, bpp)
     empty_ratio = blank / count
     if empty_ratio > empty_ratio_max:
         raise ValueError(f"font candidate too empty: {empty_ratio:.2f} > {empty_ratio_max}")
-    if len(seen) < min_nonempty:
-        raise ValueError(f"font candidate has {len(seen)} distinct glyphs, need {min_nonempty}")
-    return {"blank": blank, "distinct": len(seen), "empty_ratio": empty_ratio}
+    if seen < min_nonempty:
+        raise ValueError(f"font candidate has {seen} distinct glyphs, need {min_nonempty}")
+    mean_levels = sum(levels) / len(levels) if levels else 0.0
+    mean_uniform = sum(uniform) / len(uniform) if uniform else 0.0
+    if levels_max is not None and mean_levels > levels_max:
+        raise ValueError(
+            f"not a font: {mean_levels:.2f} levels per tile > {levels_max}")
+    if uniform_min is not None and mean_uniform < uniform_min:
+        raise ValueError(
+            f"not a font: mean uniformity {mean_uniform:.2f} < {uniform_min}")
+    return {"blank": blank, "distinct": seen, "empty_ratio": empty_ratio,
+            "mean_levels": mean_levels, "mean_uniform": mean_uniform}
 
 
 def inject_glyphs(
@@ -388,6 +582,7 @@ def preview_font_block(
 ) -> list[dict]:
     """Dry-run записи шрифта: [{index, offset, old_bytes, new_bytes}] без записи."""
     norm = _require_layout(layout)
+    _reject_split(norm)
     _require_data(data)
     if norm["offset"] + norm["count"] * norm["stride"] > len(data):
         raise ValueError(
@@ -437,6 +632,7 @@ def inject_font_block(
     if confirm is not True:
         raise ValueError("font injection needs explicit confirm=True")
     norm = _require_layout(layout)
+    _reject_split(norm)
     if not isinstance(data, bytearray):
         raise ValueError(f"font buffer must be bytearray for writing, got {type(data).__name__}")
     if norm["offset"] + norm["count"] * norm["stride"] > len(data):

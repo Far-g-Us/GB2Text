@@ -20,6 +20,7 @@ import pstats
 import sys
 import time
 from contextlib import contextmanager
+from typing import Any
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -125,12 +126,14 @@ def profile_module_decoding(rom_path, limit=100):
     pointers = find_text_pointers(rom.data)[:limit]
 
     def decode_blocks():
-        decoded = []
+        # Список хранит и строки, и словари с метаданными (id/offset),
+        # поэтому тип элемента — Any: аннотация list[str] была неверной.
+        decoded: list[Any] = []
         for _ptr_addr, text_addr in pointers:
             charmap = auto_detect_charmap(rom.data, text_addr)
             decoder = CharMapDecoder(charmap)
             data = rom.data[text_addr:text_addr + 256]
-            text = decoder.decode(data, 0, len(data))
+            text = decoder.decode(bytes(data), 0, len(data))
             decoded.append(text)
         return decoded
 
@@ -193,12 +196,12 @@ def profile_full_workflow(rom_path, iterations=1):
         rom = GameBoyROM(rom_path)
         pointers = find_text_pointers(rom.data)
 
-        decoded = []
+        decoded: list[Any] = []
         for _ptr_addr, text_addr in pointers:
             charmap = auto_detect_charmap(rom.data, text_addr)
             decoder = CharMapDecoder(charmap)
             data = rom.data[text_addr:text_addr + 256]
-            text = decoder.decode(data, 0, len(data))
+            text = decoder.decode(bytes(data), 0, len(data))
             if text:
                 decoded.append({
                     'id': len(decoded) + 1,

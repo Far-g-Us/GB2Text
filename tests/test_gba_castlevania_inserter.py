@@ -17,7 +17,7 @@ from plugins.gba_castlevania import (
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms',
+    'test_game',
     'Castlevania - Aria of Sorrow (USA).gba',
 )
 
@@ -25,7 +25,7 @@ ROM_PATH = os.path.join(
 @pytest.fixture(scope="module")
 def cvas_rom() -> GameBoyROM:
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Castlevania - Aria of Sorrow (USA).gba")
+        pytest.skip("Отсутствует test_game/Castlevania - Aria of Sorrow (USA).gba")
     return GameBoyROM(ROM_PATH)
 
 
@@ -229,6 +229,6 @@ class TestPointerTable:
 
     def test_patch_pointer_range(self):
         data = bytearray(16)
-        patch_pointer_range(data, 0, 0, 2, [0x1234, 0x5678])
+        assert patch_pointer_range(data, 0, 0, 2, [0x1234, 0x5678]) is True
         assert data[0:4] == (0x1234 + 0x08000000).to_bytes(4, 'little')
         assert data[4:8] == (0x5678 + 0x08000000).to_bytes(4, 'little')

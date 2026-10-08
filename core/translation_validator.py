@@ -142,6 +142,12 @@ class TranslationValidator:
         pointer_result = self._validate_pointers(translation, segment_id)
         warnings.extend(pointer_result.warnings)
 
+        # Проверка токенов: контрольные коды/плейсхолдеры оригинала
+        # обязаны сохраниться в переводе (иначе ломается движок игры)
+        token_result = self._validate_tokens(original, translation, segment_id)
+        errors.extend(token_result.errors)
+        warnings.extend(token_result.warnings)
+
         # Проверка разрешённых глифов
         if self.check_glyphs and self.allowed_glyphs:
             glyph_result = self._validate_glyphs(translation, segment_id)
@@ -236,6 +242,14 @@ class TranslationValidator:
                 segment_id=segment_id
             ))
 
+        if self.LEADING_SPACE_RE.search(text):
+            warnings.append(ValidationError(
+                ValidationLevel.WARNING,
+                "Найдены начальные пробелы в строках",
+                field="formatting",
+                segment_id=segment_id
+            ))
+
         return ValidationResult(
             is_valid=len(errors) == 0,
             errors=errors,
@@ -261,6 +275,136 @@ class TranslationValidator:
             max_length=self.max_length,
             original_length=0,
             translated_length=len(text)
+        )
+
+    TOKEN_RE = re.compile(r'\[[^\[\]]+\]|\{[^{}]+\}')
+    # Строгие игровые токены (потеря = ERROR): чётный hex (единственная
+    # байтово-правдоподобная форма; `[12]` намеренно strict — в ROM-декоде
+    # это сырой байт; чистый numeric (`[123]`) и digit-led со строчным
+    # ведущим (`[12abc]`, `[123ab]`) — loose),
+    # UPPER_SNAKE (проза с заглавной вроде [Hello World] — мимо),
+    # заведомо игровые формы: digit-led с UPPER-ведущим (`[40_3C]`, хвост
+    # hex-insensitive; ведущий регистр — ID-gate как в alt2, поэтому
+    # `[1G]` strict, а `[1g]` loose), `[G:XX]` hex-аргумент любого
+    # регистра, `[FF XX]`, `[0x..]` (голый `[0x]` без цифр — loose).
+    # `{...}` широкие намеренно: в прозе фигурные скобки почти
+    # не встречаются, а декодеры ими маркируют именованные токены.
+    # Слова из hex-букв ([BEEF]) — принятый редкий false-positive.
+    # Порядок альтернатив неважен: используется group(0)+canon, не номер
+    # группы, перекрытия (`[G:AB]` через alt2/alt7) сходятся к одному канону.
+    STRICT_TOKEN_RE = re.compile(
+        r'\[([0-9A-Fa-f]{2}(?:[0-9A-Fa-f]{2})*)\]'
+        r'|\[([A-Z][A-Z0-9_]*(?:[ :][A-Z0-9_ ]+)?)\]'
+        r'|\[([0-9]+[A-Z_:][0-9A-Fa-f_: ]*)\]'
+        r'|\[([0][xX][0-9A-Fa-f]+)\]'
+        r'|\{([^{}]+)\}'
+        r'|\[([0-9A-Fa-f]{2}(?:[ :][0-9A-Fa-f]{2})+)\]'
+        r'|\[(G:[0-9A-Fa-f]+)\]'
+        r'|\[([0][xX](?:[ ][0-9A-Fa-f]{2})+)\]'
+    )
+
+    def _validate_tokens(self, original: str, translation: str,
+                         segment_id: str | None = None) -> ValidationResult:
+        """Сохранение токенов: контрольные коды оригинала в переводе.
+
+        Потерянный токен ([PLAYER], [WAIT] и т.п.) ломает движок игры —
+        ERROR. Лишний токен — вероятно опечатка (WARNING). Порядок может
+        отличаться между языками (грамматика), но крупная перестановка
+        флагуется на ручную проверку (WARNING). Лишняя проза в скобках
+        в переводе не флагуется: перевод вправе добавлять пояснения.
+        Регистр: hex-цифры нечувствительны ([FF 0B]=[ff 0b], [G:AB]=[G:ab]),
+        префиксы команд чувствительны ([G:15]≠[g:15] — энкодеры требуют
+        заглавные), `{...}` чувствительны (декодеры отдают как есть:
+        {Chocobo}). В сообщениях — исходное написание, сравнение — по канону.
+        Смена кейса loose→strict переводчиком (промоушен вроде
+        `[player]`→`[PLAYER]`) даёт два WARNING — принятый шум: смена
+        регистра токена и так заслуживает взгляда.
+        """
+        from collections import Counter
+
+        def canon(token: str) -> str:
+            if token[:1] == '{':
+                return token
+            token = re.sub(r'[0-9A-Fa-f]+',
+                           lambda m: m.group(0).upper(), token)
+            return token.replace('[0X', '[0x')
+
+        def strict_pairs(text: str) -> list[tuple[str, str]]:
+            out = []
+            for m in TranslationValidator.STRICT_TOKEN_RE.finditer(text):
+                raw = m.group(0)
+                token = raw
+                if re.fullmatch(r'\[[0-9A-Fa-f]+\]', token) \
+                        or re.fullmatch(r'\[[0][xX][0-9A-Fa-f]+\]', token):
+                    token = token.upper().replace('[0X', '[0x')
+                out.append((raw, canon(token)))
+            return out
+
+        def loose_pairs(text: str) -> list[tuple[str, str]]:
+            strict_here = {c for _, c in strict_pairs(text)}
+            return [(m, canon(m)) for m in TranslationValidator.TOKEN_RE.findall(text)
+                    if canon(m) not in strict_here]
+
+        def show(pairs: list[tuple[str, str]], diff: Counter) -> list[str]:
+            rest = dict(diff)
+            out = []
+            for raw, c in pairs:
+                if rest.get(c, 0) > 0:
+                    out.append(raw)
+                    rest[c] -= 1
+            return out
+
+        errors: list[ValidationError] = []
+        warnings: list[ValidationError] = []
+        src = strict_pairs(original)
+        dst = strict_pairs(translation)
+        src_c = [c for _, c in src]
+        dst_c = [c for _, c in dst]
+        missing = Counter(src_c) - Counter(dst_c)
+        if missing:
+            errors.append(ValidationError(
+                ValidationLevel.ERROR,
+                f"Потеряны токены оригинала: {show(src, missing)}",
+                field="tokens",
+                segment_id=segment_id
+            ))
+        extra = Counter(dst_c) - Counter(src_c)
+        if extra:
+            warnings.append(ValidationError(
+                ValidationLevel.WARNING,
+                f"Лишние токены (нет в оригинале): {show(dst, extra)}",
+                field="tokens",
+                segment_id=segment_id
+            ))
+        if not missing and not extra:
+            src_common = [t for t in src_c if t in dst_c]
+            dst_common = [t for t in dst_c if t in src_c]
+            if src_common != dst_common:
+                warnings.append(ValidationError(
+                    ValidationLevel.WARNING,
+                    "Порядок токенов отличается от оригинала — проверить вручную",
+                    field="tokens",
+                    segment_id=segment_id
+                ))
+        loose_src = loose_pairs(original)
+        loose_dst = loose_pairs(translation)
+        loose_missing = (Counter(c for _, c in loose_src)
+                         - Counter(c for _, c in loose_dst))
+        if loose_missing:
+            warnings.append(ValidationError(
+                ValidationLevel.WARNING,
+                "Пропали скобочные пометки (возможно, проза): "
+                f"{show(loose_src, loose_missing)}",
+                field="tokens",
+                segment_id=segment_id
+            ))
+        return ValidationResult(
+            is_valid=not errors,
+            errors=errors,
+            warnings=warnings,
+            max_length=self.max_length,
+            original_length=len(original),
+            translated_length=len(translation)
         )
 
     def _validate_glyphs(self, text: str, segment_id: str | None = None) -> ValidationResult:

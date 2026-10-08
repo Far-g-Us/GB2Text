@@ -136,6 +136,11 @@
   "inject.overflow.summary": "{count} строк не внедрены: длина превышает свободную область. Полный отчёт ниже.",
   "inject.overflow.title": "Не поместившиеся строки",
   "inject.success": "Перевод успешно внедрен в {path}",
+  "inject.trailing_token.entry": "{segment}: перевод заканчивается raw-токеном, который извлечение отбросило бы; запись не записана",
+  "inject.mid_alias.entry": "{segment}: на эту запись смотрит чужой указатель, поэтому сокращение обнулило бы вторую; записано {written} из {room} байт",
+  "inject.trailing_truncated.entry": "{segment}: перевод читается короче, чем записан ({read_back} симв. из {chars}), поэтому в слот он не представим; ничего не записано",
+  "inject.all_padding.entry": "{segment}: из перевода в этот слот не читается ничего (только заполнение или control-коды), поэтому он не записан",
+  "inject.empty_translation.entry": "{segment}: в переводе нет непробельных символов, слот стал бы пустым и запись выпала бы из манифеста, поэтому перевод не записан",
   "inject.translation": "Внедрить в ROM",
   "inject.unmapped": "Символы без соответствия в таблице заменены пробелами: {chars}. Проверьте перевод перед сохранением ROM.",
   "injection.in.progress": "Внедрение уже выполняется…",
@@ -343,5 +348,9 @@
   "font.editor.title": "Редактор глифа",
   "font.editor.ok": "OK",
   "font.import.replace": "Отбросить неприменённые изменения и импортировать новый файл?",
-  "font.editor.discard": "Отбросить нарисованные изменения?"
+  "font.editor.discard": "Отбросить нарисованные изменения?",
+  "inject.affix_unknown.entry": "{segment}: не записано, причина инжектора {reason}",
+  "inject.overflow.line_reason": "0x{target:X}: {text}",
+  "inject.overflow.title_reason": "Строки оставлены оригиналом",
+  "inject.overflow.summary_reason": "{count} строк оставлено оригиналом: перевод не представим в ROM, а не слишком длинный"
 }

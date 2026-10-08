@@ -81,7 +81,7 @@ def scan_blocks(rom_path, limit=None):
         decoder = CharMapDecoder(charmap)
         try:
             data = rom.data[text_addr:text_addr + 256]
-            text = decoder.decode(data, 0, len(data))
+            text = decoder.decode(bytes(data), 0, len(data))
             if text:
                 print(f"       Text: {text[:50]}{'...' if len(text) > 50 else ''}")
         except Exception as e:
@@ -106,7 +106,7 @@ def decode_block(rom_path, address):
     print(f"Raw bytes: {data[:64].hex()}")
     print()
 
-    text = decoder.decode(data, 0, len(data))
+    text = decoder.decode(bytes(data), 0, len(data))
     print(f"Decoded text: {text}")
 
 

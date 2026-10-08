@@ -44,11 +44,25 @@ from core.rom import GameBoyROM
 from plugins.gba_golden_sun import (
     GoldenSunHuffmanDecoder,
     GoldenSunHuffmanEncoder,
+    ascii_credits_segments,
 )
 
 logger = logging.getLogger('gb2text.plugins.golden_sun_tla')
 
 GAME_CODES = ['AGFE']
+
+# Кредиты TLA: тот же простой ASCII-блок, что у GS, но по другому адресу.
+TLA_CREDITS_WIN = (0x1A0000, 0x1A4000)
+TLA_CREDITS_PREFIX = 'gs_tla_credits'
+# Начало блока кредитов TLA для этой ревизии ROM.
+TLA_CREDITS_AT = 0x1A1A10
+# Количество кредитов в этой ревизии ROM (замер:
+# `scripts_roms/readback_census_probe.py`).
+TLA_CREDITS_COUNT = 101
+# Границы области кредитов в этой ревизии ROM, измерено
+# (`scripts_roms/readback_census_probe.py`).
+TLA_CREDITS_REGION_START = 0x1A1A10
+TLA_CREDITS_REGION_END = 0x1A2058
 
 # ---- ROM layout constants (Golden Sun: The Lost Age, USA/EU) ----
 TLA_TREES_BASE = 0x05F914
@@ -94,9 +108,15 @@ class GoldenSunTLATextDecoder:
                 result.append(TLA_NAMED_TOKENS[byte])
                 i += 1
                 continue
+            # Группа ровно из двух байт — как и описано в докстринге
+            # выше. Жадный захват брал ВСЕ последовательные управляющие
+            # байты в один токен: `11 04 11` становилось `{11 04 11}`
+            # вместо `{11 04}{11}`, и сохранённая строка перестраивалась
+            # неверно.
             group = [byte]
             j = i + 1
-            while (j < len(data) and data[j] < 0x20
+            while (j < len(data) and len(group) < 2
+                   and data[j] < 0x20
                    and data[j] not in TLA_NAMED_TOKENS):
                 group.append(data[j])
                 j += 1
@@ -107,7 +127,6 @@ class GoldenSunTLATextDecoder:
     def encode(self, text: str) -> bytes:
         """Reverse-maps tokens back into bytes (named and hex token groups)."""
         out = bytearray()
-        tokens = sorted(TLA_TOKEN_REVERSE, key=len, reverse=True)
         i = 0
         while i < len(text):
             if text[i] != '{':
@@ -200,6 +219,12 @@ class GoldenSunTLAPlugin(GamePlugin):
                     'encoder': self._make_compressor(compressor),
                 })
                 pos += length
+
+        # Кредиты TLA лежат отдельно от диалогов (простой ASCII, тот же
+        # формат, что у GS), но окно своё и префикс свой.
+        segments.extend(ascii_credits_segments(
+            rom.data, TLA_CREDITS_WIN[0], TLA_CREDITS_WIN[1],
+            TLA_CREDITS_PREFIX, log=logger, fixed_at=TLA_CREDITS_AT))
 
         logger.info(f"Total segments: {len(segments)}")
         return segments

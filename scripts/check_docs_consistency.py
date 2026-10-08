@@ -16,10 +16,15 @@
             коммерческие файлы ROM / commercial ROM files";
             (3b) [только в download.md] non-affiliation (не аффилирован
             с Nintendo). README non-affiliation НЕ требуется.
+4. parity — состав и порядок чеклист-пунктов в en/ru парах
+            (KNOWN_ISSUES, ROADMAP): одинаковое число пунктов, одинаковый
+            порядок, одинаковая вложенность и одинаковое состояние
+            [ ]/[x]. Текст пунктов НЕ сравнивается — он по определению
+            разный в двух языках.
 
 Поведение: ненулевой exit и "file:line: описание" в stderr при любой
 проблеме (жёсткий гейт; готово для GitHub annotations). Режимы:
---mode links|routers|legal, --all, --quiet. Без зависимостей и сети.
+--mode links|routers|legal|parity, --all, --quiet. Без зависимостей и сети.
 
 Спека GitHub-slug (для проверки якорей) — дословный порт
 github-slugger (Flet/github-slugger, MIT, master), сверен критиком
@@ -374,6 +379,99 @@ def check_legal(root: Path) -> list[str]:
     return problems
 
 
+PARITY_FILES = (
+    "KNOWN_ISSUES.md",
+    "docs/en/KNOWN_ISSUES.md",
+    "ROADMAP.md",
+    "docs/en/ROADMAP.md",
+)
+
+_ITEM_RE = re.compile(r"^(?P<indent>[ ]*)- \[(?P<state>[ xX])\]")
+
+
+def _doc_items(text: str) -> list[tuple[int, str]]:
+    """Структура чеклиста: (уровень вложенности, состояние) по порядку.
+
+    Сравниваются только уровень и состояние, но НЕ текст пунктов: он по
+    определению разный в двух языках. Заголовки и обычные буллеты игнорируются
+    — иначе любая правка формулировки давала бы ложное « рассинхронено».
+    Fenced-блоки пропускаются: пример с чекбоксом внутри ``` — иллюстрация, а
+    не пункт списка. Вторым элементом возвращается число маркеров fence: нечётное
+    означает незакрытый блок, после которого всё остальное не проверялось бы.
+    """
+    items: list[tuple[int, str]] = []
+    in_fence = False
+    fence_count = 0
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.startswith("```"):
+            # Считаем РОВНО маркеры fence, а не переключаем флаг: незакрытый
+            # fence «залипает» и молча отключает проверку до конца файла,
+            # после чего любой рассинхрон проходит тихо. Нечётное число — это
+            # ошибка разметки, её видно отдельной проверкой fence_count.
+            fence_count += 1
+            in_fence = fence_count % 2 == 1
+            continue
+        if in_fence:
+            continue
+        m = _ITEM_RE.match(line)
+        if m:
+            items.append((len(m.group("indent")) // 2, m.group("state").lower()))
+    return items, fence_count
+
+
+def check_parity(root: Path) -> list[str]:
+    """Одинаковый состав и порядок пунктов в ru/en парах.
+
+    Расхождение здесь — это не «перевод отстал», а разные дефекты в разных
+    файлах: читатель одного языка не знает о проблеме другого.
+    """
+    problems: list[str] = []
+    for i in range(0, len(PARITY_FILES), 2):
+        base, localized = PARITY_FILES[i], PARITY_FILES[i + 1]
+        texts: dict[str, list[tuple[int, str]]] = {}
+        for rel in (base, localized):
+            path = root / rel
+            if not path.exists():
+                problems.append(f"{path}:MISSING parity file does not exist")
+                texts[rel] = []
+                continue
+            try:
+                items, fences = _doc_items(
+                    path.read_text(encoding="utf-8", errors="replace"))
+            except OSError as err:
+                problems.append(f"{path}:unreadable: {err}")
+                texts[rel] = []
+                continue
+            if fences % 2:
+                # Незакрытый fence: всё после него не проверялось, поэтому
+                # «пары в порядке» здесь сказала бы о пустом месте.
+                problems.append(
+                    f"{path}:{fences} fence markers, unbalanced — "
+                    f"checklist after the block was not verified")
+            texts[rel] = items
+        left, right = texts[base], texts[localized]
+        if len(left) != len(right):
+            # Включает случай «чек-лист есть только с одной стороны»: 0 против N
+            # — то же расхождение. Отдельной ветки не нужно, а случай «пусто с
+            # обеих сторон» разбирается ниже.
+            problems.append(
+                f"{base}:{len(left)} checklist items vs {len(right)} in "
+                f"{localized}")
+            continue
+        if not left:
+            # Оба файла без чеклиста: пара молча выпала бы из проверки, и
+            # гейт можно было бы обезвредить, не заметив.
+            problems.append(
+                f"{base}:no checklist items found, pair is not checked")
+            continue
+        for idx, (a, b) in enumerate(zip(left, right, strict=True)):
+            if a != b:
+                problems.append(
+                    f"{base}:item {idx + 1} is {a} but {localized} has {b}")
+    return problems
+
+
 def discover_md_files(root: Path) -> list[Path]:
     files = sorted(root.rglob("*.md"))
     skip_parts = {
@@ -384,7 +482,7 @@ def discover_md_files(root: Path) -> list[Path]:
         "htmlcov",
         "dist",
         "build",
-        "test_roms",
+        "test_game",
         ".agent",
         ".opencode",
         ".claude",
@@ -396,20 +494,23 @@ def discover_md_files(root: Path) -> list[Path]:
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("links", "routers", "legal"), default="links")
+    parser.add_argument("--mode", choices=("links", "routers", "legal", "parity"),
+                        default="links")
     parser.add_argument("--all", action="store_true", help="run all checks")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
     root = Path.cwd()
     problems: list[str] = []
-    modes = ("links", "routers", "legal") if args.all else (args.mode,)
+    modes = ("links", "routers", "legal", "parity") if args.all else (args.mode,)
 
     for mode in modes:
         if mode == "links":
             problems += check_links(root, discover_md_files(root))
         elif mode == "routers":
             problems += check_routers(root)
+        elif mode == "parity":
+            problems += check_parity(root)
         else:  # mode == "legal" (choices ограничены argparse)
             problems += check_legal(root)
 

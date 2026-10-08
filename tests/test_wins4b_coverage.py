@@ -75,10 +75,27 @@ def test_fetch_validation_error_cached(registry, monkeypatch):
 
 
 def test_fetch_generic_error_no_cache(registry, monkeypatch):
+    """Оффлайн + пустой кэш: берётся реестр из поставки, а не ошибка.
+
+    Контракт изменился вместе с офлайн-запасным каталогом: окно плагинов
+    обязано открыться без сети. Исключение остаётся только если и
+    registry.json из поставки недоступен (проверяется в
+    tests/test_community_registry.py).
+    """
     def _boom(*args, **kwargs):
         raise ConnectionError("offline")
 
     monkeypatch.setattr("requests.get", _boom)
+    assert registry.fetch_registry() == []
+
+
+def test_fetch_error_without_bundled_registry_raises(registry, monkeypatch):
+    """Нет ни кэша, ни реестра из поставки — честная ошибка."""
+    def _boom(*args, **kwargs):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr("requests.get", _boom)
+    monkeypatch.setattr(CommunityRegistry, "_load_bundled", lambda self, validate=False: None)
     with pytest.raises(CommunityRegistryError):
         registry.fetch_registry()
 

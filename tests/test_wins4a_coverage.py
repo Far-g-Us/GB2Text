@@ -6,7 +6,6 @@ import pytest
 from core.analyzer import TextAnalyzer
 from core.plugin import PluginProtocol
 from core.xliff import XLIFFHandler
-from plugins.gba_advance_wars import AdvanceWarsPlugin
 from plugins.gba_ct_special_forces import CTSpecialForcesPlugin
 from plugins.gba_custom_robo_gx import CustomRoboGXPlugin
 from plugins.gba_megaman_battle_network_2 import MegaManBattleNetwork2Plugin
@@ -17,7 +16,6 @@ from plugins.gbc_zelda_seasons import OracleOfSeasonsPlugin
 from plugins.zelda_oracle_common import OracleTextDecoder
 
 _STUB_PLUGINS = (
-    AdvanceWarsPlugin,
     CTSpecialForcesPlugin,
     CustomRoboGXPlugin,
     MegaManBattleNetwork2Plugin,

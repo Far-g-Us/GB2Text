@@ -21,6 +21,7 @@ GB Text Extraction Framework
 
 import logging
 import time
+from typing import ClassVar
 
 logger = logging.getLogger('gb2text.mbc')
 
@@ -28,7 +29,7 @@ logger = logging.getLogger('gb2text.mbc')
 class MBC:
     """Базовый класс для MBC"""
 
-    RAM_SIZES = {
+    RAM_SIZES: ClassVar[dict[int, int]] = {
         0: 0,      # No RAM
         1: 2048,   # 2KB
         2: 8192,   # 8KB

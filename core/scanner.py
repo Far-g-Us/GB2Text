@@ -26,7 +26,7 @@ try:
     import numpy as np
     NUMPY_AVAILABLE = True
 except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
-    np = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment,unused-ignore]
     NUMPY_AVAILABLE = False
 
 from core.constants import (
@@ -45,6 +45,7 @@ from core.constants import (
     TEXT_TERMINATORS,
     VRAM_END,
     VRAM_START,
+    RomData,
 )
 
 # ML-based segment classification
@@ -52,7 +53,7 @@ try:
     from core.ml_classifier import SKLEARN_AVAILABLE, get_ml_classifier
 except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
     SKLEARN_AVAILABLE = False
-    get_ml_classifier = None
+    get_ml_classifier = None  # type: ignore[assignment,unused-ignore]
 
 logger = logging.getLogger('gb2text.scanner')
 
@@ -111,7 +112,7 @@ def _detect_constant_stride(pointers: list[tuple[int, int]], min_run: int = 8) -
     return filtered
 
 
-def find_text_pointers(rom_data: bytes, start: int = 0, end: int | None = None,
+def find_text_pointers(rom_data: RomData, start: int = 0, end: int | None = None,
                        pointer_size: int = 2, min_length: int = MIN_POINTER_LENGTH,
                        address_base: int = 0) -> list[tuple[int, int]]:
     """
@@ -182,7 +183,7 @@ def find_text_pointers(rom_data: bytes, start: int = 0, end: int | None = None,
     return pointers
 
 
-def is_text_like(rom_data: bytes, start: int, min_length: int,
+def is_text_like(rom_data: RomData, start: int, min_length: int,
                  min_printable_ratio: float = 0.6) -> bool:
     """Проверяет, похож ли участок данных на текст
 
@@ -243,7 +244,7 @@ def _density_for(freq: Counter, byte_range: tuple[int, int], window_size: int) -
     return sum(freq.get(i, 0) for i in range(byte_range[0], byte_range[1] + 1)) / window_size
 
 
-def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 2000,
+def detect_multiple_languages(rom_data: RomData, start: int = 0, length: int = 2000,
                               prefer_lang: str | None = None) -> list[str]:
     """Определяет все языки, присутствующие в ROM.
 
@@ -326,7 +327,7 @@ def detect_multiple_languages(rom_data: bytes, start: int = 0, length: int = 200
     return detected_languages if detected_languages else ['english']
 
 
-def auto_detect_charmap(rom_data: bytes, start: int = 0, length: int = 1000,
+def auto_detect_charmap(rom_data: RomData, start: int = 0, length: int = 1000,
                         prefer_lang: str | None = None) -> dict[int, str]:
     """Автоматическое определение таблицы символов с поддержкой нескольких языков
 
@@ -526,7 +527,7 @@ def _setup_japanese_charmap(charmap: dict, freq: Counter):
     charmap[0x0D] = '\n'  # Возврат каретки
 
 
-def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: bytes | None = None,
+def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: bytes | bytearray | None = None,
                           start: int = 0, length: int = 1000):
     """Добавляет общие символы и терминаторы
 
@@ -579,7 +580,7 @@ def _setup_common_symbols(charmap: dict, freq: Counter, is_gbc: bool, rom_data: 
         charmap[0xFF] = '\n'
 
 
-def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH, min_readability: float = MIN_READABILITY,
+def auto_detect_segments(rom_data: RomData, min_segment_length: int = MIN_SEGMENT_LENGTH, min_readability: float = MIN_READABILITY,
                          block_size: int = READABLE_BLOCK_SIZE) -> list[dict]:
     """Автоматическое определение текстовых сегментов с улучшенной фильтрацией"""
 
@@ -587,7 +588,7 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_
     logger.info(
         f"Автоопределение текстовых сегментов (мин. длина={min_segment_length}, мин. читаемость={min_readability}, размер блока={block_size})")
 
-    segments = []
+    segments: list[dict] = []
     in_segment = False
     segment_start = 0
     current_run = 0
@@ -651,7 +652,7 @@ def auto_detect_segments(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_
     return segments
 
 
-def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGMENT_LENGTH,
+def auto_detect_segments_ml(rom_data: RomData, min_segment_length: int = MIN_SEGMENT_LENGTH,
                               block_size: int = 16, ml_threshold: float = 0.6,
                               confidence_threshold: float = 0.5) -> list[dict]:
     """
@@ -681,7 +682,7 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
 
     ml_classifier = get_ml_classifier()
 
-    segments = []
+    segments: list[dict] = []
     in_segment = False
     segment_start = 0
     ml_scores = []
@@ -703,7 +704,8 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
         block = rom_data[i:i + block_size]
 
         # ML классификация
-        ml_score = ml_classifier.predict(block)
+        # ML-классификатор ждёт bytes, а блок вырезан из bytearray.
+        ml_score = ml_classifier.predict(bytes(block))
         ml_scores.append(ml_score)
 
         # Также вычисляем читаемость
@@ -765,7 +767,7 @@ def auto_detect_segments_ml(rom_data: bytes, min_segment_length: int = MIN_SEGME
     return segments
 
 
-def _skip_non_text_regions(i: int, rom_data: bytes, skip_ranges: list[tuple[int, int]]) -> int:
+def _skip_non_text_regions(i: int, rom_data: bytes | bytearray, skip_ranges: list[tuple[int, int]]) -> int:
     """Пропускает известные нетекстовые области"""
     for start_skip, end_skip in skip_ranges:
         if start_skip <= i < end_skip:
@@ -773,7 +775,7 @@ def _skip_non_text_regions(i: int, rom_data: bytes, skip_ranges: list[tuple[int,
     return i
 
 
-def _compute_block_readability(rom_data: bytes, start: int, block_size: int) -> float:
+def _compute_block_readability(rom_data: bytes | bytearray, start: int, block_size: int) -> float:
     """Вычисляет читаемость блока"""
     end_block = min(start + block_size, len(rom_data))
     readable_chars = sum(
@@ -795,7 +797,7 @@ def _add_segment(segments: list[dict], start: int, end: int, readability: float,
     return segments
 
 
-def analyze_text_segment(rom_data: bytes, start: int, end: int) -> dict:
+def analyze_text_segment(rom_data: RomData, start: int, end: int) -> dict:
     """Анализ текстового сегмента для определения характеристик"""
 
     logger = logging.getLogger('gb2text.scanner')
@@ -813,16 +815,17 @@ def analyze_text_segment(rom_data: bytes, start: int, end: int) -> dict:
     logger.info(f"Плотность читаемых символов: {readability:.2%}")
 
     # Анализ повторяющихся паттернов (возможно, сжатие)
-    pattern_counts = Counter()
+    # Ключ — кортеж из четырёх байт: 4-байтный срез непригоден как ключ,
+    # потому что bytes hashable, но тайл в отчёте всё равно печатался кортежем.
+    pattern_counts: Counter[tuple[int, ...]] = Counter()
     for i in range(len(segment) - 3):
-        pattern = segment[i:i + 4]
-        pattern_counts[tuple(pattern)] += 1
+        pattern_counts[tuple(segment[i:i + 4])] += 1
 
     repeated_patterns = [p for p, c in pattern_counts.items() if c > 3]
     logger.info(f"Найдено {len(repeated_patterns)} повторяющихся паттернов")
 
     # Анализ возможных терминаторов
-    terminators = Counter()
+    terminators: Counter[int] = Counter()
     for i in range(1, len(segment)):
         if segment[i - 1] != segment[i]:  # Если байт отличается от предыдущего
             terminators[segment[i - 1]] += 1

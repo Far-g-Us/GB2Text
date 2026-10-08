@@ -427,10 +427,36 @@ class TestFetchRegistry:
         assert len(result) == 1
         assert result[0]["version"] == "0.9.0"
 
-    def test_network_error_no_cache(self, registry):
-        with patch("requests.get", side_effect=Exception("Network error")):
-            with pytest.raises(CommunityRegistryError, match="Не удалось загрузить каталог"):
+    def test_network_error_no_cache(self, registry, tmp_path):
+        """Без сети и без кэша берётся реестр из поставки, а не ошибка.
+
+        Каталог сообщества живёт на GitHub Pages; когда он недоступен
+        (404 до деплоя, офлайн, прокси), окно плагинов обязано открыться,
+        а не показывать ошибку загрузки. Последний рубеж — registry.json
+        из поставки.
+        """
+        registry.settings_dir = tmp_path / 'settings'
+        with patch("requests.get", side_effect=Exception("Network error")), \
+                patch.object(CommunityRegistry, '_load_bundled',
+                             return_value=[]):
+            result = registry.fetch_registry()
+
+        assert result == []
+
+    def test_network_error_no_cache_no_bundled_raises(self, registry, tmp_path):
+        """Если и реестра из поставки нет — ошибка, а не молчание."""
+        registry.settings_dir = tmp_path / 'settings'
+        with patch("requests.get", side_effect=Exception("Network error")), \
+                patch.object(CommunityRegistry, '_load_bundled',
+                             return_value=None):
+            with pytest.raises(CommunityRegistryError,
+                               match="Не удалось загрузить каталог"):
                 registry.fetch_registry()
+
+    def test_bundled_registry_opens_window_offline(self, tmp_path):
+        """Реальный registry.json из поставки валиден и открывает окно."""
+        bundled = CommunityRegistry(settings_dir=tmp_path / 'settings')
+        assert bundled._load_bundled(validate=True) == []
 
     def test_invalid_plugins_type(self, registry):
         mock_resp = MagicMock()

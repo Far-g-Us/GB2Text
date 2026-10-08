@@ -35,14 +35,14 @@ def test_guide_frozen_base_is_executable_dir(monkeypatch):
 
 def test_patch_pointer_range_end():
     data = bytearray(16)
-    patch_pointer_range(data, 0, 0, 1, [0x100, 0x200])
+    assert patch_pointer_range(data, 0, 0, 1, [0x100, 0x200]) is True
     assert data[0:4] == (0x100 + HEADER_BASE).to_bytes(4, "little")
     assert data[4:8] == b"\x00\x00\x00\x00"
 
 
 def test_patch_pointer_range_bounds():
     data = bytearray(b"\xaa\xbb\xcc\xdd")
-    patch_pointer_range(data, 2, 0, 5, [0x100])
+    assert patch_pointer_range(data, 2, 0, 5, [0x100]) is False
     assert data == bytearray(b"\xaa\xbb\xcc\xdd")
 
 

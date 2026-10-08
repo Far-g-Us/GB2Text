@@ -15,8 +15,10 @@ critic and security-critic pre-reviews (mode B).
 - Core API is mature: `TextExtractor(rom).extract() -> dict[str, list[dict]]`,
   `TextInjector(rom).inject_segment(name, texts, plugin)`, `get_safe_plugin_manager(dir)`.
 - The project runs from repo root (no package install); GUI tests use real ROMs
-  in test_roms/ (skipped if missing). Pre-existing: ruff 56 / mypy 360 repo-wide
-  errors — acceptance criteria are scoped to our files only.
+  in test_game/ (skipped if missing). Pre-existing: ruff 0 / mypy 407 errors repo-wide
+  (tests 290 / core 63 / gui 43 / scripts 5 / plugins 4 / main.py 2; note
+  `mypy.ini` does NOT exclude `scripts/`, unlike `script_game/` and
+  `scripts_roms/`). Acceptance criteria are scoped to our files only.
 - Known pre-existing (documented, not fixed): main.py --lang without zh;
   `PluginManager(plugins_dir)` creates the dir and example.json on construction —
   api isolates from this. `injector.save()` does recompute header/global checksums
@@ -28,7 +30,8 @@ critic and security-critic pre-reviews (mode B).
 1. One Python module `api/` (REPL/Jupyter-first): clean functions with
    dataclass/JSON results, CancellationToken for long operations.
 2. `python -m api.cli` subcommands: `plugins`, `detect`, `extract`, `inject`,
-   `serve` — JSON-compatible output, stable exit codes (0/1/2).
+   `   serve` — JSON-compatible output, stable exit codes (0/1/2, plus 3 for a
+   broken checksum from `fixsum`).
 3. HTTP/JSON service on stdlib (`ThreadingHTTPServer`), default bind 127.0.0.1,
    endpoints /health /plugins /detect /extract /inject.
 4. Stable response contract: `{"ok": bool, "data": ...|"error": {...}}`.
@@ -53,8 +56,12 @@ HTTP wire errors (400 malformed JSON, 404 endpoint, 405 method, 408 timeout,
 errors (PLUGIN_NOT_FOUND etc.) are returned as `200 {"ok":false}`.
 
 CLI: exit 0 = ok; 1 = runtime/validation (contract error on stdout);
-2 = argparse parse error. JSON goes to stdout (not stderr), utf-8
-(`sys.stdout.reconfigure(encoding='utf-8')` with `--json`).
+2 = argparse parse error; 3 = `fixsum` found a broken checksum (NOT an
+operational failure — CI must be able to tell "the ROM is broken" from "wrong
+path / no access"). JSON goes to stdout (not stderr), utf-8
+(`sys.stdout.reconfigure(encoding='utf-8')` — unconditionally, since the
+human-readable branches print non-ASCII and the reconfigure previously ran
+only under `--json`).
 `--format json` (raw extract results, as in main.py) and `--json` (contract
 wrapper) are mutually exclusive: if both are given, argparse raises an error
 (exit code 2).
@@ -111,6 +118,10 @@ api.cli detect ROM [--plugin-dir DIR] [--json]
 api.cli extract ROM -o OUT [--format json|text|csv]
                 [--plugin-dir DIR] [--max-segments N] [--lang en|ru|ja|zh] [--json]
 api.cli inject ROM --translations T.json [--output-rom OUT] [--plugin-dir DIR] [--json]
+api.cli fixsum ROM (--check | --fix) [--json]
+api.cli audit ROM [--plugin-dir DIR] [--json]
+api.cli picture ROM {preview|apply} --offset OFF --bpp N --count N
+                 [--png FILE] [--force] [-o OUT] [--json]
 api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 ```
 
@@ -119,6 +130,24 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
   is VALIDATION_ERROR with a clear message.
 - `--lang`: interface/text language — documented as segment filter in extract,
   no-op elsewhere.
+- `fixsum` repairs ROM checksums after a hex editor broke them. It goes through
+  `resolve_rom`, so `.sav`/`.txt` are refused rather than overwritten.
+  `--check` writes nothing (exit 0 — matches, **3 — broken**), `--fix` writes
+  atomically and only when there is something to fix. JSON carries `repaired`.
+- `audit` prints, per fixed segment, whether `has_mid_alias` is needed
+  (confirmed pointers inside slot tails, compared by target monotonicity). Always
+  exits 0.
+- `picture` works on a picture built from tiles: `preview` renders the block to a
+  PNG and never touches the ROM, `apply` writes a **new** ROM from the edited
+  PNG. Byte identity is GUARANTEED — an unchanged picture comes back byte-for-byte, even
+  when an editor re-saved the preview as RGB/RGBA/L (a dedicated sampler reconciles
+  against the PNG palette). For 4bpp any 32 bytes decode as a tile, so the block must
+  be graphics: a calibrated gate rejects code and data and can be lifted deliberately
+  with --force. The source ROM cannot be overwritten: an -o equal to the input (or
+  a hardlink to it) is refused. A PNG that lost the gb2text_tiles/gb2text_scale/
+  gb2text_bpp tags, or whose geometry no longer matches the expected preview
+  size, is refused — editors may strip tEXt, and without the check apply would
+  write garbage while reporting success.
 
 ## 6. HTTP (stdlib)
 
@@ -166,7 +195,7 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 - `tests/test_api_http.py`: ThreadingHTTPServer on an ephemeral port, http.client:
   /health, /detect ok, bad-rom -> contract error, /inject bad translations ->
   ok:false, 415 on form POST, 413 on oversized body, 503 BUSY (semaphore), 404/405.
-- Guarantees: no test_roms (portable); tests do not depend on the network.
+- Guarantees: no ROM fixtures in the repo (portable); tests do not depend on the network.
 
 ## 8. Out of scope
 
@@ -192,6 +221,6 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 - HTTP /inject on synthetic: output written next to ROM (default) or into the
   allowed parent dir; re-extract matches.
 - Scoped static checks: `ruff check api/ tests/test_api*.py` and `mypy api/`
-  clean; NOT `mypy .`/`ruff check .` (pre-existing baseline 360/56).
+  clean; NOT `mypy .`/`ruff check .` (pre-existing baseline 429/0).
 - HTTP responses carry text/metadata only: zero ROM/hex dumps.
 - Security lives in the api layer (path sanitization) without core changes.

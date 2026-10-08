@@ -250,11 +250,13 @@ def test_extractor_adjust_decoder_bad_charmap():
 
 
 def test_extractor_split_tokens():
+    # Семантика сменена блоком align (см. tests/test_inject_align.py):
+    # [XX] inline, а не разделитель — иначе extract/inject расходятся
+    # в количестве сообщений и inject_segment честно отказывает.
     extractor = _bext()
     assert extractor._split_messages("[END]hi", 0) == [{"offset": 5, "text": "hi"}]
     assert extractor._split_messages("ab[41]cd[ZZ]ef", 0) == [
-        {"offset": 0, "text": "ab"},
-        {"offset": 6, "text": "cd[ZZ]ef"},
+        {"offset": 0, "text": "ab[41]cd[ZZ]ef"},
     ]
 
 

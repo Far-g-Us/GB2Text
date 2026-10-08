@@ -14,8 +14,11 @@ security-критика (режим B).
 - core API зрелый: `TextExtractor(rom).extract() -> dict[str, list[dict]]`,
   `TextInjector(rom).inject_segment(name, texts, plugin)`, `get_safe_plugin_manager(dir)`.
 - Проект запускается из корня (no package install), GUI-тесты на реальных ROM
-  в test_roms/ (skip, если нет). Pre-existing: ruff 56 / mypy 360 ошибок по
-  проекту — критерии приёмки scoped на наши файлы.
+  в test_game/ (skip, если нет). Pre-existing: ruff 0 / mypy 407 ошибок по
+  всему репозиторию (tests 290 / core 63 / gui 43 / scripts 5 / plugins 4
+  / main.py 2). Обратите внимание: `mypy.ini` НЕ исключает `scripts/`, в
+  отличие от `script_game/` и `scripts_roms/`. Критерии приёмки scoped
+  на наши файлы.
 - Известные pre-existing (document, не фиксим): main.py --lang без zh;
   `PluginManager(plugins_dir)` создаёт каталог и example.json при создании —
   api изолирует от этого. `injector.save()` пересчитывает header/global
@@ -111,6 +114,10 @@ api.cli detect ROM [--plugin-dir DIR] [--json]
 api.cli extract ROM -o OUT [--format json|text|csv]
                 [--plugin-dir DIR] [--max-segments N] [--lang en|ru|ja|zh] [--json]
 api.cli inject ROM --translations T.json [--output-rom OUT] [--plugin-dir DIR] [--json]
+api.cli fixsum ROM (--check | --fix) [--json]
+api.cli audit ROM [--plugin-dir DIR] [--json]
+api.cli picture ROM {preview|apply} --offset OFF --bpp N --count N
+                 [--png FILE] [--force] [-o OUT] [--json]
 api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 ```
 
@@ -119,6 +126,25 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
   VALIDATION_ERROR с понятным сообщением.
 - `--lang`: выбор языка интерфейса/текста — задокументировать что в extract
   это фильтр по конфигу сегментов, в остальных командах no-op.
+- `fixsum` чинит checksum'ы ROM после правки hex-редактором. Идёт через
+  `resolve_rom`, поэтому `.sav`/`.txt` отвергаются, а не перезаписываются.
+  `--check` ничего не пишет (код 0 — сошлось, **3 — сломан**), `--fix` пишет
+  атомарно и только при наличии что чинить. В JSON есть `repaired`.
+- `audit` — по fixed-сегментам печатает, где нужен `has_mid_alias` (подтверждённые
+  указатели в хвостах слотов, сравнение по монотонности целей). Код 0 всегда.
+- `picture` — работа с картинкой из тайлов: `preview` рендерит блок в PNG и ROM не
+  трогает, `apply` пишет **новый** ROM из отредактированного PNG. Исходный ROM
+  перезаписать нельзя: `-o`, совпадающий с исходником (в т.ч. hardlink на него),
+  отвергается. Палитра mode P обязана быть серой рамкой, иначе картинку придётся
+  перекодировать вручную. Побайтовое
+  тождество гарантировано: неизменённая картинка возвращается байт в байт, в том
+  числе если редактор сохранил превью в RGB/RGBA/L. Для 4bpp любые 32 байта
+  читаются как тайл, поэтому блок должен быть графикой — гард «похоже ли на
+  графику» отвергает код и данные (порог откалиброван замером), снимается флагом
+  `--force`. PNG, потерявший метки `gb2text_tiles`/`gb2text_scale`/`gb2text_bpp`
+  или имеющий несовпадающую геометрию, отвергается: редактор может срезать tEXt,
+  и без проверки apply записал бы мусор в ROM при «успешном» отчёте. Метки
+  возвращаются повторным `preview` в новый файл.
 
 ## 6. HTTP (stdlib)
 
@@ -167,7 +193,7 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 - `tests/test_api_http.py`: ThreadingHTTPServer на ephemeral порт, http.client:
   /health, /detect ok, bad-rom -> contract-ошибка, /inject bad translations ->
   ok:false, 415 на form POST, 413 на большой body, 503 BUSY (сем-фор), 404/405.
-- Гарантии: никаких test_roms (portable); тесты не зависят от сети.
+- Гарантии: никаких ROM-фикстур в репозитории (portable); тесты не зависят от сети.
 
 ## 8. Вне скоупа
 
@@ -193,6 +219,6 @@ api.cli serve [--host 127.0.0.1] [--port 8765] [--plugin-dir DIR]
 - HTTP /inject на синтетике: выход записан рядом с ROM (по умолчанию) или в
   указанный каталог разрешённого родителя; повторное extract совпало.
 - Scoped-статика: `ruff check api/ tests/test_api*.py` и `mypy api/` чистые;
-  НЕ запускаем `mypy .`/`ruff check .` (pre-existing baseline 360/56).
+  НЕ запускаем `mypy .`/`ruff check .` (pre-existing baseline 429/0).
 - В ответах HTTP только текст/метаданные: ни одного ROM/hex-дампа.
 - Security делается на слое api (санитизация путей) без правок core.

@@ -9,7 +9,7 @@ from core.injector import TextInjector
 from core.rom import GameBoyROM
 from plugins.gb_pokemon_gen1 import CHARMAP_GEN1, GEN1_TERMINATORS, Gen1FixedDecoder, Gen1TextDecoder, PokemonGen1Plugin
 
-ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
+ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_game')
 RED = 'Pokemon - Red Version (USA, Europe).gb'
 
 

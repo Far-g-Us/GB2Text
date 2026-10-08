@@ -10,7 +10,6 @@ from plugins.gb_pokemon_gen1 import (
     Gen1TextDecoder,
     PokemonGen1Plugin,
 )
-from plugins.gba_advance_wars import AdvanceWarsPlugin
 from plugins.gba_castlevania import (
     CHARMAP_CVAS,
     CVAS_POINTER_COUNT,
@@ -46,7 +45,6 @@ from plugins.gba_pokemon import (
 from plugins.gba_shining_force import ShiningForcePlugin
 
 _STUB_PLUGINS = (
-    AdvanceWarsPlugin,
     CTSpecialForcesPlugin,
     CustomRoboGXPlugin,
     MegaManBattleNetwork2Plugin,
@@ -151,7 +149,7 @@ def test_ff4_full_table():
     rom[0x2E3670:0x2E3673] = bytes([0x01, 0x02, 0x02])
     rom[0x2E3673] = 0x0C
     segments = FF4AdvancePlugin().get_text_segments(SimpleNamespace(data=bytes(rom)))
-    assert [s["name"] for s in segments] == ["ff4_text_0"]
+    assert [s["name"] for s in segments] == [f"ff4_text_0_{0x2E3670:06x}"]
 
 
 def test_ff4_accessors():

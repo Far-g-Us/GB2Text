@@ -4,6 +4,7 @@
 GUI smoke-тесты: реальный Tk (паттерн test_gui_smoke.py).
 """
 
+import gc
 import hashlib
 import json
 import threading
@@ -59,6 +60,11 @@ def root():
         pytest.skip(f"Нет Tk display: {e}")
     r.withdraw()
     yield r
+    # Освобождаем память ПОКА интерпретатор Tcl жив и мы в главном потоке.
+    # Финализатор tkinter.Variable дёргает Tcl из того потока, где отпустили
+    # последнюю ссылку; если это чужой поток (см. тест с dialog.run), Tcl
+    # отвечает "main thread is not in main loop", а под xdist это убивает воркер.
+    gc.collect()
     try:
         r.destroy()
     except tk.TclError:
@@ -739,3 +745,110 @@ def test_autosize_long_status(root, owner, registry):
         assert dialog.tree.column("name", "width") >= before
     finally:
         dialog.win.destroy()
+
+
+def test_install_after_window_closed_reloads_manager(root, owner, registry,
+                                                      monkeypatch):
+    """Install, завершившийся после закрытия окна, всё равно перезагружает
+    менеджер плагинов.
+
+    Раньше callback уходил в очередь, которую поллер уже не разбирал: плагин
+    ставился, а owner.reload_plugin_manager() не вызывался до перезапуска GUI.
+    """
+    plug = _make_plugin()
+    dialog = _make_dialog(root, owner, registry)
+    dialog.plugins = [plug]
+    dialog._populate([plug], set())
+    installed = []
+    monkeypatch.setattr(registry, "install",
+                        lambda plugin: installed.append(plugin["id"]))
+    calls = []
+    owner.reload_plugin_manager = lambda: calls.append(1)
+    dialog.win.destroy()
+    root.update()
+    assert dialog._window_dead is True, "<Destroy> обязан поставить флаг"
+
+    dialog._do_install("gba_test_game")
+
+    assert installed == ["gba_test_game"]
+    assert calls == [1], "менеджер обязан быть пересоздан без участия UI"
+    assert dialog._callback_queue.qsize() == 0, "очередь не должна копиться"
+
+
+def test_uninstall_after_window_closed_reloads_manager(root, owner, registry,
+                                                        monkeypatch):
+    """То же для uninstall."""
+    plug = _make_plugin()
+    dialog = _make_dialog(root, owner, registry)
+    dialog.plugins = [plug]
+    removed = []
+    monkeypatch.setattr(registry, "uninstall", lambda pid: removed.append(pid))
+    calls = []
+    owner.reload_plugin_manager = lambda: calls.append(1)
+    dialog.win.destroy()
+    root.update()
+
+    dialog._do_uninstall("gba_test_game")
+
+    assert removed == ["gba_test_game"]
+    assert calls == [1]
+
+
+def test_install_before_window_closed_queues_ui_callback(root, owner, registry,
+                                                          monkeypatch):
+    """Пока окно живо, результат идёт в UI, а не напрямую в менеджер.
+
+    Проверяем именно вызов `_safe_after`, а не размер очереди: поллер окна
+    может разобрать очередь раньше проверки, и под xdist это давало флак.
+    """
+    plug = _make_plugin()
+    dialog = _make_dialog(root, owner, registry)
+    dialog.plugins = [plug]
+    dialog._populate([plug], set())
+    direct = []
+    owner.reload_plugin_manager = lambda: direct.append(1)
+    monkeypatch.setattr(registry, "install", lambda _plugin: None)
+    queued = []
+    monkeypatch.setattr(dialog, "_safe_after",
+                        lambda func, *args: queued.append((func, args)))
+    try:
+        dialog._do_install("gba_test_game")
+        assert dialog._window_dead is False
+        assert direct == [], "менеджер пересоздаётся из UI-колбэка"
+        assert len(queued) == 1, "результат должен уйти в UI-очередь"
+        assert queued[0][0] == dialog._on_install_done
+        dialog.win.destroy()
+    finally:
+        pass
+
+
+def test_error_after_window_closed_is_logged_only(root, owner, registry,
+                                                   monkeypatch):
+    """Ошибка после смерти окна не пытается показывать messagebox."""
+    plug = _make_plugin()
+    dialog = _make_dialog(root, owner, registry)
+    dialog.plugins = [plug]
+    shown = []
+    monkeypatch.setattr(cpd.messagebox, "showerror",
+                        lambda *a, **k: shown.append(a))
+    dialog.win.destroy()
+    root.update()
+
+    dialog._report_error("boom", "install x")
+
+    assert shown == [], "messagebox после закрытия окна не вызывается"
+    assert dialog._callback_queue.qsize() == 0
+
+
+def test_reload_manager_survives_owner_error(root, owner, registry):
+    """Ошибка владельца не должна ронять рабочий поток."""
+    dialog = _make_dialog(root, owner, registry)
+
+    def boom():
+        raise RuntimeError("owner is broken")
+
+    owner.reload_plugin_manager = boom
+    dialog.win.destroy()
+    root.update()
+
+    dialog._reload_manager("install x")  # не должно бросить

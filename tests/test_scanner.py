@@ -272,12 +272,6 @@ class TestScanner:
         # High readability expected
         assert result['readability'] > 0
 
-    def test_analyze_text_segment_no_pointers(self):
-        """Тест анализа сегмента без указателей"""
-        text_data = b'Just plain text without pointers'
-        result = analyze_text_segment(text_data, 0, len(text_data))
-        assert isinstance(result, dict)
-
     def test_auto_detect_segments_multiple(self):
         """Тест автоопределения нескольких сегментов"""
         rom_data = b'\x00' * 100 + b'Hello World!' + b'\x00' * 50 + b'Another text block!' + b'\x00' * 50
@@ -324,12 +318,6 @@ class TestScanner:
     def test_analyze_text_segment_no_readable(self):
         """Тест анализа сегмента без читаемых символов"""
         text_data = b'\x00\x01\x02\x03\x04'
-        result = analyze_text_segment(text_data, 0, len(text_data))
-        assert isinstance(result, dict)
-
-    def test_analyze_text_segment_with_terminators(self):
-        """Тест анализа сегмента с терминаторами"""
-        text_data = b'Hello\x00World\x00'
         result = analyze_text_segment(text_data, 0, len(text_data))
         assert isinstance(result, dict)
 
@@ -570,14 +558,6 @@ class TestScanner:
         charmap = auto_detect_charmap(text_data, 0, 100)
         assert isinstance(charmap, dict)
 
-    def test_auto_detect_charmap_small_rom(self):
-        """Тест автоопределения charmap с маленьким ROM"""
-        # ROM smaller than ROM_HEADER_SIZE
-        text_data = b'Hi'
-        charmap = auto_detect_charmap(text_data, 0, len(text_data))
-        assert isinstance(charmap, dict)
-        assert len(charmap) > 0
-
     def test_analyze_text_segment_with_terminators(self):
         """Тест анализа сегмента с терминаторами"""
         text_data = b'Hello World! \x00 Test'
@@ -585,7 +565,7 @@ class TestScanner:
         assert isinstance(result, dict)
         assert 'readability' in result
 
-    def test_auto_detect_segments_gbc_mode(self):
+    def test_auto_detect_segments_gbc_mode_default_block(self):
         """Тест автоопределения сегментов в режиме GBC"""
         # ROM with GBC characteristics
         rom_data = b'\x00' * 0x100 + b'Hello World!' + b'\x00' * 0x100

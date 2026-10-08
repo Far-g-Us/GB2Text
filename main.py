@@ -37,12 +37,13 @@ logger = logging.getLogger('gb2text')
 AGENT_COMMANDS = {"plugins", "detect", "extract", "inject", "serve"}
 
 logger.debug(f"sys.frozen: {getattr(sys, 'frozen', False)}")
-logger.debug(f"sys._MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}")
 
 # Проверяем пути
 base_path = os.path.dirname(os.path.abspath(__file__))
 if getattr(sys, 'frozen', False):
-    base_path = sys._MEIPASS
+    # getattr запрещён ruff (B009) и откатывается обратно в атрибут,
+    # поэтому атрибут оставлен как есть, но с точечным игнорированием.
+    base_path = sys._MEIPASS  # type: ignore[attr-defined]
 
 logger.debug(f"Базовый путь: {base_path}")
 logger.debug(f"Содержимое базового пути: {os.listdir(base_path)}")
@@ -77,7 +78,7 @@ def get_resource_path(relative_path):
     """Получает абсолютный путь к ресурсу, работает как в dev режиме, так и в exe"""
     try:
         # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
-        base_path = sys._MEIPASS
+        base_path = sys._MEIPASS  # type: ignore[attr-defined]
     except AttributeError:
         base_path = os.path.abspath(".")
 

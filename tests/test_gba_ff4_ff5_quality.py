@@ -6,7 +6,7 @@
 2. FF5: отсекаются мусорные хвостовые сегменты из областей данных/заполнения
    (2+ Hex-токенов в декодированном тексте, доля чистого текста < 30%).
 
-Инварианты считаны эмпирически с USA ROM из test_roms/.
+Инварианты считаны эмпирически с USA ROM из test_game/.
 """
 import os
 import re
@@ -22,8 +22,8 @@ from plugins.gba_ff5_advance import FF5AdvancePlugin
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-FF4_PATH = os.path.join(BASE, "test_roms", "Final Fantasy IV Advance (USA).gba")
-FF5_PATH = os.path.join(BASE, "test_roms", "Final Fantasy V Advance (USA).gba")
+FF4_PATH = os.path.join(BASE, "test_game", "Final Fantasy IV Advance (USA).gba")
+FF5_PATH = os.path.join(BASE, "test_game", "Final Fantasy V Advance (USA).gba")
 
 TOK = re.compile(r'\[[0-9A-F]{2,6}\]')
 
@@ -31,6 +31,14 @@ TOK = re.compile(r'\[[0-9A-F]{2,6}\]')
 def _strip_ff(text):
     """Убирает Hex-токены [FF]/[FE] и пробельные символы."""
     return re.sub(r'\[(FF|FE)\]', '', text).replace(' ', '').replace('\t', '').replace('\n', '')
+
+
+def _records_texts(rom_path):
+    """Тексты РЕАЛЬНЫХ записей манифеста (то, что уходит в перевод)."""
+    from core.extractor import TextExtractor
+    results = TextExtractor(rom_path).extract()
+    return [m.get('text') or ''
+            for msgs in results.values() for m in msgs]
 
 
 def _decode_all(plugin, rom, segments):
@@ -103,12 +111,32 @@ class TestFF4PointerBase:
 
 class TestFF4NoiseFilter:
     def test_no_single_glyphs(self, ff4, ff4_segments, ff4_rom):
-        texts = _decode_all(ff4, ff4_rom, ff4_segments)
+        # Записи, а не окно сегмента: FF4 отдаёт по сегменту на запись,
+        # и шумные байты сразу за ней не принадлежат ни одной записи.
+        #
+        # Однобуквенные записи в FF4 — НЕ дефект, а данные: в ROM реально
+        # лежат `55 0C 52 0C 49 0C 45 0C` = 5,4,3,2,1 отдельными
+        # 0x0C-терминированными записями (адреса 0x2EA56B…). Прежняя проверка
+        # декодировала окно сегмента целиком, попадала в эти записи как в
+        # «мусор» и требовала их выкинуть; при живом извлечении это стёрло бы
+        # настоящий текст. Отбрасывать по длине нельзя и переводчику: фильтр
+        # решается уже по ПЕРЕВОДУ, и запись, переведённая в пару символов,
+        # исчезла бы из манифеста.
+        #
+        # Инвариант, который здесь осмыслен: короткая запись обязана быть
+        # настоящим глифом charset'а, а не мусором из неизвестных байтов.
+        texts = _records_texts(FF4_PATH)
         singles = [t for t in texts if len(t) == 1]
-        assert singles == []
+        assert singles, 'ожидались однобуквенные записи FF4 — их нет, значит ' \
+                        'записи перестали извлекаться'
+        charmap = set(ff4._decoder.charmap.values())
+        assert charmap, 'charmap FF4 пуст — проверка глифов бессмысленна'
+        unknown = [t for t in singles if t not in charmap]
+        assert not unknown, (
+            f'однобуквенные записи не из charset: {unknown[:5]}')
 
     def test_no_hex_tokens(self, ff4, ff4_segments, ff4_rom):
-        texts = _decode_all(ff4, ff4_rom, ff4_segments)
+        texts = _records_texts(FF4_PATH)
         for t in texts:
             assert not TOK.fullmatch(t), f"Hex-only запись проскочила: {t!r}"
 
@@ -141,7 +169,11 @@ class TestFF5NoiseFilter:
         assert any('BARTZ' in t for t in texts)
         assert any('Kelger' in t for t in texts)
         assert any('drakenvale' in t.lower() or 'Drakenvale' in t for t in texts)
-        assert len(texts) > 6000
+        assert len(texts) > 4500, (
+            'FF5: подозрительно мало сегментов — junk-фильтр или отбрасывание '
+            f'записей, перекрывающих таблицу указателей, могли съесть реальный '
+            f'текст (сейчас {len(texts)}: 4901 injectable + 341 read-only '
+            'алиасов; до фильтров тот же скан давал 25262 сырых 0x0D-окна)')
 
 
 def _roundtrip(rom, segments):

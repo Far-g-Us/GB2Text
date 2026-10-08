@@ -20,7 +20,7 @@ from plugins.gba_pokemon import (
 )
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROM_DIR = os.path.join(BASE, 'test_roms')
+ROM_DIR = os.path.join(BASE, 'test_game')
 
 GAME_ROMS = {
     'BPEE': 'Pokemon - Emerald Version (USA, Europe).gba',

@@ -10,7 +10,7 @@ from core.rom import GameBoyROM
 from plugins.gb_pokemon_gen1 import CHARMAP_GEN1, Gen1TextDecoder
 from plugins.gbc_pokemon_gsc import GSC_TABLES, PokemonGSCPlugin
 
-ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
+ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_game')
 GOLD = 'Pokemon - Gold Version (USA, Europe) (SGB Enhanced).gbc'
 
 

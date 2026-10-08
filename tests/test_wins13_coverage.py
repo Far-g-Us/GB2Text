@@ -1,7 +1,4 @@
-import tkinter as tk
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 from plugins.gba_golden_sun import GoldenSunPlugin
 

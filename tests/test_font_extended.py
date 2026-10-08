@@ -274,7 +274,13 @@ class TestCandidateGate:
 
     def test_ok(self):
         report = validate_font_candidate(self._data(), _layout(count=4))
-        assert report == {"blank": 2, "distinct": 2, "empty_ratio": 0.5}
+        # Отчёт содержит и признаки шума (mean_levels/mean_uniform): без них
+        # гейт пропускал произвольные данные (проверено на FF4 Advance).
+        assert report["blank"] == 2
+        assert report["distinct"] == 2
+        assert report["empty_ratio"] == 0.5
+        assert report["mean_levels"] == 2.0
+        assert report["mean_uniform"] == 0.5
 
     def test_too_empty(self):
         with pytest.raises(ValueError):

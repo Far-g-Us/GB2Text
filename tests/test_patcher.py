@@ -301,7 +301,7 @@ class TestAutoDetect:
 
 class TestRealROMRoundTrip:
     def _rom_paths(self):
-        base = Path(__file__).parent.parent / 'test_roms'
+        base = Path(__file__).parent.parent / 'test_game'
         if not base.is_dir():
             return []
         return sorted(base.glob("*.*"))
@@ -311,7 +311,7 @@ class TestRealROMRoundTrip:
     def test_ips_bps_roundtrip_on_roms(self):
         roms = self._rom_paths()
         if not roms:
-            pytest.skip("test_roms/ пуста")
+            pytest.skip("test_game/ пуста")
         for rom_path in roms:
             data = rom_path.read_bytes()
             if len(data) < 0x100:

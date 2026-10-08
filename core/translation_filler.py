@@ -11,6 +11,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 logger = logging.getLogger('gb2text.translation_filler')
 
@@ -177,19 +178,19 @@ class SmartTranslationFiller(TranslationFiller):
     """
 
     # Паттерны для определения типов текста
-    DIALOGUE_PATTERNS = [
+    DIALOGUE_PATTERNS: ClassVar[list[str]] = [
         r'^[А-Яа-я]+:.*',  # Персонаж: текст
         r'^"[^"]+"$',       # Текст в кавычках
         r'\.{3,}',          # Многоточия
     ]
 
-    MENU_PATTERNS = [
+    MENU_PATTERNS: ClassVar[list[str]] = [
         r'^(OK|CANCEL|YES|NO|START|CONTINUE)$',  # Кнопки
         r'^[A-Z][A-Z ]+$',                        # Верхний регистр
         r'^\d+\..*',                              # Нумерованные пункты
     ]
 
-    HINT_PATTERNS = [
+    HINT_PATTERNS: ClassVar[list[str]] = [
         r'^\[.*\]$',      # В квадратных скобках
         r'^<.*>$',        # В угловых скобках
     ]

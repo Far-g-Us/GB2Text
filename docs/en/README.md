@@ -134,8 +134,8 @@ A dedicated `api/` module provides programmatic access for agents, scripts, and 
 | Interface | Entry point | Notes |
 |-----------|-------------|-------|
 | **Python SDK** | `from api import _core` (REPL / Jupyter) | `resolve_rom`, `detect`, `extract`, `inject`, `diff_roms`, `list_plugins`, `get_version`, `load_json_file` |
-| **CLI** | `python -m api.cli <command> --json` | Subcommands: `plugins`, `detect`, `extract`, `inject`, `serve` — exit codes 0/1/2 |
-| **HTTP / JSON** | `python -m api.cli serve` (default 127.0.0.1:8080) | Endpoints: `/health`, `/plugins`, `/detect`, `/extract`, `/inject`, `/diff` — body-size limits, timeout, 503 BUSY |
+| **CLI** | `python -m api.cli <command> --json` | Subcommands: `plugins`, `detect`, `extract`, `inject`, `fixsum`, `serve` — exit codes 0/1/2 (3 = broken checksum) |
+| **HTTP / JSON** | `python -m api.cli serve` (default 127.0.0.1:8765) | Endpoints: `/health`, `/plugins`, `/detect`, `/extract`, `/inject`, `/diff` — body-size limits, timeout, 503 BUSY |
 
 All three return a stable response schema: `{"ok": bool, "data": ... | "error": {"code", "message"}}`.
 

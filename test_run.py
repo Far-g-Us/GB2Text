@@ -24,8 +24,8 @@ try:
     # ============================================================
     # TEST 1: Mario & Luigi - Superstar Saga
     # ============================================================
-    mlss_path = os.path.join('test_roms', 'Mario & Luigi - Superstar Saga (USA).gba')
-    mlss_copy = os.path.join('test_roms', '_mlss_test_copy.gba')
+    mlss_path = os.path.join('test_game', 'Mario & Luigi - Superstar Saga (USA).gba')
+    mlss_copy = os.path.join('test_game', '_mlss_test_copy.gba')
 
     print()
     print('=' * 70)
@@ -102,8 +102,8 @@ try:
     # ============================================================
     # TEST 2: Astro Boy - Omega Factor
     # ============================================================
-    astro_path = os.path.join('test_roms', 'Astro Boy - Omega Factor (USA).gba')
-    astro_copy = os.path.join('test_roms', '_astro_test_copy.gba')
+    astro_path = os.path.join('test_game', 'Astro Boy - Omega Factor (USA).gba')
+    astro_copy = os.path.join('test_game', '_astro_test_copy.gba')
 
     print()
     print('=' * 70)

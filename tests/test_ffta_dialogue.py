@@ -2,7 +2,7 @@
 
 Извлечение сжатых диалогов (маркер 0x32 0x00) как extract-only сегментов.
 Инварианты и кол-ва блоков считаны эмпирически с USA ROM
-(test_roms/Final Fantasy Tactics Advance (USA).gba) — на других ревизиях
+(test_game/Final Fantasy Tactics Advance (USA).gba) — на других ревизиях
 они могут отличаться.
 """
 import os
@@ -20,7 +20,7 @@ from references.ffta_lzss_myguyz import lzss_decompress_ex
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "test_roms",
+    "test_game",
     "Final Fantasy Tactics Advance (USA).gba",
 )
 
@@ -60,7 +60,7 @@ NOISE_BLOCK_OFFSETS = [
 @pytest.fixture(scope="module")
 def ffta_rom() -> GameBoyROM:
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Final Fantasy Tactics Advance (USA).gba")
+        pytest.skip("Отсутствует test_game/Final Fantasy Tactics Advance (USA).gba")
     return GameBoyROM(ROM_PATH)
 
 
@@ -204,5 +204,18 @@ class TestLZSSDialogueIntegration:
             ok_count += 1
         assert ok_count == len(crn), \
             f"Только {ok_count}/{len(crn)} CRN-сегментов инжектировано"
-        assert injector.modified_data != injector.original_data, \
-            "ROM должен был измениться (инжекция имён)"
+        # No-op инёкция (перевод == оригиналу) НЕ обязана менять
+        # ROM: это идемпотентность, а не баг. Поэтому
+        # проверяем изменённый текст — именно он
+        # обязан попасть в байты.
+        target = crn[0]
+        # Свежий инжектор: у прежнего это окно уже занято предыдущей
+        # no-op записью, и запись вернула бы конфликт пересечений.
+        fresh = TextInjector(ROM_PATH)
+        before = bytes(fresh.modified_data[target['start']:target['end']])
+        changed = 'ZZ' if target['text'] != 'ZZ' else 'YY'
+        assert fresh.inject_segment(
+            target['name'], [changed], plugin, skip_long=True,
+            segments=segments), "изменённый текст не вставлен"
+        after = bytes(fresh.modified_data[target['start']:target['end']])
+        assert before != after, "ROM не изменился после вставки нового текста"

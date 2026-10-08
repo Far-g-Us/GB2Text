@@ -115,9 +115,15 @@ class CommunityRegistry:
             raise
         except Exception as exc:
             logger.error("Ошибка загрузки registry: %s", exc)
+            # Сеть недоступна (404 до деплоя, офлайн, прокси). Кэш, а за
+            # ним реестр из поставки: окно плагинов должно открыться, пустым
+            # ли, вместо ошибки загрузки на пустом месте.
             cached = self._load_cache(validate=True)
             if cached is not None:
                 return cached
+            bundled = self._load_bundled(validate=True)
+            if bundled is not None:
+                return bundled
             raise CommunityRegistryError(
                 f"Не удалось загрузить каталог: {exc}"
             ) from exc
@@ -471,6 +477,40 @@ class CommunityRegistry:
         except (OSError, ValueError, CommunityRegistryError):  # pragma: no cover
             logger.warning("Ошибка чтения/валидации кэша registry", exc_info=True)  # pragma: no cover
             return None  # pragma: no cover
+
+    def _load_bundled(self, validate: bool = False) -> list[dict] | None:
+        """Реестр из поставки — последний рубеж вместо ошибки в окне.
+
+        Каталог сообщества лежит по сети (GitHub Pages). Если он недоступен
+        (404 до деплоя, офлайн, прокси) и кэша ещё нет, окно плагинов
+        показывало ошибку загрузки на пустом месте. В поставке лежит
+        registry.json — он и открывает окно, пустым ли.
+        """
+        for candidate in self._bundled_registry_candidates():
+            try:
+                with open(candidate, encoding="utf-8") as f:
+                    data = json.load(f)
+                if not isinstance(data, dict):
+                    continue
+                plugins = cast(list[dict], data.get("plugins", []))
+                if validate:
+                    self._validate_plugins(plugins)
+                logger.info("Использован локальный реестр из поставки: %s", candidate)
+                return plugins
+            except (OSError, ValueError, CommunityRegistryError):
+                continue
+        return None
+
+    @staticmethod
+    def _bundled_registry_candidates() -> list[Path]:
+        """Где искать registry.json из поставки (PyInstaller _MEIPASS)."""
+        import sys  # pragma: no cover
+        paths: list[Path] = []
+        base = getattr(sys, '_MEIPASS', None)  # pragma: no cover
+        if base:  # pragma: no cover
+            paths.append(Path(base) / 'registry.json')
+        paths.append(Path(__file__).resolve().parent.parent / 'registry.json')
+        return paths
 
     @staticmethod
     def _atomic_write(path: Path, content: bytes | str) -> None:

@@ -36,8 +36,11 @@ RE facts (confirmed by the mGBA Lua emulator and static analysis):
   marked as non-rebuildable for injection (skip-with-warn).
 """
 
+import bisect
+import hashlib
 import logging
 import re
+import threading
 from typing import ClassVar
 
 from core.plugin import GamePlugin
@@ -75,7 +78,7 @@ _GLYPH_RE = re.compile(r'^\[G:([0-9A-Fa-f]{2})\]$')
 
 
 def _is_printable(b: int) -> bool:
-    return 0x20 <= b <= 0x7E  # pragma: no cover
+    return 0x20 <= b <= 0x7E
 
 
 class MLSSTextDecoder:
@@ -89,100 +92,102 @@ class MLSSTextDecoder:
     """
 
     def __init__(self, ff_param: dict[int, int] | None = None):
+        # NOTE: параметры длиннее 1 байта не поддерживаются (читается
+        # только первый): дефолтный словарь ограничен plen<=1.
         self._ff_param = dict(ff_param) if ff_param is not None else dict(MLSS_FF_PARAM)
 
     def decode(self, data: bytes | bytearray, start: int, length: int) -> str:
-        end = min(start + length, len(data))  # pragma: no cover
-        i = start  # pragma: no cover
-        out: list[str] = []  # pragma: no cover
-        n = end  # pragma: no cover
-        while i < n:  # pragma: no cover
-            b = data[i]  # pragma: no cover
-            if b == 0xFF and i + 1 < n:  # pragma: no cover
-                xx = data[i + 1]  # pragma: no cover
-                plen = self._ff_param.get(xx, 0)  # pragma: no cover
-                if i + 2 + plen > n:  # pragma: no cover
-                    # tail without a full parameter: keep it as-is  # pragma: no cover
-                    out.append(f'[FF {xx:02X}]')  # pragma: no cover
-                    i += 2  # pragma: no cover
-                    continue  # pragma: no cover
-                if plen == 0:  # pragma: no cover
-                    out.append(f'[FF {xx:02X}]')  # pragma: no cover
-                    i += 2  # pragma: no cover
-                else:  # pragma: no cover
-                    param = data[i + 2]  # pragma: no cover
-                    out.append(f'[FF {xx:02X} {param:02X}]')  # pragma: no cover
-                    i += 3  # pragma: no cover
-                continue  # pragma: no cover
-            if b == 0xFF:  # pragma: no cover
-                # a lone FF at the very end  # pragma: no cover
-                out.append('[FF]')  # pragma: no cover
-                i += 1  # pragma: no cover
-                continue  # pragma: no cover
-            if _is_printable(b):  # pragma: no cover
-                start_txt = i  # pragma: no cover
-                while i < n and data[i] != 0xFF and _is_printable(data[i]):  # pragma: no cover
-                    i += 1  # pragma: no cover
-                out.append(bytes(data[start_txt:i]).decode('ascii'))  # pragma: no cover
-                continue  # pragma: no cover
-            out.append(f'[G:{b:02X}]')  # pragma: no cover
-            i += 1  # pragma: no cover
-        return ''.join(out)  # pragma: no cover
-  # pragma: no cover
-  # pragma: no cover
-class MLSSTextEncoder:  # pragma: no cover
-    """Inverse operation: token-string -> MLSS bytes (lossless).  # pragma: no cover
-  # pragma: no cover
-    Tokens:  # pragma: no cover
-      [FF XX]      -> FF XX  # pragma: no cover
-      [FF XX PP]   -> FF XX PP (command with a parameter)  # pragma: no cover
-      [G:XX]       -> byte XX  # pragma: no cover
-      ASCII        -> as-is  # pragma: no cover
-    A literal '[' that is neither a token nor ASCII -> ValueError (like CVAS).  # pragma: no cover
-    """  # pragma: no cover
-  # pragma: no cover
-    _FF = _CMD_RE  # pragma: no cover
-    _GLYPH = _GLYPH_RE  # pragma: no cover
-  # pragma: no cover
-    def encode(self, text: str) -> bytes:  # pragma: no cover
-        out = bytearray()  # pragma: no cover
-        n = len(text)  # pragma: no cover
-        i = 0  # pragma: no cover
-        while i < n:  # pragma: no cover
-            ch = text[i]  # pragma: no cover
-            if ch == '[':  # pragma: no cover
-                close = text.find(']', i + 1)  # pragma: no cover
-                if close != -1:  # pragma: no cover
-                    m = self._FF.match(text[i:close + 1])  # pragma: no cover
-                    if m:  # pragma: no cover
-                        hi = int(m.group(1), 16)  # pragma: no cover
-                        out.append(0xFF)  # pragma: no cover
-                        out.append(hi)  # pragma: no cover
-                        if m.group(2):  # pragma: no cover
-                            out.append(int(m.group(2), 16))  # pragma: no cover
-                        i = close + 1  # pragma: no cover
-                        continue  # pragma: no cover
-                    m2 = self._GLYPH.match(text[i:close + 1])  # pragma: no cover
-                    if m2:  # pragma: no cover
-                        out.append(int(m2.group(1), 16))  # pragma: no cover
-                        i = close + 1  # pragma: no cover
-                        continue  # pragma: no cover
-                    # [FF] without a code - a single terminator FF  # pragma: no cover
-                    if text[i:close + 1] == '[FF]':  # pragma: no cover
-                        out.append(0xFF)  # pragma: no cover
-                        i = close + 1  # pragma: no cover
-                        continue  # pragma: no cover
-                    # literal brackets - must be printable  # pragma: no cover
-                    raise ValueError(f"Неизвестный токен {text[i:close + 1]!r}")  # pragma: no cover
-                raise ValueError("Незакрытая '[' в токене")  # pragma: no cover
-            if 0x20 <= ord(ch) <= 0x7E:  # pragma: no cover
-                out.append(ord(ch))  # pragma: no cover
-            else:  # pragma: no cover
-                raise ValueError(f"Не удаётся закодировать {ch!r}")  # pragma: no cover
-            i += 1  # pragma: no cover
-        return bytes(out)  # pragma: no cover
-  # pragma: no cover
-  # pragma: no cover
+        end = min(start + length, len(data))
+        i = start
+        out: list[str] = []
+        n = end
+        while i < n:
+            b = data[i]
+            if b == 0xFF and i + 1 < n:
+                xx = data[i + 1]
+                plen = self._ff_param.get(xx, 0)
+                if i + 2 + plen > n:
+                    # tail without a full parameter: keep it as-is
+                    out.append(f'[FF {xx:02X}]')
+                    i += 2
+                    continue
+                if plen == 0:
+                    out.append(f'[FF {xx:02X}]')
+                    i += 2
+                else:
+                    param = data[i + 2]
+                    out.append(f'[FF {xx:02X} {param:02X}]')
+                    i += 3
+                continue
+            if b == 0xFF:
+                # a lone FF at the very end
+                out.append('[FF]')
+                i += 1
+                continue
+            if _is_printable(b):
+                start_txt = i
+                while i < n and data[i] != 0xFF and _is_printable(data[i]):
+                    i += 1
+                out.append(bytes(data[start_txt:i]).decode('ascii'))
+                continue
+            out.append(f'[G:{b:02X}]')
+            i += 1
+        return ''.join(out)
+
+
+class MLSSTextEncoder:
+    """Inverse operation: token-string -> MLSS bytes (lossless).
+
+    Tokens:
+      [FF XX]      -> FF XX
+      [FF XX PP]   -> FF XX PP (command with a parameter)
+      [G:XX]       -> byte XX
+      ASCII        -> as-is
+    A literal '[' that is neither a token nor ASCII -> ValueError (like CVAS).
+    """
+
+    _FF = _CMD_RE
+    _GLYPH = _GLYPH_RE
+
+    def encode(self, text: str) -> bytes:
+        out = bytearray()
+        n = len(text)
+        i = 0
+        while i < n:
+            ch = text[i]
+            if ch == '[':
+                close = text.find(']', i + 1)
+                if close != -1:
+                    m = self._FF.match(text[i:close + 1])
+                    if m:
+                        hi = int(m.group(1), 16)
+                        out.append(0xFF)
+                        out.append(hi)
+                        if m.group(2):
+                            out.append(int(m.group(2), 16))
+                        i = close + 1
+                        continue
+                    m2 = self._GLYPH.match(text[i:close + 1])
+                    if m2:
+                        out.append(int(m2.group(1), 16))
+                        i = close + 1
+                        continue
+                    # [FF] without a code - a single terminator FF
+                    if text[i:close + 1] == '[FF]':
+                        out.append(0xFF)
+                        i = close + 1
+                        continue
+                    # literal brackets - must be printable
+                    raise ValueError(f"Неизвестный токен {text[i:close + 1]!r}")
+                raise ValueError("Незакрытая '[' в токене")
+            if 0x20 <= ord(ch) <= 0x7E:
+                out.append(ord(ch))
+            else:
+                raise ValueError(f"Не удаётся закодировать {ch!r}")
+            i += 1
+        return bytes(out)
+
+
 class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
     """Plugin for Mario & Luigi: Superstar Saga (GBA)"""  # pragma: no cover
   # pragma: no cover
@@ -236,57 +241,150 @@ class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
                 ptrs[lang].append(off)
 
         segments: list[dict] = []
-        if not type(self)._CLASS_CATALOG_SCANNED:
-            self._scan_catalogs(data, table, ptrs)
+        table_end = table + 4 * MLSS_ENTRIES * 5
+        cls = type(self)
+        # The detection knobs belong to the key: the spans depend on them, so a
+        # patched threshold must not reuse the spans of a previous scan.
+        rom_key = (len(data), hashlib.sha1(data[table:table_end]).hexdigest(),
+                   cls._CATALOG_MAX_ZERO_RUN)
+        # The lock guards publication only; readers must not read the shared dict
+        # afterwards. Another thread may rescan its own ROM and republish between
+        # our publication and our reads, which handed this ROM the spans of
+        # another one (all nine catalog segments with foreign start/end/raw_text,
+        # no exception). So the snapshot is taken here and passed down
+        # explicitly; _make_segment never touches the class attribute.
+        with cls._CATALOG_CACHE_LOCK:
+            if not cls._CLASS_CATALOG_SCANNED or cls._CLASS_CATALOG_ROMKEY != rom_key:
+                cls._CLASS_CATALOG_SPANS = self._scan_catalogs(data, ptrs)
+                cls._CLASS_CATALOG_ROMKEY = rom_key
+                cls._CLASS_CATALOG_SCANNED = True
+            spans = cls._CLASS_CATALOG_SPANS
         for lang, _slot in MLSS_LANGS:
             lst = ptrs[lang]
             for idx in range(MLSS_ENTRIES):
                 off = lst[idx]
                 if not (0 < off < len(data)):
                     continue
-                seg = self._make_segment(data, off, idx, lang)
+                seg = self._make_segment(data, off, idx, lang, spans)
                 if seg is not None:
                     segments.append(seg)
 
         logger.info("Всего сегментов: %d", len(segments))
         return segments
 
-    _CLASS_CATALOG_SPANS: ClassVar[dict[(tuple[str, int]), tuple[int, int]]] = {}
-    _CLASS_CATALOG_SCANNED = False
+    _CLASS_CATALOG_SPANS: ClassVar[dict[tuple[str, int], tuple[int, int]]] = {}
+    # Подзаписи каталога физически идут подряд, поэтому длинный прогон нулей
+    # означает, что окно ушло за пределы самой записи — в пустоту пула или в
+    # свободное место после релокации. Порог выбран с запасом по обе стороны
+    # от измерений на реальном ROM: максимальный прогон нулей внутри
+    # структурных окон настоящих каталогов = 5, в свободном месте = 1000+.
+    # Без отсечки обычная запись, перенесённая в свободное место, брала верхнюю
+    # границу по следующему указателю своей колонки (~2 МБ), набирала >1 FF 0A
+    # и читалась как каталог на 10 млн символов.
+    _CATALOG_MAX_ZERO_RUN: ClassVar[int] = 64
+    _CLASS_CATALOG_ROMKEY: ClassVar[tuple[int, str, int] | None] = None
+    _CLASS_CATALOG_SCANNED: ClassVar[bool] = False
+    # Spans are shared class state while get_text_segments runs from background
+    # threads (gui/main_window.py, api/server.py ThreadingHTTPServer), so the
+    # check-then-scan-publish sequence has to be atomic: two concurrent parses of
+    # two different MLSS ROMs used to interleave and hand one ROM the spans of
+    # the other. The scan itself is serialised; publication is a single
+    # assignment of a fully built dict, never a mutated one.
+    _CATALOG_CACHE_LOCK: ClassVar[threading.Lock] = threading.Lock()
 
-    def _scan_catalogs(self, data, table: int, ptrs: dict[str, list[int]]) -> None:
+    @classmethod
+    def reset_class_cache(cls) -> None:
+        """Drop the shared catalog cache (tests that patch detection knobs)."""
+        with cls._CATALOG_CACHE_LOCK:
+            cls._CLASS_CATALOG_SPANS = {}
+            cls._CLASS_CATALOG_ROMKEY = None
+            cls._CLASS_CATALOG_SCANNED = False
+
+    def _scan_catalogs(self, data,
+                       ptrs: dict[str, list[int]],
+                       ) -> dict[tuple[str, int], tuple[int, int]]:
         """Determines catalog spans once (from the primary/unmodified pointers).
-        A catalog = a record whose true extent [ptr, next_ptr_that_slot]
+        A catalog = a record whose structural extent [ptr, next_ptr_that_column)
         contains >1 FF 0A (nested sub-records).
 
-        Spans are cached at the CLASS level: catalogs are not rebuilt and their
-        pointers do not change, so a span from the primary layout stays valid
-        for later calls on a modified ROM (including a fresh plugin instance
-        running alongside the shifting of adjacent relocated records).
+        Detection uses the STRUCTURAL extent (same column, as before). The
+        stored read span is additionally clamped to the first record start
+        after this one across ALL language columns, because the pools are
+        physically interleaved: without the clamp a read-only catalog span
+        swallowed the neighbouring columns' writable records (~90 KB for
+        de_889), their writes changed the blob and the catalog then decoded
+        to garbage. Clamping only the stored span keeps detection intact —
+        clamping the detection window instead would reclassify a real
+        catalog as an ordinary injectable record and silently orphan its
+        sub-records.
+
+        Spans are cached at the CLASS level and recomputed whenever the
+        pointer table changes (see get_text_segments), so a relocated layout
+        is re-scanned rather than reused.
+
+        A catalog's sub-records are physically contiguous, so the detection
+        window is cut at the first run of zeros longer than
+        _CATALOG_MAX_ZERO_RUN. Without that cut a relocated record borrowed the
+        next pointer of its own column as its window (~2 MB of dialogue pool),
+        collected more than one FF 0A and was decoded as a catalog of 10M
+        characters. The threshold is chosen with margin on both sides of the
+        measurement (5 inside real catalogs, 1000+ in free space), and no
+        size-based salvage is applied afterwards: a relocated record of
+        0x800 bytes or more must stay injectable, otherwise a long
+        translation is silently dropped instead of written.
         """
         cls = type(self)
+        spans: dict[tuple[str, int], tuple[int, int]] = {}
+        all_starts = sorted({
+            off for lst in ptrs.values() for off in lst if 0 < off < len(data)
+        })
         for lang, _slot in MLSS_LANGS:
             lst = ptrs[lang]
             for idx in range(MLSS_ENTRIES):
                 off = lst[idx]
                 if not (0 < off < len(data)):
                     continue
-                upper = lst[idx + 1] if idx + 1 < MLSS_ENTRIES and lst[idx + 1] > off else (
+                structural = lst[idx + 1] if idx + 1 < MLSS_ENTRIES and lst[idx + 1] > off else (
                     off + 0x800)
-                upper = min(upper, len(data))
                 sub = 0
+                zeros = 0
                 j = off
-                while j + 1 < upper:
+                limit = min(structural, len(data))
+                while j + 1 < limit:
+                    if data[j] == 0x00:
+                        zeros += 1
+                        if zeros > cls._CATALOG_MAX_ZERO_RUN:
+                            limit = j - zeros + 1
+                            break
+                    else:
+                        zeros = 0
                     if data[j] == 0xFF and data[j + 1] == 0x0A:
                         sub += 1
                     j += 1
-                if sub > 1:
-                    cls._CLASS_CATALOG_SPANS[(lang, idx)] = (off, upper)
-        cls._CLASS_CATALOG_SCANNED = True
-        logger.info("Каталоговых записей (не инжектируемых): %d",
-                    len(cls._CLASS_CATALOG_SPANS))
+                if sub <= 1:
+                    continue
+                upper = limit
+                pos = bisect.bisect_right(all_starts, off)
+                if pos < len(all_starts):
+                    upper = min(upper, all_starts[pos])
+                # Решение о каталоге принимается по СОХРАНЁННОМУ спану: если
+                # после клампа терминатор остался один, запись обычная и
+                # обязана быть переводимой (иначе она выпала бы из вставки
+                # обоих путей). Проверено на реальном ROM: es_889.
+                kept = 0
+                j = off
+                while j + 1 < upper:
+                    if data[j] == 0xFF and data[j + 1] == 0x0A:
+                        kept += 1
+                    j += 1
+                if kept <= 1:
+                    continue
+                spans[(lang, idx)] = (off, upper)
+        logger.info("Каталоговых записей (не инжектируемых): %d", len(spans))
+        return spans
 
-    def _make_segment(self, data, target: int, idx: int, lang: str) -> dict | None:
+    def _make_segment(self, data, target: int, idx: int, lang: str,
+                      spans: dict[tuple[str, int], tuple[int, int]]) -> dict | None:
         """Segment of a single record.
 
         A normal record is self-terminating: exactly one FF 0A (terminator),
@@ -303,9 +401,16 @@ class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
             return None
         head = data[target:target + 2]
 
-        catalog_span = type(self)._CLASS_CATALOG_SPANS.get((lang, idx))
+        catalog_span = spans.get((lang, idx))
         if catalog_span is not None:
             start, upper = catalog_span
+            # Defence in depth: a stale or foreign span must not walk off the
+            # end of the ROM (it used to raise IndexError on data[e - 1]).
+            if not (0 < start < len(data)) or not (start < upper <= len(data)):
+                logger.warning(
+                    'Каталоговый спан вне ROM: %s_%d (%d, %d) - запись пропущена',
+                    lang, idx, start, upper)
+                return None
             target = start
             end = upper
             # strip the trailing 0x00 padding
@@ -323,6 +428,7 @@ class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
                 'terminators': MLSS_TERMINATORS,
                 'injectable': False,
                 'raw_text': raw,
+                'kind': 'record',
                 'lang': lang,
                 'index': idx,
                 'head': head,
@@ -354,6 +460,7 @@ class MarioLuigiSSPlugin(GamePlugin):  # pragma: no cover
             'terminators': MLSS_TERMINATORS,
             'injectable': True,
             'raw_text': raw,
+            'kind': 'record',
             'lang': lang,
             'index': idx,
             'head': head,

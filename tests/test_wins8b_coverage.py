@@ -1,7 +1,10 @@
 import base64
 import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 from core import secret_store
 from core.dialogue_manifest import entries_for_rom
@@ -16,6 +19,8 @@ def test_secret_write_fail(tmp_path, monkeypatch):
     assert backend._write({"a": 1}) is False
 
 
+@pytest.mark.skipif(not sys.platform.startswith("win"),
+                reason="DPAPI доступен только на Windows: ctypes.windll отсутствует на Linux/macOS")
 def test_secret_load_corrupt(tmp_path):
     p = tmp_path / "s.dat"
     p.write_text(json.dumps({"secrets": {"k": "not-base64!"}}), encoding="utf-8")
