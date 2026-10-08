@@ -23,7 +23,7 @@ GBC_PMCRYSTAL(BYTE|BXTJ) (header titles "POKEMON GOLD"/"POKEMON_GLDAAUE"/
 "POKEMON SILVER"/"POKEMON_SILAAUE"/"POKEMON_SLVAAXE"/"POKEMON CRYSTAL"/
 "PM_CRYSTAL..BYTE"/"PM_CRYSTAL..BXTJ", platform GBC)
 
-Verified against real ROMs in test_roms:
+Verified against real ROMs in test_game:
   - Gold   (title "POKEMON_GLDAAUE") — "Pokemon - Gold Version
             (USA, Europe) (SGB Enhanced).gbc"
   - Silver (title "POKEMON_SLVAAXE") — "Pokemon - Silver Version

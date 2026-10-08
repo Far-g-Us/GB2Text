@@ -36,6 +36,7 @@ action ∈ {0 SourceRead, 1 TargetRead, 2 SourceCopy, 3 TargetCopy}.
 import zlib
 
 BPS_MAGIC = b"BPS1"
+_SCAN_BLOCK = 0x10000
 IPS_MAGIC = b"PATCH"
 IPS_EOF = b"EOF"
 IPS_HEADER_SIZE = len(IPS_MAGIC)
@@ -118,10 +119,14 @@ def bps_create(source: bytes, target: bytes) -> bytes:
 
     t = 0
     while t < tgt_len:
-        match = 0
-        while (t + match < tgt_len and t + match < src_len
-               and source[t + match] == target[t + match]):
-            match += 1
+        # Блоки сравниваются срезами (см. `ips_create`): иначе побайтовое
+        # сравнение на 32 МиБ стоило 32 миллионов итераций.
+        block_end = min(t + _SCAN_BLOCK, tgt_len, src_len)
+        match = block_end - t if block_end > t and source[t:block_end] == target[t:block_end] else 0
+        if match == 0:
+            while (t + match < tgt_len and t + match < src_len
+                   and source[t + match] == target[t + match]):
+                match += 1
         if match:
             body.extend(_vlq_encode(((match - 1) << 2)
                                     | BPS_ACTION_SOURCE_READ))
@@ -253,14 +258,27 @@ def ips_create(source: bytes, target: bytes) -> bytes:
     """
     records = bytearray()
     tgt_len = len(target)
+    src_len = len(source)
     t = 0
 
+    # Совпадающие участки пропускаются срезами: сравнение
+    # срезов выполняется на уровне C, а не побайтовом в Python.
+    # На 32 МиБ разной ROM это было 4-8 секунд из-за 32 миллионов
+    # итераций; теперь осталось единицы на блоках.
     while t < tgt_len:
-        if t < len(source) and source[t] == target[t]:
-            t += 1
+        block_end = min(t + _SCAN_BLOCK, tgt_len)
+        if block_end <= src_len and source[t:block_end] == target[t:block_end]:
+            t = block_end
+            continue
+        if t < src_len and source[t] == target[t]:
+            # Блок не совпал целиком: ищем различие внутри блока по-байтово.
+            j = t
+            while j < block_end and source[j] == target[j]:
+                j += 1
+            t = j
             continue
         j = t
-        while j < tgt_len and (j >= len(source) or source[j] != target[j]):
+        while j < tgt_len and (j >= src_len or source[j] != target[j]):
             j += 1
         _emit_ips_record(records, t, target[t:j])
         t = j

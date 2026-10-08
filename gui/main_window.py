@@ -31,6 +31,7 @@ import time
 import tkinter as tk
 from collections import Counter
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
@@ -70,6 +71,26 @@ from gui.font_tab import FontTab
 
 
 class GBTextExtractorGUI:
+
+    # Аннотации полей, которые создаются в нескольких ветках инициализации:
+    # без них mypy не может определить тип и падает на первом же чтении.
+    guide_text: tk.Text
+    cancel_button: ttk.Button | None = None
+    _inject_thread: threading.Thread | None = None
+    _extraction_thread: threading.Thread | None = None
+    verbose_unknown_var: tk.BooleanVar
+    bing_key: tk.StringVar
+    bing_region: tk.StringVar
+    copy_btn: ttk.Button
+    deepl_key: tk.StringVar
+    mt_service: tk.StringVar
+    spell_enabled: tk.BooleanVar
+    spell_lang: tk.StringVar
+    ui_lang: tk.StringVar
+    def _remember_edit_widget(self, widget) -> None:
+        """Запоминает виджет, в котором пользователь работал последним."""
+        self._last_edit_widget = widget
+
     def __init__(self, root, rom_path=None, plugin_dir="plugins", lang="en", *,
                  show_warning=True):
         if rom_path is not None and not isinstance(rom_path, str):
@@ -460,7 +481,10 @@ class GBTextExtractorGUI:
         # вкладок не оставляет устаревший целевой виджет.
         self._last_edit_widget = self.translated_text
         for w in (self.translated_text, self.original_text, self.text_output):
-            w.bind("<FocusIn>", lambda e, w=w: setattr(self, "_last_edit_widget", w))
+            # partial вместо lambda с default-аргументом: mypy не выводит
+            # тип такой лямбды, а partial типизируется по аргументам.
+            w.bind("<FocusIn>",
+                  partial(self._remember_edit_widget, w))
 
         # Панель предпросмотра кодирования (реалтайм)
         preview_frame = ttk.LabelFrame(entry_frame, text=self.i18n.t("preview.encoding.title"))
@@ -1218,7 +1242,11 @@ class GBTextExtractorGUI:
                     for byte, char in seg['decoder'].charmap.items():
                         charmap[f"0x{byte:02X}"] = char
 
-                config["segments"].append({
+                segments_config = config.get("segments")
+                if not isinstance(segments_config, list):
+                    segments_config = []
+                    config["segments"] = segments_config
+                segments_config.append({
                     "name": seg["name"],
                     "start": f"0x{seg['start']:04X}",
                     "end": f"0x{seg['end']:04X}",
@@ -1342,7 +1370,12 @@ class GBTextExtractorGUI:
                 if translation:
                     entry['translation'] = translation
 
-            self.current_results[self.current_segment] = new_entries
+            # current_results и current_segment объявлены как | None, а
+            # здесь гарантированно заполнены — фиксируем через locals.
+            current = self.current_results
+            segment_name = self.current_segment
+            if current is not None and segment_name is not None:
+                current[segment_name] = new_entries
             prev_index = self.current_entry_index
             self.current_entries = new_entries
             self.current_entry_index = min(prev_index, max(0, len(new_entries) - 1))
@@ -1753,7 +1786,8 @@ class GBTextExtractorGUI:
 
     def _poll_extraction(self):
         """Poll extraction thread completion via root.after() — non-blocking."""
-        if self._extraction_thread.is_alive():
+        thread = self._extraction_thread
+        if thread is not None and thread.is_alive():
             elapsed = time.time() - self._extraction_start_time
             progress = 5 + min(90, int(elapsed) * 2)
             self.set_status(
@@ -1765,8 +1799,9 @@ class GBTextExtractorGUI:
             # Thread finished — clean up and process result
             self._extraction_in_progress = False
             self._extraction_thread = None
-            if getattr(self, 'cancel_button', None) is not None and self.cancel_button.winfo_exists():
-                self.cancel_button.destroy()
+            cancel_btn = self.cancel_button
+            if cancel_btn is not None and cancel_btn.winfo_exists():
+                cancel_btn.destroy()
 
             if self.cancel_requested:
                 self.set_status(self.i18n.t("status.ready"))
@@ -1780,7 +1815,8 @@ class GBTextExtractorGUI:
                 )
                 return
 
-            self._refresh_segments_list(self.current_results.keys())
+            results = self.current_results or {}
+            self._refresh_segments_list(results.keys())
             self._update_toolbar_menu_state()
 
             if self.segments_list.size() > 0:
@@ -1956,7 +1992,7 @@ class GBTextExtractorGUI:
 
         try:
             import csv
-            translations = {}
+            translations: dict[str, dict[int, str]] = {}
 
             with open(path, encoding='utf-8') as f:
                 reader = csv.DictReader(f)
@@ -1973,9 +2009,8 @@ class GBTextExtractorGUI:
                             logger.warning(f"Пропускаю строку CSV с невалидным offset: '{offset_str}'")
                             continue
 
-                        if segment not in translations:
-                            translations[segment] = {}
-                        translations[segment][offset] = translation
+                        bucket = translations.setdefault(segment, {})
+                        bucket[offset] = translation
 
             # Применяем переводы
             if not self._guard_unsaved_changes():
@@ -2255,7 +2290,7 @@ class GBTextExtractorGUI:
 
         try:
             # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
-            base_path = sys._MEIPASS
+            base_path = sys._MEIPASS  # type: ignore[attr-defined]
         except AttributeError:
             # Обычный запуск Python скрипта
             base_path = os.path.abspath(".")
@@ -3078,7 +3113,7 @@ class GBTextExtractorGUI:
             return False
         try:
             widget_translations = self._collect_translations_from_widget()
-            saved = [e.get('translation', e['text']) for e in self.current_entries]
+            saved = [e.get('translation', e.get('text', '')) for e in self.current_entries]
         except Exception:
             # Не удалось распарсить блоки или битые записи — консервативно
             # считаем «изменено».
@@ -3361,11 +3396,11 @@ class GBTextExtractorGUI:
         for idx, entry in enumerate(entries):
             bound = bounds[idx] if idx < len(bounds) else None
             if bound is None:
-                translations.append(entry.get('translation', entry['text']))
+                translations.append(entry.get('translation', entry.get('text', '')))
                 continue
             block_start, end_rel = bound
             block_text = content[block_start:block_start + end_rel].rstrip("\n")
-            translations.append(block_text if block_text else entry.get('translation', entry['text']))
+            translations.append(block_text if block_text else entry.get('translation', entry.get('text', '')))
         return translations
 
     def _show_preview_dialog(self, translation):
@@ -3857,7 +3892,7 @@ class GBTextExtractorGUI:
         try:
             # Анализируем первые 2KB ROM для определения языка
             sample_size = min(2048, len(self.current_rom.data))
-            freq = Counter()
+            freq: Counter[int] = Counter()
             for i in range(sample_size):
                 freq[self.current_rom.data[i]] += 1
 
@@ -3999,8 +4034,11 @@ class GBTextExtractorGUI:
             return
 
         self._inject_in_progress = True
+        rom = self.current_rom
+        if rom is None:
+            return None
         plugin = self.plugin_manager.get_plugin(
-            self.current_rom.get_game_id(), self.current_rom.system, rom=self.current_rom
+            rom.get_game_id(), rom.system, rom=rom
         )
         self.set_status(self.i18n.t("text.injecting"), 0)
 
@@ -4009,18 +4047,38 @@ class GBTextExtractorGUI:
         if self.current_entries and self.translated_text.get("1.0", "end-1c"):
             translations = self._collect_translations_from_widget()
         else:
-            translations = [e.get('translation', e['text']) for e in self.current_entries]
+            translations = [e.get('translation', e.get('text', '')) for e in self.current_entries]
 
         self._inject_error = None
         self._inject_success = False
         self._inject_start_time = time.time()
+        # Снапшот для пост-обработки: после успеха тексты записей
+        # приводятся к вставленным (иначе повторный блочный инжект
+        # соберёт блок из устаревших текстов и откатит правку).
+        self._last_inject_segment = self.current_segment
+        self._last_inject_translations = list(translations)
+
+        # Снапшот входных данных до потока: фоновый inject_task не должен
+        # читать мутабельное состояние GUI (current_results могут заменить
+        # новым извлечением, пока поток работает). Deepcopy: recode во время
+        # inject меняет и списки, и сами entry-dict'ы.
+        import copy
+        results_snapshot = copy.deepcopy(self.current_results)
+        segment_snapshot = self.current_segment
 
         def inject_task():
             try:
-                self._inject_success = self.text_injector.inject_segment(
-                    self.current_segment,  # имя сегмента строкой
+                # Маршрутизация: record-сегменты (CVAS/M&L) идут блочным
+                # путём целиком, остальные — обычным inject_segment.
+                # Sibling-сегменты блока берут saved-or-original из results.
+                injector = self.text_injector
+                if injector is None:
+                    return
+                self._inject_success = injector.inject_translations(
+                    segment_snapshot,  # имя сегмента строкой
                     translations,
                     plugin,
+                    results=results_snapshot,
                 )
             except Exception as exc:
                 self._inject_error = exc
@@ -4075,7 +4133,10 @@ class GBTextExtractorGUI:
             # списков происходит и при отмене, иначе следующий инжект
             # показал бы объединённый отчёт двух прогонов
             try:
-                unmapped = self.text_injector.collect_unmapped_chars()
+                injector = self.text_injector
+                if injector is None:
+                    return
+                unmapped = injector.collect_unmapped_chars()
             except Exception as exc:
                 logger.warning(f"Не удалось подсчитать потерянные символы: {exc}")
                 unmapped = []
@@ -4099,7 +4160,11 @@ class GBTextExtractorGUI:
                 self.set_status(self.i18n.t("status.ready"))
                 return
 
-            self.text_injector.save(output_path)
+            injector = self.text_injector
+            if injector is None:
+                return
+            injector.save(output_path)
+            self._refresh_injected_entries()
             self.set_status(self.i18n.t("text.injected"))
             self.font_tab.clear_undo()
             messagebox.showinfo(
@@ -4117,15 +4182,134 @@ class GBTextExtractorGUI:
                 self.i18n.t("inject.error.detail", error=str(e))
             )
 
+    def _refresh_injected_entries(self) -> None:
+        """Приводит записи текущего сегмента к вставленным переводам.
+
+        Без этого повторный блочный инжект (record-сегменты) собрал бы
+        sibling-тексты из устаревших results и тихо откатил правку.
+        """
+        try:
+            segment = getattr(self, '_last_inject_segment', None)
+            translations = getattr(self, '_last_inject_translations', None)
+            results = self.current_results
+            if not segment or not isinstance(translations, list):
+                return
+            entries = (results or {}).get(segment)
+            if not isinstance(entries, list) or len(entries) != len(translations):
+                return
+            for entry, text in zip(entries, translations, strict=False):
+                if isinstance(entry, dict) and isinstance(text, str):
+                    entry['text'] = text
+                    entry['translation'] = text
+        except Exception as exc:
+            logger.warning(f"Не удалось обновить записи после вставки: {exc}")
+
     def _on_overflow_close(self, win):
         """Закрытие диалога отчёта: снимает guard и уничтожает окно."""
         if getattr(self, '_overflow_dialog', None) is win:
             self._overflow_dialog = None
         win.destroy()
 
+    def _collect_overflow_report(self):
+        """Собирает отчёт о записях, которые остались оригиналом.
+
+        Вынесено из `_show_overflow_report`, чтобы причина отказа проверялась
+        без создания диалога: сама сборка — это чистая функция от отчётов
+        инжектора, и именно на ней ломался отказ `trailing_truncated` (причина
+        была в списке, но не показывалась переводчику, а запись при этом
+        отмечалась как применённая).
+        """
+        report = list(getattr(self.text_injector, 'last_overflow_report', []) or [])
+        overlap = getattr(self.text_injector, 'last_overlap_report', []) or []
+        for item in overlap:
+            if isinstance(item, dict):
+                target = item.get('offset', item.get('target', 0))
+                room = item.get('room', item.get('length', 0))
+                report.append({
+                    'target': target if isinstance(target, int) else 0,
+                    'length': item.get('length', 0),
+                    'free_after': room if isinstance(room, int) else 0,
+                    'text': f"overlap(skip): {item.get('segment', '?')}",
+                })
+        # Отказы по mid-record указателю: запись оставлена оригиналом
+        # сознательно, и переводчик должен видеть почему, иначе он решит,
+        # что перевод просто не применился.
+        mid_alias = getattr(self.text_injector, 'last_mid_alias_report', []) or []
+        for item in mid_alias:
+            if isinstance(item, dict):
+                target = item.get('offset', 0)
+                room = item.get('room', 0)
+                written = item.get('written', 0)
+                report.append({
+                    'target': target if isinstance(target, int) else 0,
+                    'length': written if isinstance(written, int) else 0,
+                    'free_after': room if isinstance(room, int) else 0,
+                    # Тоже отказ, а не перебор размера: ничего не записано.
+                    'kind': 'reason',
+                    'text': self.i18n.t("inject.mid_alias.entry").format(
+                        segment=item.get('segment', '?'), written=written,
+                        room=room),
+                })
+        # Отказы «перевод физически не представим»: запись оставлена оригиналом
+        # сознательно, и переводчик должен видеть причину — иначе он решит,
+        # что перевод просто не применился, а правильное действие ему не
+        # подскажут. Причины — все про хвост, который извлечение срежет:
+        #   trailing_raw_token  — перевод кончается raw-токеном;
+        #   trailing_truncated  — перевод короче, чем прочитается обратно
+        #                         (WL4: пробел = 0xFF = граница записи, `So `
+        #                         в ROM не представим);
+        #   all_padding         — запись целиком из pad-байта;
+        #   empty_translation   — перевод не содержит непробельных символов,
+        #                         поэтому после записи окно пустеет и запись
+        #                         выпадает из манифеста при обратном извлечении
+        #                         (Oracle of Seasons: 92 записи).
+        # Неизвестная причина НЕ пропускается: slug в сообщении переводчику
+        # ничего не скажет, но без строки отчёт вообще молчит, а это ровно тот
+        # дефект, который здесь чинится. Поэтому показываем нейтральный текст с
+        # причиной как диагностическим хвостом и пишем в лог.
+        affix = getattr(self.text_injector, 'last_affix_report', []) or []
+        affix_keys = {
+            'trailing_raw_token': ('inject.trailing_token.entry', ()),
+            'trailing_truncated': ('inject.trailing_truncated.entry',
+                                   ('read_back', 'chars')),
+            'all_padding': ('inject.all_padding.entry', ()),
+            'empty_translation': ('inject.empty_translation.entry', ()),
+        }
+        for item in affix:
+            if not isinstance(item, dict):
+                continue
+            reason = item.get('reason')
+            mapping = affix_keys.get(reason)
+            target = item.get('offset', 0)
+            room = item.get('room', 0)
+            fields = {'segment': item.get('segment', '?')}
+            if mapping is None:
+                # slug идёт в текст как есть: переводчику он ничего не скажет,
+                # но это единственная зацепка для диагностики. Раньше строка
+                # отбрасывалась целиком, и отчёт молчал — ровно тот дефект,
+                # который здесь чинится.
+                key = 'inject.affix_unknown.entry'
+                fields['reason'] = reason if isinstance(reason, str) else '?'
+                logger.warning(
+                    "Неизвестная причина отказа в last_affix_report: %r",
+                    reason)
+            else:
+                key, extra = mapping
+                for name in extra:
+                    value = item.get(name, 0)
+                    fields[name] = value if isinstance(value, int) else 0
+            report.append({
+                'target': target if isinstance(target, int) else 0,
+                'length': 0,
+                'free_after': room if isinstance(room, int) else 0,
+                'kind': 'reason',
+                'text': self.i18n.t(key).format(**fields),
+            })
+        return report
+
     def _show_overflow_report(self):
         """Показывает полный отчёт о строках, не поместившихся в ROM."""
-        report = getattr(self.text_injector, 'last_overflow_report', []) or []
+        report = self._collect_overflow_report()
         if not report:
             return
         dialog = getattr(self, '_overflow_dialog', None)
@@ -4136,10 +4320,17 @@ class GBTextExtractorGUI:
             except tk.TclError:
                 self._overflow_dialog = None
         lines = self._overflow_report_lines(report)
-
+        # Заголовок и шапка по умолчанию называют причиной ДЛИНУ. Для строк-
+        # причин это неверно: запись не записана потому, что перевод физически
+        # не представим, а места в слоте хватало. Переводчик, прочитавший
+        # «length exceeds the free space» первым, начнёт укорачивать — а для
+        # `trailing_truncated`/`all_padding` это ровно то, что не поможет.
+        has_reason = any(row.get('kind') == 'reason' for row in report)
         win = tk.Toplevel(self.root)
         self._overflow_dialog = win
-        win.title(self.i18n.t("inject.overflow.title"))
+        win.title(self.i18n.t(
+            "inject.overflow.title_reason" if has_reason
+            else "inject.overflow.title"))
         win.geometry("760x480")
         win.transient(self.root)
         widgets.apply_window_icon(win)
@@ -4153,7 +4344,10 @@ class GBTextExtractorGUI:
 
         header = ttk.Label(
             win,
-            text=self.i18n.t("inject.overflow.summary", count=len(report)),
+            text=self.i18n.t(
+                ("inject.overflow.summary_reason" if has_reason
+                 else "inject.overflow.summary"),
+                count=len(report)),
             wraplength=720,
             justify="left",
         )
@@ -4172,7 +4366,10 @@ class GBTextExtractorGUI:
             text=self.i18n.t("inject.overflow.copy"),
             command=lambda: self._copy_overflow_report(text, copy_btn),
         )
-        copy_btn._orig_text = self.i18n.t("inject.overflow.copy")
+        # Исходный текст кнопки хранится на самом виджете: обработчик читает
+        # его при смене темы. Через setattr, потому что tkinter-объекты не
+        # типизированы и не имеют такого атрибута в объявлении.
+        copy_btn._orig_text = self.i18n.t("inject.overflow.copy")  # type: ignore[attr-defined]
         copy_btn.pack(side="right", padx=(theme.SPACING["SM"], 0))
         ttk.Button(
             btns,
@@ -4201,10 +4398,24 @@ class GBTextExtractorGUI:
         )
 
     def _overflow_report_lines(self, report):
-        """Формирует строки полного отчёта (без усечения текстов)."""
+        """Формирует строки полного отчёта (без усечения текстов).
+
+        У строк-причин (`kind == 'reason'`) свой шаблон: рамка «need N bytes,
+        M available» для них ложна — запись не записана не из-за длины, а
+        потому что перевод физически не представим, и `need=0` читался бы как
+        «проблема не в размере». Ложное утверждение в отчёте уводит
+        переводчика не туда, а кнопка Copy уносит его ещё и в баг-трекер.
+        """
         lines = []
         for item in report:
             text = item.get('text', '')
+            if item.get('kind') == 'reason':
+                lines.append(self.i18n.t(
+                    "inject.overflow.line_reason",
+                    target=item.get('target', 0),
+                    text=text,
+                ))
+                continue
             lines.append(self.i18n.t(
                 "inject.overflow.line",
                 target=item.get('target', 0),

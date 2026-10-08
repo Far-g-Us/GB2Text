@@ -22,6 +22,7 @@ Plugin for automated detection of text structure in unknown games
 
 import logging
 
+from core.constants import RomData
 from core.database import get_pointer_size, get_segment_patterns
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
@@ -74,7 +75,7 @@ class AutoDetectPlugin(GamePlugin):
             logger.info(f"Поиск указателей с размером {pointer_size} байта")
 
             # Cache the analysis results
-            analyzed_ranges = {}
+            analyzed_ranges: dict[int, bool] = {}
 
             address_base = 0x08000000 if rom.system == 'gba' else 0
             pointers = find_text_pointers(
@@ -145,7 +146,7 @@ class AutoDetectPlugin(GamePlugin):
                                 f"(плотность: {analysis['readability']:.2%})")
 
         # Add additional filtering and segment-overlap checking
-        filtered_segments = []
+        filtered_segments: list[dict] = []
         segments = sorted(segments, key=lambda s: s['start'])
 
         for segment in segments:
@@ -222,7 +223,7 @@ class AutoDetectPlugin(GamePlugin):
 
         return filtered_groups
 
-    def _estimate_segment_length(self, data: bytes, start_addr: int, min_length: int = 100) -> int:
+    def _estimate_segment_length(self, data: RomData, start_addr: int, min_length: int = 100) -> int:
         """Estimate the text-segment length with improved accuracy"""
         logging.getLogger('gb2text.auto_detect')
 
@@ -254,8 +255,13 @@ class AutoDetectPlugin(GamePlugin):
 
         return best_length
 
-    def _get_compression_for_system(self, system: str) -> str:
-        """Determine the compression type for the system"""
+    def _get_compression_for_system(self, system: str) -> str | None:
+        """Определяет тип сжатия для системы.
+
+        Для не-GBA возвращается None, а не строка: сегмент в этом
+        случае несжатым, и вызывающий код проверяет поле на
+        отсутствие. Аннотация `str` была неверной.
+        """
         if system == 'gba':
             return 'gba_lz77'
         return None

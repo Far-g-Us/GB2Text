@@ -202,6 +202,114 @@ class TestBatchTranslationValidator(unittest.TestCase):
         self.assertIn("Валидных", summary)
 
 
+class TestValidatorTokens(unittest.TestCase):
+    """Токены перевода: сохранение контрольных кодов оригинала."""
+
+    def setUp(self):
+        self.validator = TranslationValidator(max_length=50)
+
+    def test_tokens_preserved(self):
+        result = self.validator.validate("Hi [PLAYER]!", "Привет [PLAYER]!")
+        self.assertTrue(result.is_valid)
+
+    def test_tokens_missing_is_error(self):
+        result = self.validator.validate("Hi [PLAYER]!", "Привет!")
+        self.assertFalse(result.is_valid)
+        self.assertTrue(any('tokens' in (e.field or '') for e in result.errors))
+
+    def test_tokens_extra_is_warning(self):
+        result = self.validator.validate("Hi!", "Привет [WAIT]!")
+        self.assertTrue(result.is_valid)
+        self.assertTrue(any('tokens' in (w.field or '') for w in result.warnings))
+
+    def test_prose_brackets_not_blocking(self):
+        result = self.validator.validate("Box [sic]", "Коробка.")
+        self.assertTrue(result.is_valid)
+        self.assertFalse(any(e.level.value == 'error' and 'tokens' in (e.field or '')
+                             for e in result.errors))
+        text = " ".join(w.message for w in result.warnings)
+        self.assertIn("[sic]", text)
+        self.assertNotIn("[siC]", text)
+
+    def test_uppercase_prose_not_blocking(self):
+        result = self.validator.validate("Note [Hello World]", "Заметка.")
+        self.assertTrue(result.is_valid)
+
+    def test_game_token_forms_strict(self):
+        for token in ('[G:15]', '[FF 0B]', '[40_3C]', '{NL}', '[PLAYER]', '[65]', '[0x1234]'):
+            with self.subTest(token=token):
+                result = self.validator.validate(f"A {token} B", "A B")
+                self.assertFalse(result.is_valid)
+
+    def test_hex_case_insensitive_both_ways(self):
+        for src, dst in (("A [FF] B", "A [ff] B"),
+                         ("A [FF 0B] B", "A [ff 0b] B"),
+                         ("A [40_3C] B", "A [40_3c] B"),
+                         ("A [0x1234] B", "A [0X1234] B"),
+                         ("A [G:AB] B", "A [G:ab] B"),
+                         ("A [0X 12] B", "A [0x 12] B")):
+            with self.subTest(src=src, dst=dst):
+                for a, b in ((src, dst), (dst, src)):
+                    result = self.validator.validate(a, b)
+                    self.assertTrue(result.is_valid)
+                    self.assertFalse(any('tokens' in (w.field or '')
+                                         for w in result.warnings))
+
+    def test_hex_token_loss_single_error(self):
+        for spelling in ("[0x1234]", "[0X1234]"):
+            with self.subTest(spelling=spelling):
+                result = self.validator.validate(f"A {spelling} B", "A B")
+                self.assertFalse(result.is_valid)
+                self.assertFalse(any('tokens' in (w.field or '')
+                                     for w in result.warnings))
+
+    def test_loose_case_only_change_no_warning(self):
+        result = self.validator.validate("A [G:ab] B", "A [G:aB] B")
+        self.assertTrue(result.is_valid)
+        self.assertFalse(any('tokens' in (w.field or '')
+                             for w in result.warnings))
+
+    def test_case_is_strict(self):
+        for src, dst in (("A [G:15] B", "A [g:15] B"),
+                         ("A [PLAYER] B", "A [player] B"),
+                         ("A {Chocobo} B", "A {chocobo} B"),
+                         ("A [123AB] B", "A [123ab] B")):
+            with self.subTest(src=src, dst=dst):
+                result = self.validator.validate(src, dst)
+                self.assertFalse(result.is_valid)
+
+    def test_bare_and_lowercase_lead_are_loose(self):
+        for token in ("[12abc]", "[0x]", "[G:]", "[1g]"):
+            with self.subTest(token=token):
+                result = self.validator.validate(f"A {token} B", "A B")
+                self.assertTrue(result.is_valid)
+                self.assertTrue(any('tokens' in (w.field or '')
+                                    for w in result.warnings))
+
+    def test_digit_lead_upper_gate_is_strict(self):
+        result = self.validator.validate("A [1G] B", "A B")
+        self.assertFalse(result.is_valid)
+
+    def test_brace_name_preserved(self):
+        result = self.validator.validate("A {Chocobo} B", "A {Chocobo} B")
+        self.assertTrue(result.is_valid)
+
+    def test_leading_spaces_warning(self):
+        result = self.validator.validate("Hi", "  Hi")
+        self.assertTrue(result.is_valid)
+        self.assertTrue(any(w.field == 'formatting' for w in result.warnings))
+
+    def test_reorder_is_warning(self):
+        result = self.validator.validate("A [X] B [Y]", "A [Y] B [X]")
+        self.assertTrue(result.is_valid)
+        self.assertTrue(any('tokens' in (w.field or '') for w in result.warnings))
+
+    def test_duplicate_extra_single_warning(self):
+        result = self.validator.validate("A", "A [X] [X]")
+        warnings = [w for w in result.warnings if 'tokens' in (w.field or '')]
+        self.assertEqual(len(warnings), 1)
+
+
 class TestGetValidator(unittest.TestCase):
     """Тесты для глобальной функции get_validator"""
 

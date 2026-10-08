@@ -21,6 +21,7 @@ GB Text Extraction Framework
 
 import logging
 import re
+from typing import Any
 
 from core.mbc import create_mbc
 
@@ -85,7 +86,11 @@ class GameBoyROM:
         self.data = self._load_rom(rom_path)
         self.header = self._parse_header()
         self.system = self._detect_system()
-        self.mbc = create_mbc(self.data, self.header['cartridge_type'], self.header['ram_size'])
+        # create_mbc объявлен на bytes, а _load_rom отдаёт bytearray:
+        # конвертируем явно, копия тут не нужна — MBC только читает.
+        self.mbc = create_mbc(bytes(self.data),
+                              self.header['cartridge_type'],
+                              self.header['ram_size'])
         logger.info(f"ROM загружен успешно. Размер: {len(self.data)} байт")
         logger.info(f"Определена система: {self.system}")
         logger.debug(f"Заголовок ROM: {self.header}")
@@ -112,7 +117,7 @@ class GameBoyROM:
             logger.error(f"Ошибка при чтении ROM файла: {e!s}")
             raise
 
-    def _parse_header(self) -> dict:
+    def _parse_header(self) -> dict[str, Any]:
         """Парсинг заголовка ROM"""
         if len(self.data) < 0x150:
             raise ValueError("Недопустимый ROM файл: слишком маленький")
@@ -269,23 +274,23 @@ class GameBoyROM:
 
     @property
     def title(self) -> str:
-        return self.header.get('title', '')
+        return str(self.header.get('title', ''))
 
     @property
     def cgb_flag(self) -> int:
-        return self.header.get('cgb_flag', 0)
+        return int(self.header.get('cgb_flag', 0))
 
     @property
     def rom_size(self) -> int:
-        return self.header.get('rom_size', 0)
+        return int(self.header.get('rom_size', 0))
 
     @property
     def ram_size(self) -> int:
-        return self.header.get('ram_size', 0)
+        return int(self.header.get('ram_size', 0))
 
     @property
     def region(self) -> int:
-        return self.header.get('destination_code', 0)
+        return int(self.header.get('destination_code', 0))
 
     def calculate_header_checksum(self, data: bytes | bytearray | None = None) -> int:
         """Глобальный (канонический) header checksum GB/GBC по байтам 0x134-0x14C.
@@ -349,7 +354,7 @@ class GameBoyROM:
     def read(self, address: int) -> int:
         """Чтение из ROM с учетом MBC"""
         if 0x0000 <= address < 0x8000:
-            return self.mbc.read_rom(address)
+            return int(self.mbc.read_rom(address))
         elif 0xA000 <= address < 0xC000:
-            return self.mbc.read_ram(address)
+            return int(self.mbc.read_ram(address))
         return 0xFF

@@ -11,12 +11,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from check_docs_consistency import (
     _check_legal_semantics,
+    _doc_items,
     _file_slugs,
     _is_external,
     _resolve_anchor,
     _resolve_local,
     check_legal,
     check_links,
+    check_parity,
     check_routers,
     github_slug,
     main,
@@ -395,6 +397,11 @@ def test_main_all_ok(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ("docs/ru/README.md", "[D](download.md)\n" + ru_dl),
         ("docs/en/download.md", "# Download\n\n" + en_dl),
         ("docs/ru/download.md", "# Download\n\n" + ru_dl),
+        # Parity проверяет ещё две пары, они должны существовать и совпадать.
+        ("KNOWN_ISSUES.md", "- [ ] дефект\n"),
+        ("docs/en/KNOWN_ISSUES.md", "- [ ] a defect\n"),
+        ("ROADMAP.md", "## План\n- [ ] задача\n"),
+        ("docs/en/ROADMAP.md", "## Plan\n- [ ] a task\n"),
     ]:
         p = tmp_path / rel
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -435,6 +442,117 @@ def test_main_routers_legal_modes(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     monkeypatch.chdir(tmp_path)
     assert main(["--mode", "routers"]) == 1
     assert main(["--mode", "legal"]) == 1
+
+
+def test_doc_items_reads_depth_and_state() -> None:
+    text = "- [ ] one\n  - [x] two\n- [X] three\n- not an item\n## heading\n"
+    assert _doc_items(text) == ([(0, " "), (1, "x"), (0, "x")], 0)
+
+
+def test_doc_items_empty_when_no_checklist() -> None:
+    assert _doc_items("# Title\njust text\n") == ([], 0)
+
+
+def test_doc_items_counts_fence_markers() -> None:
+    body = "```\n- [ ] hidden\n```\n- [ ] shown\n"
+    items, fences = _doc_items(body)
+    assert items == [(0, " ")]
+    assert fences == 2
+
+
+def test_doc_items_reports_unbalanced_fence() -> None:
+    """Незакрытый fence «залипает» — дальше файла проверка не идёт."""
+    items, fences = _doc_items("```\n- [ ] a\n- [ ] b\n")
+    assert items == []
+    assert fences == 1
+
+
+def test_parity_flags_unbalanced_fence(tmp_path: Path) -> None:
+    _parity_files(tmp_path, "- [ ] a\n```\n", "- [ ] one\n")
+    problems = check_parity(tmp_path)
+    assert any("unbalanced" in p for p in problems)
+
+
+def _parity_files(tmp_path: Path, ru: str, en: str) -> None:
+    """Создаёт ОБЕ пары: KNOWN_ISSUES задаётся аргументами, ROADMAP — одинаковый."""
+    for rel, body in (
+        ("KNOWN_ISSUES.md", ru),
+        ("docs/en/KNOWN_ISSUES.md", en),
+        ("ROADMAP.md", "- [ ] shared\n"),
+        ("docs/en/ROADMAP.md", "- [ ] shared\n"),
+    ):
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+
+def test_parity_accepts_equal_structure(tmp_path: Path) -> None:
+    _parity_files(tmp_path, "- [ ] a\n- [x] b\n", "- [ ] one\n- [x] two\n")
+    assert check_parity(tmp_path) == []
+
+
+def test_parity_flags_different_count(tmp_path: Path) -> None:
+    _parity_files(tmp_path, "- [ ] a\n- [x] b\n", "- [ ] one\n")
+    problems = check_parity(tmp_path)
+    assert len(problems) == 1
+    assert "2 checklist items vs 1" in problems[0]
+
+
+def test_parity_flags_state_mismatch(tmp_path: Path) -> None:
+    _parity_files(tmp_path, "- [ ] a\n", "- [x] one\n")
+    problems = check_parity(tmp_path)
+    assert len(problems) == 1
+    assert "item 1" in problems[0]
+
+
+def test_parity_flags_nesting_mismatch(tmp_path: Path) -> None:
+    _parity_files(tmp_path, "- [ ] a\n  - [ ] deep\n", "- [ ] one\n- [ ] two\n")
+    problems = check_parity(tmp_path)
+    assert len(problems) == 1
+    assert "(1, ' ')" in problems[0]
+
+
+def test_parity_missing_file_is_reported(tmp_path: Path) -> None:
+    (tmp_path / "docs" / "en").mkdir(parents=True)
+    (tmp_path / "KNOWN_ISSUES.md").write_text("- [ ] a\n", encoding="utf-8")
+    problems = check_parity(tmp_path)
+    assert any("MISSING" in p for p in problems)
+
+
+def test_parity_ignores_wording_differences(tmp_path: Path) -> None:
+    """Текст пунктов по определению разный — сравнивается только форма."""
+    _parity_files(tmp_path, "- [ ] Сокращающий перевод\n", "- [ ] Shortening\n")
+    assert check_parity(tmp_path) == []
+
+
+def test_parity_flags_pair_without_any_items(tmp_path: Path) -> None:
+    """Обе стороны без чеклиста — пара обязана быть отмечена, а не пропущена."""
+    _parity_files(tmp_path, "# только заголовок\n", "# only a heading\n")
+    problems = check_parity(tmp_path)
+    assert len(problems) == 1
+    assert "no checklist items found" in problems[0]
+
+
+def test_parity_detects_item_without_space_after_bracket(tmp_path: Path) -> None:
+    """`- [ ]x` — тоже пункт: иначе рассинхрон проходит молча."""
+    _parity_files(tmp_path, "- [ ]a\n- [ ] b\n", "- [ ] one\n")
+    problems = check_parity(tmp_path)
+    assert len(problems) == 1
+    assert "2 checklist items vs 1" in problems[0]
+
+
+def test_parity_ignores_items_inside_fences(tmp_path: Path) -> None:
+    """Пример с чекбоксом внутри ``` — иллюстрация, а не пункт списка."""
+    ru = "- [ ] a\n\n```\n- [ ] не пункт\n```\n"
+    en = "- [ ] one\n"
+    _parity_files(tmp_path, ru, en)
+    assert check_parity(tmp_path) == []
+
+
+def test_repo_known_issues_and_roadmap_are_in_parity() -> None:
+    """Боевой прогон по репозиторию: en/ru пары не разъехались."""
+    root = Path(__file__).resolve().parents[1]
+    assert check_parity(root) == []
 
 
 if __name__ == "__main__":

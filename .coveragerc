@@ -3,7 +3,7 @@ source = core, plugins, api
 branch = True
 omit =
     */tests/*
-    */test_roms/*
+    */test_game/*
     */__pycache__/*
     */site-packages/*
     */.git/*
@@ -23,6 +23,9 @@ exclude_lines =
     if __name__ == .__main__.:
     if TYPE_CHECKING:
     @abstractmethod
+    # Тело- многоточие (Protocol) — это объявление для типов, а не код:
+    # исполнять его нечем, и вызывать Protocol нельзя.
+    ^\.\.\.$
 
 [html]
 directory = htmlcov

@@ -11,7 +11,7 @@ from core.guide import GuideManager
 from core.plugin_manager import CancellationToken, PluginManager
 
 # Путь к тестовым ROM
-TEST_ROMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_roms")
+TEST_ROMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_game")
 
 
 def create_temp_rom_file(data: bytes | None = None, size: int = 0x8000) -> str:
@@ -646,30 +646,6 @@ class TestTextExtractor:
 
         try:
             pm = MockPluginManagerLowQuality()
-            extractor = TextExtractor(temp_path, pm, GuideManager())
-            result = extractor.extract()
-            assert isinstance(result, dict)
-        finally:
-            os.unlink(temp_path)
-
-    def test_extract_with_invalid_segment_addresses(self):
-        """Тест извлечения с невалидными адресами сегмента"""
-        class MockPluginManagerInvalidAddr(PluginManager):
-            def get_plugin(self, game_id, system, cancellation_token, rom=None):
-                class MockPlugin:
-                    system = "gba"
-                    def get_text_segments(self, rom):
-                        return [
-                            {'name': 'invalid', 'start': 0x100000, 'end': 0x200000, 'decoder': None}
-                        ]
-                return MockPlugin()
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".gb") as f:
-            f.write(b'GBA' + b'\x00' * 500)
-            temp_path = f.name
-
-        try:
-            pm = MockPluginManagerInvalidAddr()
             extractor = TextExtractor(temp_path, pm, GuideManager())
             result = extractor.extract()
             assert isinstance(result, dict)

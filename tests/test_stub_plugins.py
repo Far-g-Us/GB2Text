@@ -17,7 +17,6 @@ STUB_PLUGINS = [
     pytest.param(('plugins.gba_fire_emblem', 'FireEmblemGBAPlugin', 'GBA_BE8E'), id='fire_emblem_fe8'),
     pytest.param(('plugins.gba_breath_of_fire', 'BreathOfFirePlugin', 'GBA_ABFE'), id='breath_of_fire'),
     pytest.param(('plugins.gba_telefang_2', 'Telefang2Plugin', 'GBA_ATPJ'), id='telefang_2'),
-    pytest.param(('plugins.gba_advance_wars', 'AdvanceWarsPlugin', 'GBA_AWRE'), id='advance_wars'),
     pytest.param(('plugins.gba_castlevania_ctm', 'CastlevaniaCTMPlugin', 'GBA_AAME'), id='castlevania_ctm'),
     pytest.param(('plugins.gba_castlevania_hod', 'CastlevaniaHODPlugin', 'GBA_ACHP'), id='castlevania_hod'),
     pytest.param(('plugins.gba_ct_special_forces', 'CTSpecialForcesPlugin', 'GBA_AC7E'), id='ct_special_forces'),

@@ -10,9 +10,9 @@ from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 from core.rom import GameBoyROM
-from plugins.gba_pokemon import FIXED_TABLES, PokemonGBAPlugin
+from plugins.gba_pokemon import FIXED_TABLES, PokemonFixedTextDecoder, PokemonGBAPlugin
 
-ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
+ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_game')
 US_AND_EU = {
     'emerald': 'Pokemon - Emerald Version (USA, Europe).gba',
     'firered': 'Pokemon - FireRed Version (USA).gba',
@@ -180,3 +180,46 @@ def test_roundtrip_real_rom(version, file):
             before_texts = [m['text'] for m in before.get(seg['name'], [])]
             after_texts = [m['text'] for m in after.get(seg['name'], [])]
             assert before_texts == after_texts
+
+
+class TestFixedTextDecoderEncode:
+    """PokemonFixedTextDecoder.encode: [HH]-токены, strict, fallback."""
+
+    def _decoder(self):
+        return PokemonFixedTextDecoder({0xBB: 'A', 0xBC: 'B', 0x00: ' '})
+
+    def test_raw_token_roundtrip(self):
+        dec = self._decoder()
+        assert dec.decode(bytes([0x65]), 0, 1) == '[65]'
+        assert dec.encode('[65]AB') == bytes([0x65, 0xBB, 0xBC])
+        assert dec.decode(dec.encode('[65]AB'), 0, 4) == '[65]AB'
+
+    def test_token_case_insensitive_hex(self):
+        dec = self._decoder()
+        assert dec.encode('[ab]') == bytes([0xAB])
+
+    def test_non_token_brackets_literal(self):
+        dec = self._decoder()
+        assert dec.encode('[ZZ]') == bytes([0x00, 0x00, 0x00, 0x00])
+        assert dec.encode('[0]') == bytes([0x00, 0x00, 0x00])
+
+    def test_no_charmap_collisions_with_raw_tokens(self):
+        import re
+
+        from plugins.gba_pokemon import CHARMAP_FIRERED, CHARMAP_POKEMON_GBA
+        pattern = re.compile(r'^\[[0-9A-Fa-f]{2}\]$')
+        for charmap in (CHARMAP_FIRERED, CHARMAP_POKEMON_GBA):
+            assert not [v for v in charmap.values() if pattern.match(v)]
+
+    def test_strict_raises_on_unknown(self):
+        dec = self._decoder()
+        with pytest.raises(ValueError):
+            dec.encode('~', strict=True)
+
+    def test_plain_roundtrip(self):
+        dec = self._decoder()
+        assert dec.decode(dec.encode('AB'), 0, 2) == 'AB'
+
+    def test_lowercase_falls_back_to_upper(self):
+        dec = self._decoder()
+        assert dec.encode('a') == bytes([0xBB])

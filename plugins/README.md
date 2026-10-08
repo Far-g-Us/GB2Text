@@ -69,7 +69,7 @@ JSON-конфиги (без Python-кода) лежат в `plugins/config/`.
 1. Создать `plugins/gba_<game_name>.py`.
 2. Унаследоваться от `GamePlugin`, задать `game_id_pattern` и
    `get_text_segments(rom)`.
-3. Валидировать детекцию и извлечение на реальном ROM из `test_roms/`.
+3. Валидировать детекцию и извлечение на реальном ROM из `test_game/`.
 4. Обновить `SUPPORTED_GAMES.md` (включая Region-колонку).
 
 Подробнее — `docs/en/CONTRIBUTING.md` и `docs/ru/CONTRIBUTING.md`.

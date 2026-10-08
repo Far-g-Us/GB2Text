@@ -39,8 +39,51 @@ Author dialogs and story content are not included.
 import logging
 import struct
 
+from core.decoder import CharMapDecoder
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
+
+_ASCII_CHARMAP: dict[int, str] = {i: chr(i) for i in range(0x20, 0x7F)}
+
+# Границы ASCII-области кредитов внутри окна сканирования.
+#
+# Признак «это мусор» обязан быть инвариантом к переводу: отбор работает и
+# при обратном извлечении уже пропатченного ROM. Поэтому доля букв и длина
+# текста как признак не годятся — измерено, что гейт по доле букв терял все
+# кредиты ('NINTENDO.' -> 'NIN' даёт долю букв 3/9 = 0.33), а порог длины
+# срезал настоящие заголовки staff roll ('Music' 5 байт, 'Writing' 7 байт).
+#
+# Длина НЕ инвариантна: при pad_byte=0x00 укороченная запись становится
+# короче порога плотности. Поэтому длина применяется только к пробе, которая
+# ищет начало области, и не применяется к отбору записей.
+#
+# Проба плотности: первое окно, где набирается `_CREDITS_DENSITY_MIN`
+# NUL-терминированных прогонов длиной не менее `_CREDITS_MIN_RUN`. Машинный
+# код таких строк не содержит, кредиты содержат плотной полосой.
+_CREDITS_MIN_RUN = 5
+_CREDITS_PROBE = 64
+_CREDITS_DENSITY_MIN = 3
+# Конец области — перед большим разрывом без строк. Кредиты идут подряд,
+# разрывы между ними 1-2 байта. Порог 0x100 терпит рост разрывов при
+# сокращении: удаление увеличивает дыры между записями.
+_CREDITS_GAP = 0x100
+# Минимум длины в обходе записей: 1, потому что сокращённая запись
+# становится короткой и при бóльшем пороге выпадает из манифеста.
+_CREDITS_WALK_MIN_RUN = 1
+# Заполнитель дыры после укороченной записи: 0x00, чтобы хвост не был виден.
+_CREDITS_PAD_BYTE = 0x00
+# Окно кредитов GS. У TLA своё окно и свой префикс.
+_CREDITS_WIN = (0x0F0000, 0x0F2000)
+_CREDITS_PREFIX = 'gs_credits'
+# Окно кредитов в этой ревизии ROM.
+# Начало области задаётся константой ревизии, а не ищется сканером:
+# при сокращении перевода печатные байты исчезают, и скан уплывает вперёд.
+_CREDITS_FIXED_PROBE = 0x400
+_CREDITS_FIXED_NEED = 12
+# Минимальная длина прогона в проверке якоря. Отдельно от `_CREDITS_MIN_RUN`:
+# тот про пробу плотности, а здесь про проверку якоря.
+_CREDITS_FIXED_MIN_RUN = 4
+_CREDITS_AT = 0x0F0AE4
 
 logger = logging.getLogger('gb2text.plugins.golden_sun')
 
@@ -69,6 +112,173 @@ GS_CONTROL_TOKENS: dict[int, str] = {
     0x1E: '{WAIT}',      # prompt "..."
 }
 GS_TOKEN_REVERSE = {v: k for k, v in GS_CONTROL_TOKENS.items()}
+
+
+def _credits_region_impl(data: bytes, start: int,
+                         end: int) -> tuple[int, int]:
+    """Границы ASCII-области кредитов: (начало, конец).
+
+    Начало — первое окно, где NUL-терминированных строк достаточно много:
+    машинный код не содержит подряд идущих NUL-строк, кредиты содержат.
+    Для Golden Sun даёт ровно 0x0F0AE4 — первую настоящую строку
+    'NINTENDO.'.
+
+    Конец — адрес завершения последней строки перед ПРОДОЛЖИТЕЛЬНЫМ
+    РАЗРЫВОМ: кредиты идут подряд (разрывы 1-2 байта), а после них перед
+    мусором образуется разрыв в 0x94 байта. Проба с порогом плотности на
+    окне 64 байта для конца не годится — она срабатывала ВНУТРИ кредитов
+    и схлопывала область в ноль.
+
+    ГРАНИЦА ОБЛАСТИ ЗАВИСИТ ОТ ДЛИН ЗАПИСЕЙ, а не только от структуры.
+    Начало — первая точка, где в окне `_CREDITS_PROBE` байт набирается
+    `_CREDITS_DENSITY_MIN` NUL-терминированных прогонов длиной не менее
+    `_CREDITS_MIN_RUN`. Укороченная запись короче порога, поэтому на патче
+    точка смещается вперёд: у GS на 11 байт, у TLA на 82. Именно поэтому
+    начало и задаётся константой ревизии (`_CREDITS_AT`,
+    `TLA_CREDITS_AT`), а скан остаётся запасным путём для других ревизий.
+
+    Отвергнутые инвариантные альтернативы и их замеры — см. KNOWN_ISSUES
+    и `scripts_roms/gs_credits_boundary_probe.py`.
+    """
+    if _CREDITS_PROBE <= 0 or _CREDITS_DENSITY_MIN <= 0:
+        return start, end
+
+    def nul_runs(lo: int, hi: int,
+                 min_run: int = _CREDITS_MIN_RUN) -> list[tuple[int, int]]:
+        found: list[tuple[int, int]] = []
+        i = lo
+        while i < hi:
+            if 0x20 <= data[i] <= 0x7E:
+                s = i
+                while i < hi and 0x20 <= data[i] <= 0x7E:
+                    i += 1
+                if (i - s >= min_run and i < len(data)
+                        and data[i] == 0x00):
+                    found.append((s, i))
+            else:
+                i += 1
+        return found
+
+    region_start = end
+    for base in range(start, max(start, end - _CREDITS_PROBE + 1)):
+        if len(nul_runs(base, min(base + _CREDITS_PROBE, end))) \
+                >= _CREDITS_DENSITY_MIN:
+            region_start = base
+            break
+    if region_start >= end:
+        return region_start, end
+
+    # Обход записей идёт по собственному минимуму длины
+    # (`_CREDITS_WALK_MIN_RUN` = 1), а проба плотности, определяющая
+    # начало области, остаётся на `_CREDITS_MIN_RUN`. Это разные признаки:
+    # укороченная запись выпадает из отбора, но не должна ломать границу.
+    runs = nul_runs(region_start, end, _CREDITS_WALK_MIN_RUN)
+    if not runs:
+        return region_start, region_start
+    region_end = runs[0][1]
+    for run_start, run_end in runs[1:]:
+        if run_start - region_end >= _CREDITS_GAP:
+            break
+        region_end = run_end
+    return region_start, region_end
+
+
+def credits_region(data: bytes, start: int, end: int,
+                   fixed_at: int | None = None) -> tuple[int, int]:
+    """Границы плотной ASCII-области кредитов в окне адресов.
+
+    Чистая функция без `self`: оба плагина Golden Sun и The Lost Age
+    держат один и тот же формат.
+
+    `fixed_at` — константа ревизии: начало области кредитов. Она нужна
+    потому, что при сокращении перевода сканер плотности смещается вперёд
+    (на 11 байт у GS, на 82 у TLA) и первые кредиты выпадают из манифеста.
+    Константа от перевода не зависит, как и остальные константы адресов
+    в этом плагине. Если проверка `_looks_like_credits` не подтверждает
+    адрес, остаётся сканер.
+    """
+    if fixed_at is not None and start <= fixed_at < end \
+            and _looks_like_credits(data, fixed_at, end):
+        return fixed_at, _credits_region_impl(data, start, end)[1]
+    return _credits_region_impl(data, start, end)
+
+
+def _looks_like_credits(data: bytes, at: int, end: int) -> bool:
+    """Проверка фиксированного начала области.
+
+    Инвариантна к сокращению: перевод не убирает сами строки, поэтому
+    количество NUL-терминированных прогонов сохраняется.
+    """
+    # Якорь обязан стоять НА ПЕЧАТНОМ байте: иначе он указывает внутрь
+    # строки, и обход молча разрежет её. Замер без этой проверки: гард
+    # принимал 70.9 % позиций окна и давал 219 сегментов вместо 109,
+    # из них 144 байта для записи лежали внутри машинного кода.
+    if at >= len(data) or not 0x20 <= data[at] <= 0x7E:
+        return False
+    found = 0
+    i = at
+    limit = min(end, at + _CREDITS_FIXED_PROBE)
+    while i < limit and found < _CREDITS_FIXED_NEED:
+        if 0x20 <= data[i] <= 0x7E:
+            run = i
+            while i < limit and 0x20 <= data[i] <= 0x7E:
+                i += 1
+            if (i - run) >= _CREDITS_FIXED_MIN_RUN \
+                    and i < len(data) and data[i] == 0x00:
+                found += 1
+        else:
+            i += 1
+    return bool(found >= _CREDITS_FIXED_NEED)
+
+
+def ascii_credits_segments(data, win_lo, win_hi, prefix,
+                          log=logger,
+                          fixed_at=None) -> list[dict]:
+    """Сегменты ASCII-кредитов из окна ['win_lo', 'win_hi') с именем `'prefix'.
+
+    Общий код: плагин GS делает своё, TLA вызывает тот же
+    код для своих окна, но своим именем.
+    """
+    segments: list[dict] = []
+    start = win_lo
+    end = min(win_hi, len(data))
+    if start >= len(data):
+        return segments
+
+    region_start, region_end = credits_region(data, start, end,
+                                                 fixed_at)
+    if region_start >= region_end:
+        log.warning(
+            f'Плотная ASCII-область кредитов не найдена в окне '
+            f'0x{start:X}..0x{end:X}: кредиты этой ревизии не извлекаются')
+        return segments
+
+    i = region_start
+    while i < region_end:
+        if 0x20 <= data[i] <= 0x7E:
+            str_start = i
+            while i < region_end and 0x20 <= data[i] <= 0x7E:
+                i += 1
+            length = i - str_start
+            nul_terminated = (str_start + length < len(data)
+                              and data[str_start + length] == 0x00)
+            if length >= _CREDITS_WALK_MIN_RUN and nul_terminated:
+                text = bytes(data[str_start:str_start + length]).decode(
+                    'ascii', errors='replace')
+                segments.append({
+                    'name': f'{prefix}_{str_start:06x}',
+                    'start': str_start,
+                    'end': str_start + length,
+                    'decoder': CharMapDecoder(dict(_ASCII_CHARMAP)),
+                    'compression': None,
+                    'charmap': dict(_ASCII_CHARMAP),
+                    'terminators': [0x00],
+                    'pad_byte': _CREDITS_PAD_BYTE,
+                    'raw_text': text,
+                })
+        else:
+            i += 1
+    return segments
 
 
 class _BitReader:
@@ -139,7 +349,9 @@ class GoldenSunHuffmanDecoder:
         if offsets_base + 512 > len(rom_data):
             raise ValueError('ROM too small for Golden Sun Huffman tables')
         self.offsets = list(struct.unpack_from('<256H', rom_data, offsets_base))
-        self._topo_cache: dict[int, int] = {}
+        # Разобранная топология: prev-байт -> список узлов pre-order.
+        # Строится один раз на дерево вместо раскладки на КАЖДЫЙ символ.
+        self._tree_cache: dict[int, list[int]] = {}
 
     def _read_leaf(self, topo_start: int, leaf_id: int) -> int:
         """Read a symbol from a tree's packed leaf array."""
@@ -149,20 +361,70 @@ class GoldenSunHuffmanDecoder:
         return ((self.data[topo_start - off - 1] & 0x0F) << 4) | \
             ((self.data[topo_start - off - 2] >> 4) & 0x0F)
 
-    def _count_skipped_leaves(self, topo_start: int, tp: _BitReader) -> int:
-        """Skip one topology subtree, counting its leaves."""
-        count = 0
+    def _parse_tree(self, topo_start: int) -> list[int]:
+        """Топология дерева в pre-order: узлы и число листьев слева.
 
-        def walk() -> None:
-            nonlocal count
-            if tp.read_bit() == 1:
-                count += 1
+        Узел — целое: неотрицательное значение означает лист с таким
+        `leaf_id`, отрицательное — `-(leaves_in_left_subtree)`. Разбор идёт
+        один раз на дерево: прежде он повторялся на каждый символ, и полная
+        распаковка Golden Sun стоила ~24 млн вызовов рекурсивного `walk`.
+
+        Обход ИТЕРАТИВНЫЙ, и это не оптимизация: в стоковом Golden Sun из
+        239 деревьев 6 имеют высоту больше 900 (максимум 29 665), то есть
+        рекурсивный разбор упал бы с RecursionError на совершенно нормальной
+        игре. Старый обход рекурсией не пользовался — `walk()` вызывался
+        только при переходе вправо, — поэтому деградации на вырожденном
+        дереве раньше не было, и её не должно быть теперь.
+        """
+        nodes: list[int] = []
+        data = self.data
+        state = [topo_start, 0]  # [bytepos, bitpos]
+
+        def read_bit() -> int:
+            bit = (data[state[0]] >> state[1]) & 1
+            state[1] += 1
+            if state[1] == 8:
+                state[1] = 0
+                state[0] += 1
+            return bit
+
+        # Кадр незакрытого внутреннего узла:
+        # [индекс в nodes, leaf_id поддерева, листья слева (None = не считали),
+        #  листья справа].
+        stack: list[list] = []
+        leaf_id = 0
+        while True:
+            if read_bit() == 1:  # лист
+                nodes.append(leaf_id)
+                leaf_id += 1
+                n_leaves = 1
+            else:  # внутренний узел: спускаемся в левое поддерево
+                nodes.append(0)
+                stack.append([len(nodes) - 1, leaf_id, None, 0])
+                continue
+            # Узел закрыт (n_leaves листьев): поднимаемся по стеку.
+            while stack:
+                frame = stack[-1]
+                if frame[2] is None:  # левое поддерево только что закрыто
+                    frame[2] = n_leaves
+                    leaf_id = frame[1] + n_leaves  # правый ребёнок отсюда
+                    break
+                frame[3] = n_leaves
+                left = frame[2]
+                nodes[frame[0]] = -left
+                stack.pop()
+                n_leaves = left + frame[3]
             else:
-                walk()
-                walk()
+                break  # стек пуст: дерево разобрано целиком
+        return nodes
 
-        walk()
-        return count
+    def _tree(self, prev: int) -> list[int]:
+        """Разобранное дерево для prev-байта (с кэшем)."""
+        cached = self._tree_cache.get(prev)
+        if cached is None:
+            cached = self._parse_tree(self.trees_base + self.offsets[prev])
+            self._tree_cache[prev] = cached
+        return cached
 
     def _decode_symbol(self, bitstream: _BitReader, prev: int) -> int:
         """Decode one symbol from the bit stream using the 'prev' tree."""
@@ -173,18 +435,26 @@ class GoldenSunHuffmanDecoder:
         if topo_start - 2 < 0 or topo_start >= len(self.data):
             raise ValueError(f'tree topology out of bounds: 0x{topo_start:X}')
 
-        tp = _BitReader(self.data, topo_start)
-        leaf_count = 0
-
+        nodes = self._tree(prev)
+        data = bitstream.data
+        bytepos = bitstream.bytepos
+        bitpos = bitstream.bitpos
+        idx = 0
         while True:
-            if tp.read_bit() == 1:
-                # reached a leaf: leaf_count at this point == this leaf's id
-                return self._read_leaf(topo_start, leaf_count)
-            # internal node: the data bit selects the child
-            if bitstream.read_bit() == 1:
-                # right: skip the left subtree, counting its leaves
-                leaf_count += self._count_skipped_leaves(topo_start, tp)
-            # left: continue descending the topology without counting
+            node = nodes[idx]
+            if node >= 0:  # достигнут лист: node и есть его leaf_id
+                bitstream.bytepos = bytepos
+                bitstream.bitpos = bitpos
+                return self._read_leaf(topo_start, node)
+            # Внутренний узел: бит данных выбирает ребёнка. В pre-order
+            # левый ребёнок идёт сразу за узлом, а правый — за левым
+            # поддеревом, в котором 2*leaves-1 узлов.
+            bit = (data[bytepos] >> bitpos) & 1
+            bitpos += 1
+            if bitpos == 8:
+                bitpos = 0
+                bytepos += 1
+            idx += 1 if not bit else -2 * node
 
     def decode_string(self, compressed: bytes) -> bytes:
         """Decode a single compressed string (stops at 0x00)."""
@@ -336,6 +606,53 @@ class GoldenSunPlugin(GamePlugin):
     def __init__(self):
         super().__init__()
         self._decoder = GoldenSunTextDecoder()
+        # Разобранные строки на исходный ROM: инжектор зовёт
+        # get_text_segments на каждый пакет, а распаковка всех 10722 строк
+        # стоит ~2.5 с. Кэш держит САМ объект `rom.data`, поэтому
+        # переиспользовать его `id()` невозможно; `rom.data` инфраструктурой
+        # не мутируется — правки идут в modified_data инжектора.
+        self._strings_cache: tuple | None = None
+
+    def _decoded_strings(self, rom: GameBoyROM) -> list[tuple[int, int, int, str]]:
+        """`(start, length, sid, text)` по всем строкам ROM, с кэшем."""
+        data = rom.data
+        cache = self._strings_cache
+        if cache is not None and cache[0] is data:
+            # Копия: внутренний кортеж не должен утекать к вызывающему.
+            return list(cache[1])
+        out: list[tuple[int, int, int, str]] = []
+        try:
+            huffman = GoldenSunHuffmanDecoder(data)
+        except ValueError as e:
+            logger.warning(f"Golden Sun Huffman tables unavailable: {e}")
+            self._strings_cache = (data, ())
+            return []
+        decoder = self._decoder
+        for fid in range(GS_DATA_FILES):
+            strings_addr, lens_addr = struct.unpack_from(
+                '<II', data, GS_STRINGS_PTR_BASE + fid * 8
+            )
+            if not (0x08000000 <= strings_addr <= 0x08800000
+                    and 0x08000000 <= lens_addr <= 0x08800000):
+                logger.warning(f"Bad string table pointers in file {fid}")
+                continue
+            strings_addr -= 0x08000000
+            lens_addr -= 0x08000000
+            data_len = lens_addr - strings_addr
+            pos = 0
+            for sid in range(GS_STRINGS_PER_FILE):
+                if pos >= data_len:
+                    break
+                length = data[lens_addr + sid]
+                if length == 0 or pos + length > data_len:
+                    break
+                compressed = bytes(data[strings_addr + pos:strings_addr + pos + length])
+                decoded = huffman.decode_string(compressed)
+                out.append((strings_addr + pos, length, fid * GS_STRINGS_PER_FILE + sid,
+                            decoder.decode(decoded)))
+                pos += length
+        self._strings_cache = (data, tuple(out))
+        return list(out)
 
     @property
     def game_id_pattern(self) -> str:
@@ -350,86 +667,64 @@ class GoldenSunPlugin(GamePlugin):
             return []
 
         try:
-            huffman = GoldenSunHuffmanDecoder(rom.data)
             compressor = GoldenSunHuffmanEncoder(rom.data)
         except ValueError as e:
             logger.warning(f"Golden Sun Huffman tables unavailable: {e}")
             return []
 
         segments: list[dict] = []
-        for fid in range(GS_DATA_FILES):
-            strings_addr, lens_addr = struct.unpack_from(
-                '<II', rom.data, GS_STRINGS_PTR_BASE + fid * 8
-            )
-            if not (0x08000000 <= strings_addr <= 0x08800000
-                    and 0x08000000 <= lens_addr <= 0x08800000):
-                logger.warning(f"Bad string table pointers in file {fid}")
-                continue
-            strings_addr -= 0x08000000
-            lens_addr -= 0x08000000
-            data_len = lens_addr - strings_addr
-            pos = 0
-            for sid in range(GS_STRINGS_PER_FILE):
-                if pos >= data_len:
-                    break
-                length = rom.data[lens_addr + sid]
-                if length == 0 or pos + length > data_len:
-                    break
-
-                compressed = bytes(rom.data[strings_addr + pos:strings_addr + pos + length])
-                decoded = huffman.decode_string(compressed)
-                text = self._decoder.decode(decoded)
-
-                segments.append({
-                    'name': f'gs_dialogue_f{fid:02d}_{sid:03d}',
-                    'start': strings_addr + pos,
-                    'end': strings_addr + pos + length,
-                    'decoder': self._decoder,
-                    'compression': 'huffman',
-                    'compressed_length': length,
-                    'pad_byte': 0xFF,
-                    'charmap': self._decoder.charmap,
-                    'terminators': [0x00],
-                    'raw_text': text,
-                    'encoder': self._make_compressor(compressor),
-                })
-                pos += length
+        for start, length, sid, text in self._decoded_strings(rom):
+            segments.append({
+                'name': f'gs_dialogue_f{sid // GS_STRINGS_PER_FILE:02d}_'
+                        f'{sid % GS_STRINGS_PER_FILE:03d}',
+                'start': start,
+                'end': start + length,
+                'decoder': self._decoder,
+                'compression': 'huffman',
+                'compressed_length': length,
+                'pad_byte': 0xFF,
+                'charmap': self._decoder.charmap,
+                'terminators': [0x00],
+                'raw_text': text,
+                'encoder': self._make_compressor(compressor),
+            })
 
         segments.extend(self._ascii_credits_segments(rom))
         logger.info(f"Total segments: {len(segments)}")
         return segments
 
-    def _ascii_credits_segments(self, rom: GameBoyROM) -> list[dict]:
-        """Extract the staff credits (a pure-ASCII area) as extra segments."""
-        segments: list[dict] = []
-        start = 0x0F0000
-        end = min(0x0F2000, len(rom.data))
-        if start >= len(rom.data):
-            return segments
+    def _credits_region(self, data: bytes, start: int,
+                      end: int) -> tuple[int, int]:
+        """Область плотной ASCII-области кредитов в окне адресов.
 
-        i = start
-        while i < end:
-            if 0x20 <= rom.data[i] <= 0x7E:
-                str_start = i
-                while i < end and 0x20 <= rom.data[i] <= 0x7E:
-                    i += 1
-                length = i - str_start
-                if length >= 5:
-                    text = bytes(rom.data[str_start:str_start + length]).decode(
-                        'ascii', errors='replace')
-                    segments.append({
-                        'name': f'gs_credits_{len(segments)}',
-                        'start': str_start,
-                        'end': str_start + length,
-                        'decoder': None,
-                        'compression': None,
-                        'charmap': {},
-                        'terminators': [0x00],
-                        'raw_text': text,
-                    })
-            else:
-                i += 1
-        return segments
+        См. `credits_region` — реализованная функция общая для обоих плагинов.
+        """
+        return _credits_region_impl(data, start, end)
+
+    def _ascii_credits_segments(self, rom: GameBoyROM) -> list[dict]:
+        """Извлекает кредиты staff roll (чисто-ASCII область) сегментами.
+
+        Окно 0x0F0000..0x0F2000 содержит и кредиты, и МАШИННЫЙ КОД: в
+        Golden Sun код идёт примерно до 0x0F0AE0. Наивный скан «любой прогон
+        печатаемых байт >= 5» выдавал 141 сегмент, и инжектор затирал 5-8 байт
+        живых инструкций там, где сегмент лежал поверх кода
+        (`0x0F026D: 4d 6c 46 23 60 20 1c 0b 4b 0c 4a 07 c3` = `ldr r3,[pc]` /
+        `mov r3,r1` / `ldr r2,[pc]`). Измерено: из 141 прогона 107 —
+        настоящие кредиты, 14 начинаются в области кода (ниже 0x0F0AE0), 20
+        идут после кредитов; итого 34 сегмента поверх не-текста.
+
+        Отбор сведён к границам ASCII-области и двум инвариантным признакам
+        (длина прогона >= 5, терминатор 0x00) — см. константы модуля и
+        обоснование в них.
+
+        Имя сегмента содержит АДРЕС, а не порядковый номер: `len(segments)`
+        сдвигается при любом изменении отбора, а имя сегмента — ключ в TMX,
+        манифестах и кэше, поэтому старый перевод ушёл бы молча в другую
+        строку.
+        """
+        return ascii_credits_segments(
+            rom.data, _CREDITS_WIN[0], _CREDITS_WIN[1],
+            _CREDITS_PREFIX, log=logger, fixed_at=_CREDITS_AT)
 
     def get_terminators(self, segment_name: str) -> list[int]:
         return [0x00]

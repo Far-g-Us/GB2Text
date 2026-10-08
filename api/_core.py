@@ -76,6 +76,39 @@ def resolve_output(rom_path: str, output_path=None) -> str:
     return str(candidate)
 
 
+def ensure_not_source(rom_path: str, output_path) -> str:
+    """Запрещает писать результат поверх исходного ROM.
+
+    Для `inject` это уже делает `resolve_output` (там ещё и правило «тот же
+    каталог»). Здесь правило другое: PNG-превью пользователь вправе положить
+    куда угодно, поэтому проверяется ровно одно — что выходной путь не является
+    исходным файлом. Без этой проверки `picture apply -o <тот же .gba>` тихо
+    перезаписывал бы ROM, что прямо противоречит обещанию «исходник не меняется».
+    """
+    out = Path(output_path)
+    if out.is_symlink():
+        raise SDKError(C_IO_ERROR,
+                       f"Путь output является символической ссылкой: {output_path}")
+    resolved_out = out.resolve()
+    if resolved_out.is_symlink():
+        raise SDKError(C_IO_ERROR,
+                       f"Разрешённый путь output является символической ссылкой: {out}")
+    rom = Path(rom_path).resolve()
+    # `os.path.samefile` ловит hardlink: путь другой, а файл тот же самый.
+    try:
+        if resolved_out.exists() and os.path.samefile(resolved_out, rom):
+            raise SDKError(C_VALIDATION_ERROR,
+                           "output не может совпадать с исходным ROM — исходник "
+                           "никогда не перезаписывается")
+    except OSError:  # pragma: no cover — не на всех FS доступен stat
+        pass
+    if resolved_out == rom:
+        raise SDKError(C_VALIDATION_ERROR,
+                       "output не может совпадать с исходным ROM — исходник "
+                       "никогда не перезаписывается")
+    return str(resolved_out)
+
+
 def _build_manager(plugin_dir, allowlist=None):
     try:
         manager = get_safe_plugin_manager(
@@ -219,6 +252,108 @@ def _translate_items(entries) -> list[str]:
                 "Элемент перевода должен быть строкой или dict с ключом 'translation'",
             )
     return texts
+
+
+def picture(rom_path, *, action, offset, bpp, count, png=None, output=None,
+            plugin_dir=None, force: bool = False) -> dict:
+    """Превью или замена блока тайлов (запечённый в графику текст).
+
+    `preview` читает ROM и пишет только PNG рядом (или в `--output`); `apply`
+    берёт новую картинку из PNG и пишет НОВЫЙ ROM — исходный не трогается,
+    потому что замена графики необратима и обязана быть повторяемой.
+    """
+    from core.tile_picture import (
+        PictureError as _PictureError,
+        apply_picture as _apply,
+        preview_to_png as _preview,
+        read_png as _read,
+        save_atomic as _save,
+    )
+
+    resolved = resolve_rom(rom_path)
+    messages: list[str] = []
+    try:
+        source = bytes(GameBoyROM(resolved).data)
+        if action == 'preview':
+            if output is None:
+                raise _PictureError(
+                    'Для preview нужен -o/--output: путь для PNG')
+            _preview(source, offset, bpp, count, path=output)
+            messages.append(f'PNG: {output} ({count} тайлов, {bpp}bpp, '
+                            f'{offset:#x})')
+            return {'path': resolved, 'action': action, 'output': output,
+                    'messages': messages}
+        if png is None:
+            raise _PictureError('Для apply нужен --png с новой картинкой')
+        if output is None:
+            raise _PictureError('Для apply нужен -o/--output: путь нового ROM')
+        grids = _read(png, bpp, count)
+        patched, stats = _apply(source, offset, bpp, count, grids, force=force)
+        dest = ensure_not_source(resolved, output)
+        _save(dest, patched)
+        messages.append(
+            f'ROM: {dest} (тайлов изменено: {stats["changed_tiles"]} из '
+            f'{stats["total_tiles"]}, без изменений: {stats["unchanged_tiles"]}, '
+            f'байт: {stats["changed_bytes"]})')
+        return {'path': resolved, 'action': action, 'output': output,
+                **stats, 'messages': messages}
+    except _PictureError as exc:
+        raise SDKError(C_VALIDATION_ERROR, str(exc)) from exc
+    except ValueError as exc:
+        # PIL и encode_tile бросают ValueError на битых входных данных; по
+        # контракту `api/__init__.py` наружу должен уйти SDKError, а на сервере
+        # — VALIDATION_ERROR, а не HTTP 500.
+        raise SDKError(C_VALIDATION_ERROR, f'Некорректные входные данные: {exc}') \
+            from exc
+    except OSError as exc:
+        raise SDKError(C_IO_ERROR, f'Ошибка ввода-вывода: {exc}') from exc
+
+
+def audit_fixed_slots(rom_path, plugin_dir=None) -> dict:
+    """Отчёт по fixed-сегментам: нужен ли где-то `has_mid_alias`.
+
+    Закрывает договорённость из `plugins/config/README.md` со стороны автора
+    плагина: он получает ответ по своей игре, а не полагается на общий вывод по
+    корпусу. Идёт через `resolve_rom`, как и остальные команды.
+    """
+    from core.segment_audit import audit_fixed_slots as _audit
+
+    resolved = resolve_rom(rom_path)
+    report = _audit(resolved, manager=_build_manager(plugin_dir))
+    return {
+        'path': resolved,
+        'segments': [a.as_dict() for a in report],
+        'needs_mid_alias': [a.name for a in report if a.needs_mid_alias],
+    }
+
+
+def fixsum(rom_path, *, fix: bool = False) -> dict:
+    """Проверить (`fix=False`) или починить (`fix=True`) checksum'ы ROM.
+
+    Идёт через `resolve_rom`, а не прямо в `core.checksum_fix`: без него
+    `--fix` перезаписывал бы ЛЮБОЙ файл длиннее 0x150 байт, включая `.sav`
+    (байт 0x14D затирает данные сейва) и `.txt`. Расширение, symlink и размер
+    проверяются здесь — тем же кодом, что и для extract/inject.
+
+    `repaired` означает «файл был сломан И починен», а не «стало валидно»:
+    состояние ДО снимается отдельно, потому что `repair()` возвращает отчёт
+    ПОСЛЕ починки.
+    """
+    from core.checksum_fix import (
+        FixError as _FixError,
+        inspect as _inspect,
+        repair as _repair,
+    )
+
+    resolved = resolve_rom(rom_path)
+    try:
+        was_broken = not _inspect(resolved).valid
+        report = _repair(resolved) if fix else _inspect(resolved)
+    except _FixError as exc:
+        raise SDKError(C_ROM_ERROR, str(exc)) from exc
+    data = report.as_dict()
+    data["repaired"] = bool(fix and was_broken and report.valid)
+    return data
 
 
 def inject(rom_path, translations, output_path=None, plugin_dir=None) -> dict:

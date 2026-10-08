@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, ClassVar
 
 from core.plugin import GamePlugin
 
@@ -214,7 +214,8 @@ class ExtendedGamePlugin(ABC):
         self._set_state(PluginState.LOADING)
         try:
             # Вызываем хуки before_load
-            context = HookContext(self, HookType.BEFORE_LOAD, {})
+            context = HookContext(self,  # type: ignore[arg-type]
+                                  HookType.BEFORE_LOAD, {})
             self._hooks.trigger(HookType.BEFORE_LOAD, context)
 
             # Инициализация
@@ -225,7 +226,8 @@ class ExtendedGamePlugin(ABC):
                 self._logger.info(f"Плагин {self.info.name} загружен")
 
                 # Хуки after_load
-                context = HookContext(self, HookType.AFTER_LOAD, {})
+                context = HookContext(self,  # type: ignore[arg-type]
+                                      HookType.AFTER_LOAD, {})
                 self._hooks.trigger(HookType.AFTER_LOAD, context)
 
             return result
@@ -238,7 +240,8 @@ class ExtendedGamePlugin(ABC):
     def on_unload(self):
         """Вызывается при выгрузке плагина"""
         try:
-            context = HookContext(self, HookType.BEFORE_UNLOAD, {})
+            context = HookContext(self,  # type: ignore[arg-type]
+                                  HookType.BEFORE_UNLOAD, {})
             self._hooks.trigger(HookType.BEFORE_UNLOAD, context)
 
             self.shutdown()
@@ -398,7 +401,7 @@ class ExtendedGamePlugin(ABC):
 class PluginFactory:
     """Фабрика для создания плагинов"""
 
-    _registry: dict[str, type] = {}
+    _registry: ClassVar[dict[str, type]] = {}
 
     @classmethod
     def register(cls, plugin_class: type, name: str | None = None):
@@ -412,7 +415,10 @@ class PluginFactory:
         """Создаёт экземпляр плагина по имени"""
         plugin_class = cls._registry.get(plugin_name)
         if plugin_class:
-            return plugin_class()
+            # Реестр хранит вызываемые объекты без аннотации, поэтому
+            # результат приводится к объявленному типу плагина.
+            created: ExtendedGamePlugin = plugin_class()
+            return created
         logger.warning(f"Плагин не найден: {plugin_name}")
         return None
 

@@ -10,7 +10,7 @@ from core.decoder import CharMapDecoder
 from core.injector import TextInjector
 
 # Путь к тестовым ROM
-TEST_ROMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_roms")
+TEST_ROMS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_game")
 
 
 def get_rom_files():
@@ -93,7 +93,7 @@ class TestTextInjector:
     def test_inject_segment(self):
         """Тест внедрения сегмента"""
         rom_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                "test_roms", "Pokemon - Ruby Version (USA).gba")
+                                "test_game", "Pokemon - Ruby Version (USA).gba")
         if os.path.exists(rom_path):
             injector = TextInjector(rom_path)
             # Mock plugin

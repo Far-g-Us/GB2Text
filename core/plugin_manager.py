@@ -28,7 +28,9 @@ import pkgutil
 import re
 import sys
 import threading
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 from core.decoder import CompressionHandler
 from core.plugin import GamePlugin
@@ -129,9 +131,9 @@ class PluginManager:
 
     def __init__(self, plugins_dir: str = "plugins", allowlist: set[str] | None = None):
         # Generic плагины (fallback) — регистрируются при load_plugins() ниже
-        self.generic_plugins = []
+        self.generic_plugins: list = []
         # Специфичные плагины — проверяются ПЕРВЫМИ
-        self.specific_plugins = []
+        self.specific_plugins: list = []
         # Ленивая загрузка specific-плагинов: модули копятся в _lazy_pending,
         # импортируются при первом get_plugin()/обращении к .plugins.
         self._lazy_pending: list[str] = []
@@ -175,7 +177,9 @@ class PluginManager:
         """Получает правильный путь к ресурсу для exe и обычного режима"""
         try:
             # PyInstaller создает временную папку и сохраняет путь в _MEIPASS
-            base_path = sys._MEIPASS
+            base_path = sys._MEIPASS  # type: ignore[attr-defined]
+            # доступ mypy не видит, а getattr безопаснее try/except.
+            base_path = sys._MEIPASS  # type: ignore[attr-defined]
         except AttributeError:
             # Обычный режим - используем текущую директорию
             base_path = os.path.abspath(".")
@@ -466,13 +470,14 @@ class PluginManager:
 
         if hasattr(eps, 'select'):
             # Python < 3.12: EntryPoints.select(group=...)
-            group_eps = eps.select(group=ENTRY_POINT_GROUP)
+            group_eps: Iterable[Any] = eps.select(group=ENTRY_POINT_GROUP)
         else:
-            # Python >= 3.12: dict-like {group: EntryPoints}
+            # Python >= 3.12: dict-like {group: EntryPoints}. select() и get()
+            # возвращают разные типы, поэтому общий тип объявляем явно.
             try:
-                group_eps = eps.get(ENTRY_POINT_GROUP, ())
+                group_eps = list(eps.get(ENTRY_POINT_GROUP) or ())
             except AttributeError:
-                group_eps = ()
+                group_eps = []
 
         loaded = 0
         for ep in group_eps:
@@ -620,6 +625,15 @@ class PluginManager:
             return 1 if plugin.config.get('rom_signature') else 0
         return 1 if type(plugin).validate_rom is not GamePlugin.validate_rom else 0
 
+    def _typed_auto_detect(self) -> GamePlugin | None:
+        """Авто-определение с объявленным типом.
+
+        `auto_detect` — обычный атрибут без аннотации, поэтому прямой
+        возврат отдавал Any. Здесь контракт фиксируется один раз.
+        """
+        plugin: GamePlugin | None = self.auto_detect
+        return plugin
+
     def get_plugin(self, game_id: str, system: str | None = None,
                    cancellation_token: CancellationToken | None = None,
                    rom: GameBoyROM | None = None) -> GamePlugin | None:
@@ -648,12 +662,13 @@ class PluginManager:
                 try:
                     if re.match(plugin.game_id_pattern, game_id):
                         logger.info(f"Найден плагин: {plugin.__class__.__name__}")
-                        return plugin
+                        found_plugin: GamePlugin = plugin
+                        return found_plugin
                 except re.error as e:
                     logger.warning(f"Ошибка regex в плагине {plugin.__class__.__name__}: {e!s}")
 
             logger.info("Используем AutoDetectPlugin по умолчанию")
-            return self.auto_detect
+            return self._typed_auto_detect()
 
         # Режим с ROM: селекция по (specificity, порядок загрузки)
         best: GamePlugin | None = None
@@ -690,7 +705,7 @@ class PluginManager:
 
         # Последний fallback — AutoDetect
         logger.info("Используем AutoDetectPlugin по умолчанию")
-        return self.auto_detect
+        return self._typed_auto_detect()
 
 
 class ConfigurablePlugin(GamePlugin):
@@ -701,7 +716,7 @@ class ConfigurablePlugin(GamePlugin):
 
     @property
     def game_id_pattern(self) -> str:
-        return self.config['game_id_pattern']
+        return str(self.config['game_id_pattern'])
 
     def validate_rom(self, rom: GameBoyROM) -> bool:
         """Проверяет ROM по rom_signature конфигурации (если задана).

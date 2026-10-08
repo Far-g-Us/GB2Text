@@ -465,3 +465,29 @@ class TestI18N:
             inline_keys = set(i18n.translations.get(lang, {}).keys())
             missing_inline = new_keys - inline_keys
             assert not missing_inline, (lang, sorted(missing_inline))
+
+
+    def test_all_locales_cover_every_english_key(self):
+        """Каждый ключ en должен существовать во всех поставляемых локалях.
+
+        t() возвращает СЫРОЙ ключ, если перевода нет, поэтому пользователь
+        видит в окне плагинов «plugins.community.title» вместо
+        «Каталог плагинов». Тест на конкретный список новых ключей этого
+        не ловит: нужен паритет по всему набору.
+
+        Сверяются ФАЙЛЫ locales/*.json — именно они грузятся в рантайме.
+        Встроенные дефолты (_create_default_translations) — это fallback на
+        случай недоступной папки, они заданы только частично и затирают
+        загруженные данные, поэтому в сверке не участвуют.
+        """
+        repo = Path(__file__).resolve().parent.parent
+        keys = {}
+        for lang in ("en", "ru", "ja", "zh"):
+            path = repo / "locales" / lang / "messages.json"
+            with path.open(encoding="utf-8") as f:
+                keys[lang] = set(json.load(f).keys())
+        english = keys["en"]
+        assert english, "английская локаль пуста"
+        for lang in ("ru", "ja", "zh"):
+            missing = english - keys[lang]
+            assert not missing, (lang, sorted(missing))

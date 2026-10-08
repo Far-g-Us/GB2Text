@@ -1,5 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Портативный spec: только относительные пути, CWD — корень проекта.
+# Сгенерировано build_exe.create_spec_file; ручные правки затрутся.
 from pathlib import Path
 
 block_cipher = None
@@ -9,15 +10,17 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
+    ('VERSION', '.'),
+    ('registry.json', '.'),
     ('plugins', 'plugins'),
-    (r'locales\en\charset.json', r'locales\en'),
-    (r'locales\en\messages.json', r'locales\en'),
-    (r'locales\ja\charset.json', r'locales\ja'),
-    (r'locales\ja\messages.json', r'locales\ja'),
-    (r'locales\ru\charset.json', r'locales\ru'),
-    (r'locales\ru\messages.json', r'locales\ru'),
-    (r'locales\zh\charset.json', r'locales\zh'),
-    (r'locales\zh\messages.json', r'locales\zh'),
+    ('locales/en/charset.json', 'locales/en'),
+    ('locales/en/messages.json', 'locales/en'),
+    ('locales/ja/charset.json', 'locales/ja'),
+    ('locales/ja/messages.json', 'locales/ja'),
+    ('locales/ru/charset.json', 'locales/ru'),
+    ('locales/ru/messages.json', 'locales/ru'),
+    ('locales/zh/charset.json', 'locales/zh'),
+    ('locales/zh/messages.json', 'locales/zh'),
     ('settings', 'settings'),
     ('resources', 'resources'),
     ('gui', 'gui'),
@@ -122,15 +125,4 @@ exe = EXE(
     icon='resources/app_icon.ico' if (Path('resources/app_icon.ico').exists()) else None,
     codesign_identity=None,
     entitlements_file=None,
-)
-
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='GB2Text',
 )

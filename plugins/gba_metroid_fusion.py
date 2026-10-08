@@ -313,7 +313,22 @@ class MetroidFusionPlugin(GamePlugin):
             has_ascii = any(0x20 <= b <= 0x7E for b in raw)
 
             if has_ascii:  # pragma: no cover
-                segments.append({  # pragma: no cover
+# pad_byte=0x00 ТОЛЬКО для кредитов: 0x00 — их ФАКТИЧЕСКИЙ пад
+                # (ASCII-блоки дополнены NUL), и без объявленного pad_byte
+                # generic-путь заливает окно 0x20 (core/injector.py:810), из-за
+                # чего укороченная запись читается с ВИДИМЫМ хвостом пробелов
+                # ('SAMUS DESIGN' -> 'SAMU        ').
+                #
+                # Для `save_data` (0x5821F8) пад НЕ объявляется, и причина не
+                # в «безопасности NUL»: без pad_byte этот блок тоже портится —
+                # измерено, при сокращении меняются 67 байт из 104, окно
+                # заливается 0x20, а бинарный хвост (00 82 03 02) уцелел
+                # лишь потому, что не попал в room. 0x00 не «безопасен»
+                # для save, он просто правильно передаёт содержимое блока.
+                # Сам `save_data` — мусор от save-области, отдельный дефект,
+                # см. KNOWN_ISSUES.
+                is_credits = 'credits' in name
+                segment = {  # pragma: no cover
                     'name': f'metroid_fusion_{name}',
                     'start': start,
                     'end': end,
@@ -321,7 +336,21 @@ class MetroidFusionPlugin(GamePlugin):
                     'compression': None,
                     'charmap': CHARMAP_METROID_FUSION,
                     'terminators': [0x00, 0xFF],
-                })
+                }
+                if is_credits:  # pragma: no cover
+                    segment['pad_byte'] = 0x00
+                if name == 'save_data':  # pragma: no cover
+                    # Блок выглядит как текст, но им НЕ является: это
+                    # сигнатуры save-слота (`SAVE_END`,
+                    # `Metroid_USVerE004`, `MetroidAGB-EUVerE004`), которые
+                    # игра сверяет побайтово для валидации сохранения. Запись
+                    # в них ломает совместимость save, а любое сокращение
+                    # портит 67 байт из 104 (замер round-trip).
+                    # Поэтому сегмент остаётся видимым в манифесте, но
+                    # объявляется extract-only: инжектор вернёт отказ до
+                    # записи, а не после.
+                    segment['injectable'] = False
+                segments.append(segment)
                 logger.info(f"Found text block: {name} at 0x{start:X}-0x{end:X}")
 
         dialogue_manifest = self._dialogue_manifest(rom)

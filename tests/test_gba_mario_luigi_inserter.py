@@ -17,7 +17,7 @@ from plugins.gba_mario_luigi_ss import (
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms',
+    'test_game',
     'Mario & Luigi - Superstar Saga (USA).gba',
 )
 
@@ -25,7 +25,7 @@ ROM_PATH = os.path.join(
 @pytest.fixture(scope="module")
 def mlss_rom() -> GameBoyROM:
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Mario & Luigi - Superstar Saga (USA).gba")
+        pytest.skip("Отсутствует test_game/Mario & Luigi - Superstar Saga (USA).gba")
     return GameBoyROM(ROM_PATH)
 
 
@@ -219,3 +219,185 @@ class TestMLSSPointerTable:
         assert meta['index_of'](3, 3) == 3 * 5 + 3
         assert meta['lang_slots']['en'] == 3
         assert meta['table'] == MLSS_POINTER_TABLE
+
+
+class TestMLSSCatalogWindow:
+    """Регрессия: запись, перенесённая в свободное место, не должна
+    классифицироваться как каталоговая.
+
+    Дефект: верхняя граница окна бралась по следующему указателю своей
+    колонки (~2 МБ диалогового пула), запись набирала больше одного FF 0A и
+    читалась как каталог на 10 млн символов вместо 655 байт. На непофиченном
+    коде этот тест падает: длина переизвлечённого текста != залитой.
+    """
+
+    @pytest.mark.parametrize('fill_len', [600, 2500])
+    def test_relocated_record_is_not_a_catalog(self, plugin, segments, mlss_rom,
+                                              fill_len):
+        # 2500 символов обязательно: запись длиннее 0x800 байт после релокации
+        # раньше становилась read-only, и перевод молча терялся при inject(),
+        # возвращавшем True.
+        texts = _lang_texts(segments, 'en')
+        en_segs = sorted(_lang_segments(segments, 'en'),
+                         key=lambda s: s.get('index', 0))
+        target = next(i for i, s in enumerate(en_segs) if s.get('injectable'))
+        fill = 'X' * fill_len
+        k = texts[target].rfind('[FF 0A')
+        if k == -1:
+            texts[target] = texts[target] + fill
+        else:
+            texts[target] = texts[target][:k] + fill + texts[target][k:]
+
+        injector = TextInjector(ROM_PATH)
+        assert injector.inject_interleaved_language(
+            'en', texts, plugin, segments=segments)
+        patched = mlss_rom.__class__(ROM_PATH)
+        patched.data = bytes(injector.modified_data)
+
+        resegments = plugin.get_text_segments(patched)
+        again = _lang_texts(resegments, 'en')
+        moved = [s for s in resegments
+                 if isinstance(s.get('start'), int)
+                 and s.get('index') == en_segs[target].get('index')]
+        assert moved, 'перенесённая запись пропала из манифеста'
+        assert moved[0].get('injectable') is True, (
+            'перенесённая запись стала read-only и перевод будет потерян')
+        assert len(again[target]) == len(texts[target]), (
+            f'перенесённая запись прочитана на {len(again[target])} символов '
+            f'вместо {len(texts[target])}')
+        assert again == texts
+
+        for seg in resegments:
+            if seg.get('injectable') is False:
+                size = seg['end'] - seg['start']
+                assert size <= 0x20000, (
+                    f'каталог 0x{seg["start"]:X} раздут до {size} байт')
+
+    def test_real_catalogs_fit_the_thresholds(self, mlss_rom):
+        import re
+        plugin = MarioLuigiSSPlugin()
+        segments = plugin.get_text_segments(mlss_rom)
+        data = bytes(mlss_rom.data)
+        limit = MarioLuigiSSPlugin._CATALOG_MAX_ZERO_RUN
+
+        def max_zeros(blob: bytes) -> int:
+            return max((len(m) for m in re.findall(rb'\x00+', blob)),
+                       default=0)
+
+        catalogs = [s for s in segments if s.get('injectable') is False]
+        assert catalogs, 'на реальном ROM есть каталоговые записи'
+        for seg in catalogs:
+            blob = data[seg['start']:seg['end']]
+            assert max_zeros(blob) <= limit, (
+                f'каталог 0x{seg["start"]:X}: нулевой прогон длиннее '
+                f'порога {limit}')
+
+    def test_stale_span_out_of_rom_is_dropped(self, plugin, segments, mlss_rom):
+        """Чужой/устаревший спан не должен уводить разбор за конец ROM."""
+        plugin.get_text_segments(mlss_rom)
+        spans = MarioLuigiSSPlugin._CLASS_CATALOG_SPANS
+        assert spans, 'нужны каталоговые спаны'
+        key = sorted(spans)[0]
+        saved = spans[key]
+        try:
+            spans[key] = (saved[0], len(mlss_rom.data) + 4096)
+            seg = plugin._make_segment(
+                mlss_rom.data, saved[0], key[1], key[0], spans)
+            assert seg is None
+            # start за ROM при валидном target: срабатывает именно проверка
+            # границ каталога, а не ранний отсев target.
+            spans[key] = (len(mlss_rom.data) + 16, len(mlss_rom.data) + 32)
+            assert plugin._make_segment(
+                mlss_rom.data, saved[0], key[1], key[0], spans) is None
+        finally:
+            spans[key] = saved
+
+    def test_detection_knob_invalidates_cache(self, plugin, mlss_rom):
+        """Порог входит в ключ кэша: подмена не должна брать устаревшие спаны.
+
+        Без этого будущий monkeyset даёт ложно-зелёный тест: спаны остаются от
+        предыдущего скана, и дефект отсечки не воспроизводится.
+        """
+        plugin.get_text_segments(mlss_rom)
+        assert MarioLuigiSSPlugin._CLASS_CATALOG_SPANS
+        # Отравляем кэш: если бы порог не входил в ключ, следующее извлечение
+        # взяло бы эти пустые спаны и дефект отсечки не воспроизвёлся бы.
+        MarioLuigiSSPlugin._CLASS_CATALOG_SPANS = {}
+        try:
+            MarioLuigiSSPlugin._CATALOG_MAX_ZERO_RUN = 10 ** 9
+            plugin.get_text_segments(mlss_rom)
+            rescanned = dict(MarioLuigiSSPlugin._CLASS_CATALOG_SPANS)
+            key = MarioLuigiSSPlugin._CLASS_CATALOG_ROMKEY
+        finally:
+            MarioLuigiSSPlugin._CATALOG_MAX_ZERO_RUN = 64
+            MarioLuigiSSPlugin.reset_class_cache()
+        assert rescanned, 'порог не входит в ключ кэша: спаны не пересканированы'
+        assert key is not None and key[-1] == 10 ** 9
+
+    def test_reset_class_cache_clears_state(self, mlss_rom):
+        plugin = MarioLuigiSSPlugin()
+        plugin.get_text_segments(mlss_rom)
+        assert MarioLuigiSSPlugin._CLASS_CATALOG_SPANS
+        MarioLuigiSSPlugin.reset_class_cache()
+        assert MarioLuigiSSPlugin._CLASS_CATALOG_SPANS == {}
+        assert MarioLuigiSSPlugin._CLASS_CATALOG_SCANNED is False
+        assert MarioLuigiSSPlugin._CLASS_CATALOG_ROMKEY is None
+
+    def test_reader_does_not_use_republished_spans(self, mlss_rom):
+        """Читатель не должен брать спаны, переопубликованные другим потоком.
+
+        Гонка была не в публикации, а в чтении: опубликовав свой кэш, поток
+        обращался к общему ClassVar, и другой поток успевал пересканировать свой
+        ROM - все девять каталоговых сегментов получали чужие start/end без
+        исключения. Здесь публикация подменяется детерминированно: пока первый
+        поток заблокирован на первом же _make_segment (он уже опубликовал свой
+        кэш и снял снимок), общий атрибут перезаписывается чужими спанами.
+        """
+        import threading
+
+        plugin = MarioLuigiSSPlugin()
+        expected = sorted(
+            s['start'] for s in plugin.get_text_segments(mlss_rom)
+            if s.get('injectable') is False)
+        assert expected, 'нужны каталоговые спаны'
+
+        real_make = MarioLuigiSSPlugin._make_segment
+        poisoned = threading.Event()
+        released = threading.Event()
+
+        def gated_make(self, data, target, idx, lang, spans):
+            if threading.current_thread() is holder.get('t') \
+                    and not poisoned.is_set():
+                poisoned.set()
+                # Чужой поток успел пересканировать свой ROM и переопубликовал
+                # спаны: подменяем их на заведомо другие, но валидные адреса.
+                foreign = {k: (v[0] + 0x40, v[1] + 0x40)
+                           for k, v in MarioLuigiSSPlugin._CLASS_CATALOG_SPANS.items()}
+                MarioLuigiSSPlugin._CLASS_CATALOG_SPANS = foreign
+                released.set()
+                released.wait(20)
+            return real_make(self, data, target, idx, lang, spans)
+
+        holder = {}
+        MarioLuigiSSPlugin._make_segment = gated_make
+        try:
+            out = {}
+
+            def run():
+                out['a'] = MarioLuigiSSPlugin().get_text_segments(mlss_rom)
+
+            th = threading.Thread(target=run)
+            holder['t'] = th
+            th.start()
+            th.join(60)
+        finally:
+            MarioLuigiSSPlugin._make_segment = real_make
+            MarioLuigiSSPlugin.reset_class_cache()
+
+        assert not th.is_alive(), 'поток не завершился'
+        assert 'a' in out
+        got = sorted(s['start'] for s in out['a']
+                     if s.get('injectable') is False)
+        assert got == expected, (
+            f'читатель взял переопубликованные спаны: {got[:4]} '
+            f'вместо {expected[:4]}')

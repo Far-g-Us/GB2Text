@@ -11,6 +11,7 @@ settings/
 htmlcov/
 test_game/
 script_game/
+scripts_roms/
 tools/
 
 .pytest_cache/
@@ -38,3 +39,14 @@ coverage_artifacts/
 
 # Robot Framework результаты тестов
 test_logs/
+
+# ROM любых игр: проект не распространяет чужие образы, даже если файл
+# случайно оказался в корне (например, результат локальной сборки).
+# Без этого `git add -A` увёл бы коммерческий ROM в историю.
+*.gba
+*.gbc
+*.gb
+*.nds
+*.zip
+*.7z
+*.rom

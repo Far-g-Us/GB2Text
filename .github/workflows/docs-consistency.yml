@@ -24,5 +24,5 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Check docs consistency (links, routers, legal)
+      - name: Check docs consistency (links, routers, legal, parity)
         run: python scripts/check_docs_consistency.py --all

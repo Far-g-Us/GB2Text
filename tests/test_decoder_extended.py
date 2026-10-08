@@ -263,7 +263,7 @@ class TestDecodeSegmentWithMultiCharmap(unittest.TestCase):
         result = decoder._decode_basic(b"", 0, 0)
         self.assertEqual(result, "")
 
-    def test_empty_data(self):
+    def test_empty_data_explicit_map(self):
         """Тест с пустыми данными"""
         decoder = MultiCharMapDecoder({})
         data = b""

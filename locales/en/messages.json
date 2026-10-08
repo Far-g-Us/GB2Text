@@ -136,6 +136,11 @@
   "inject.overflow.summary": "{count} lines were not injected: length exceeds the free space. Full report below.",
   "inject.overflow.title": "Lines that did not fit",
   "inject.success": "Translation injected successfully to {path}",
+  "inject.trailing_token.entry": "{segment}: translation ends with a raw token which extraction would drop; nothing was written",
+  "inject.mid_alias.entry": "{segment}: another pointer looks into this record, so shortening it would blank the second one; {written} of {room} bytes written",
+  "inject.trailing_truncated.entry": "{segment}: translation reads back shorter than written ({read_back} of {chars} characters survive), so it cannot be stored; nothing was written",
+  "inject.all_padding.entry": "{segment}: nothing in the translation can be read back from this slot (padding or control codes only), so it was not stored",
+ "inject.empty_translation.entry": "{segment}: the translation has no non-space characters, so the slot would go blank and the record would drop out of the manifest; it was not stored",
   "inject.translation": "Inject into ROM",
   "inject.unmapped": "Characters without a table entry were replaced by spaces: {chars}. Check the translation before saving the ROM.",
   "injection.in.progress": "Injection already in progress…",
@@ -343,5 +348,9 @@
   "font.editor.title": "Glyph editor",
   "font.editor.ok": "OK",
   "font.import.replace": "Discard unapplied changes and import the new file?",
-  "font.editor.discard": "Discard drawn changes?"
+  "font.editor.discard": "Discard drawn changes?",
+  "inject.affix_unknown.entry": "{segment}: not stored, injector reason {reason}",
+  "inject.overflow.line_reason": "0x{target:X}: {text}",
+  "inject.overflow.title_reason": "Lines left as original",
+  "inject.overflow.summary_reason": "{count} lines were left as the original: the translation is unrepresentable in the ROM, not too long"
 }

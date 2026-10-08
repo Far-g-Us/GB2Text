@@ -29,6 +29,12 @@ ignore = [
 force-single-line = false
 combine-as-imports = true
 
+[lint.per-file-ignores]
+# `references/` — вендорённые сторонние распаковщики (FFTA LZSS и т.п.),
+# приведённые дословно. Правки туда не вносятся: это эталон, по которому
+# сверяется собственная реализация.
+"references/*" = ["ALL"]
+
 [format]
 quote-style = "double"
 indent-style = "space"

@@ -312,21 +312,27 @@ class CastlevaniaGBAPlugin(GamePlugin):
         ]
 
         if any(not (0 <= t < len(rom.data)) for t in targets):
-            logger.warning("Некорректные цели в таблице указателей")
-            return []
+            logger.warning("Некорректные цели в таблице указателей (часть записей будет пропущена)")
 
         segments: list[dict] = []
         for block_start, block_end, lang in CVAS_LANG_BLOCKS:
             block_targets = targets[block_start:block_end]
-            if block_targets != sorted(block_targets):
+            valid = [t for t in block_targets if 0 < t < len(rom.data)]
+            if len(valid) != len(block_targets):
+                logger.warning("Блок %s: %d OOB-целей пропущено",
+                               lang, len(block_targets) - len(valid))
+            if not valid:
+                continue
+            if valid != sorted(valid):
                 logger.warning("Блок %s не монотонен — пропуск", lang)
                 continue
-            for idx, target in enumerate(block_targets):
-                upper = block_targets[idx + 1] if idx + 1 < len(block_targets) else (
+            for idx, target in enumerate(valid):
+                upper = valid[idx + 1] if idx + 1 < len(valid) else (
                     targets[block_end]
                     if block_end < CVAS_POINTER_COUNT
-                    and targets[block_end] > block_targets[-1]
+                    and targets[block_end] > valid[-1]
                     else len(rom.data))
+                upper = min(upper, len(rom.data))
                 seg = self._make_segment(rom.data, target, upper, idx, lang)
                 if seg is not None:
                     segments.append(seg)
@@ -382,6 +388,8 @@ class CastlevaniaGBAPlugin(GamePlugin):
             'terminators': CVAS_TERMINATORS,
             'injectable': False,
             'raw_text': raw,
+            'kind': 'record',
+            'lang': lang,
         }
 
     def get_terminators(self, segment_name: str) -> list[int]:

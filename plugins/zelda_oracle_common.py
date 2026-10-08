@@ -52,7 +52,10 @@ NOTE: This module contains ONLY factual technical information.
 Dialogs and story content protected by copyright are not included.
 """
 
+import logging
 import re
+
+logger = logging.getLogger('gb2text.plugins.zelda_oracle')
 
 _NUM_HIGH_INDICES = 0x64
 _LAST_GROUP_SIZE = 0x1D
@@ -163,6 +166,8 @@ class OracleTextDecoder:
         self._text_start = 0
         self._text_end = 0
         self._idx_to_addr: dict[int, int] = {}
+        self._idx_to_slot: dict[int, int] = {}
+        self._idx_to_base: dict[int, int] = {}
         self._addr_to_index: dict[int, int] = {}
         self.last_unmapped_chars: list[str] = []
         self._dict_phrase_cache: list[tuple[bytes, int]] | None = None
@@ -198,6 +203,11 @@ class OracleTextDecoder:
 
         idx_to_addr: dict[int, int] = {}
         addr_to_index: dict[int, int] = {}
+        # Слот и база нужны для 16-битной банковой релокации: значение в
+        # слоте — это адрес минус база группы, а сам слот лежит по адресу
+        # struct['address'] + j*2.
+        idx_to_slot: dict[int, int] = {}
+        idx_to_base: dict[int, int] = {}
         text_addrs: list[int] = []
         for struct in high_index_list:
             group = struct['indices'][0]
@@ -214,11 +224,15 @@ class OracleTextDecoder:
                 text_addr = _read16(data, addr) + base
                 index = (group << 8) | j
                 idx_to_addr[index] = text_addr
+                idx_to_slot[index] = addr
+                idx_to_base[index] = base
                 if text_addr not in addr_to_index:
                     addr_to_index[text_addr] = index
                 text_addrs.append(text_addr)
 
         self._idx_to_addr = idx_to_addr
+        self._idx_to_slot = idx_to_slot
+        self._idx_to_base = idx_to_base
         self._addr_to_index = addr_to_index
         if text_addrs:
             self._text_start = min(text_addrs)
@@ -248,8 +262,9 @@ class OracleTextDecoder:
         'original': декодированный текст}. 'raw'/'original' позволяют
         инжектору писать verbatim-копию при round-trip (перевод == оригинал),
         а для новых переводов — словарную рекомпрессию через 'encoder'.
-        Словарные записи (idx<0x400) включаются как есть: их перезапись
-        тем же raw безопасна, а переводы согласуют словарь по всем ссылкам.
+        Словарные записи Словарь (idx<0x400) не переводится вовсе: все 1024
+слота цитируются текстовыми записями, поэтому перевод
+любого слота портит текст всех записей словаря.
         Граница скана растёт вслед за записями (как в dumpText.py), чтобы
         последняя запись не обрезалась по max(addr)+1.
         """
@@ -259,6 +274,7 @@ class OracleTextDecoder:
         manifest: list[dict] = []
         text_end = self._text_end
         addr = self._text_start
+        failed = 0
         while addr < text_end:
             rec_start = addr
             end = self._record_bound(data, addr)
@@ -272,18 +288,37 @@ class OracleTextDecoder:
                                  {rec_start})
                 index = self._addr_to_index.get(rec_start)
                 text = self._stringify(out, index)
-            except Exception:
+            except Exception as exc:
+                # Молчаливый пропуск стоил нам 19 записей: цикл в словаре
+                # роняет декод, запись исчезала из манифеста без следа.
+                failed += 1
                 text = ''
+                if failed <= 3:
+                    logger.warning('Oracle: не декодируется запись 0x%X: %s',
+                                   rec_start, exc)
             if text.strip():
-                manifest.append({
+                record: dict = {
                     'target': rec_start,
                     'free_after': end - rec_start,
                     'raw': raw,
                     'original': text,
-                })
+                    'index': index,
+                }
+                # СЛОТ УКАЗАТЕЛЯ: без него релокация невозможна — инжектор
+                # переписывает слот, а не «ищет место». Значение в слоте
+                # 16-битное и отсчитывается от базы группы, поэтому вместе
+                # со слотом отдаём базу и размер слота.
+                slot = self._idx_to_slot.get(index) if isinstance(index, int) else None
+                if slot is not None and isinstance(index, int):
+                    record['slots'] = [slot]
+                    record['slot_size'] = 2
+                    record['reloc_base'] = self._idx_to_base.get(index, 0)
+                manifest.append(record)
             addr = end
             if addr > text_end:
                 text_end = addr
+        if failed:
+            logger.warning('Oracle: %d записей не декодированы и пропущены', failed)
         return manifest
 
     def _decompress(self, data: bytes, start: int, length: int,
@@ -485,18 +520,24 @@ class OracleTextDecoder:
             i += 1
         return bytes(out)
 
-    def encode_compressed(self, text: str) -> bytes:
+    def encode_compressed(self, text: str,
+                          data: bytes | None = None) -> bytes:
         """Словарная рекомпрессия: encode_literal + greedy longest-match.
 
         Полные раскрытия dict-записей (idx<0x400) служат фразами; каждая замена
         сокращает поток (фраза выигрывает минимум 1 байт). Декодирование ссылки
-        даёт ровно те же байты, что и исходная фраза — round-trip безопасен.
+        даёт ровно те же байты, что и исходная фраза — round-trip безопасен,
+        ЕСЛИ фразы взяты из того же буфера, в который пишем. Поэтому data
+        (текущее modified_data) передаётся инжектором: сжатие против старого
+        словаря даёт ссылки, которые после перевода словаря разворачиваются
+        в чужой текст.
         """
         raw = self.encode_literal(text)
-        return self._dict_compress(raw)
+        return self._dict_compress(raw, data)
 
-    def _dict_compress(self, raw: bytes) -> bytes:
-        phrases = self._dict_phrases()
+    def _dict_compress(self, raw: bytes,
+                       data: bytes | None = None) -> bytes:
+        phrases = self._dict_phrases(data)
         if not phrases:
             return raw
         buckets: dict[int, list[tuple[bytes, int]]] = {}
@@ -508,11 +549,22 @@ class OracleTextDecoder:
         i = 0
         n = len(raw)
         while i < n:
+            # Фраза не может начинаться с байта, который
+            # уже съеден за собственным параметром команды.
+            # Декодер _decompress для байтов 0x06..0x0F тянет СЛЕДУЮЩИЙ
+            # байт как пару, и фраза словаря, начинающаяся с
+            # параметром команды, не может начаться в этой позиции:
+            # появилось слова сюже содержит байт параметра, который
+            # ещё стоит за пределой командой и при обратном чтении меняет смысл
+            # значение байта 0x0C. Измерено: '[POS(0)]...' -> '[SPEED(1)][X_D5]...'.
+            # Oracle: 8 записей third_value и 4 tail_lost.
+            phrase_start = not (i > 0 and 6 <= raw[i - 1] < 0x10)
             best = None
-            for p, idx in cmp_phrases.get(raw[i], ()):
-                if raw.startswith(p, i):
-                    best = (p, idx)
-                    break
+            if phrase_start:
+                for p, idx in cmp_phrases.get(raw[i], ()):
+                    if raw.startswith(p, i):
+                        best = (p, idx)
+                        break
             if best is not None:
                 p, idx = best
                 out.append(2 + (idx >> 8))
@@ -523,12 +575,18 @@ class OracleTextDecoder:
                 i += 1
         return bytes(out)
 
-    def _dict_phrases(self) -> list[tuple[bytes, int]]:
-        """Фразы = полные раскрытия записей словаря (без 0x00)."""
-        data = self._last_data
-        if data is None:
+    def _dict_phrases(self, data: bytes | None = None) -> list[tuple[bytes, int]]:
+        """Фразы = полные раскрытия записей словаря (без 0x00).
+
+        data — буфер, из которого читаются записи словаря. По умолчанию
+        исходный ROM. Инжектор передаёт ТЕКУЩЕЕ состояние modified_data:
+        иначе фразы описывают старое содержимое словаря, а сжатая против них
+        запись после перевода словаря разворачивается в чужой текст.
+        """
+        source = data if data is not None else self._last_data
+        if source is None:
             return []
-        if self._dict_phrase_cache is not None:
+        if data is None and self._dict_phrase_cache is not None:
             return self._dict_phrase_cache
         phrases: list[tuple[bytes, int]] = []
         for idx, addr in self._idx_to_addr.items():
@@ -536,15 +594,16 @@ class OracleTextDecoder:
                 continue
             out = bytearray()
             try:
-                self._decompress(data, addr, len(data) - addr, out, 0, {addr})
+                self._decompress(source, addr, len(source) - addr, out, 0, {addr})
             except ValueError:
                 continue
             p = bytes(out)
             if len(p) >= 2 and b'\x00' not in p:
                 phrases.append((p, idx))
-        self._dict_phrase_cache = sorted(
-            phrases, key=lambda kv: len(kv[0]), reverse=True)
-        return self._dict_phrase_cache
+        result = sorted(phrases, key=lambda kv: len(kv[0]), reverse=True)
+        if data is None:
+            self._dict_phrase_cache = result
+        return result
 
     def _encode_token(self, m: re.Match) -> bytes | None:
         if m.group('fix') is not None:

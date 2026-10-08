@@ -27,9 +27,13 @@ logger = logging.getLogger('gb2text.charset')
 
 def _get_resource_path(relative_path: str) -> Path:
     """Получает правильный путь к ресурсу для exe и обычного режима"""
-    try:
+    # sys._MEIPASS появляется только под PyInstaller. getattr запрещён ruff
+    # (B009) и откатывается обратно в атрибут, поэтому проверка через hasattr,
+    # а сам атрибут — с точечным игнорированием.
+    if hasattr(sys, '_MEIPASS'):
+        # hasattr уже сузил тип, поэтому mypy считает ignore лишним.
         base_path = sys._MEIPASS
-    except AttributeError:
+    else:
         base_path = os.path.abspath(".")
     return Path(base_path) / relative_path
 

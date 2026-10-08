@@ -36,7 +36,7 @@ class TextAnalyzer:
         logger.info(f"Определение терминаторов текста (начало: 0x{start:X}, длина: {length})")
 
         # Анализ частоты использования байтов
-        freq = {}
+        freq: dict[int, int] = {}
         for i in range(start, min(start + length, len(text_data))):
             byte = text_data[i]
             freq[byte] = freq.get(byte, 0) + 1
@@ -84,9 +84,12 @@ class TextAnalyzer:
         Возвращает список кортежей (начало, конец) регионов, содержащих текст
         """
         logger.info("Определение регионов с текстом")
-        regions = []
-        current_region = None
-        in_text = False
+        regions: list[tuple[int, int]] = []
+        # Границы держим двумя числами, а не списком: список означал бы
+        # Optional и требовал бы проверок на None в каждом обращении, хотя
+        # регион существует ровно тогда, когда in_text.
+        region_start = -1
+        last_text = -1
 
         # Пропускаем первые 0x150 байт (заголовок ROM)
         start_idx = 0x150
@@ -98,24 +101,19 @@ class TextAnalyzer:
                        rom.data[i] in [0x00, 0x0A, 0x0D, 0xFF])
 
             if is_text:
-                if not in_text:
+                if region_start < 0:
                     # Начало нового региона
-                    current_region = [i, i]
-                    in_text = True
-                else:
-                    # Продолжаем текущий регион
-                    current_region[1] = i
-            else:
-                if in_text:
-                    # Проверяем, достаточно ли длинный регион
-                    if current_region[1] - current_region[0] >= min_length:
-                        regions.append(tuple(current_region))
-                    current_region = None
-                    in_text = False
+                    region_start = i
+                last_text = i
+            elif region_start >= 0:
+                # Регион закончился: проверяем, достаточно ли он длинный
+                if last_text - region_start >= min_length:
+                    regions.append((region_start, last_text))
+                region_start = -1
 
         # Проверяем последний регион
-        if in_text and current_region[1] - current_region[0] >= min_length:
-            regions.append(tuple(current_region))
+        if region_start >= 0 and last_text - region_start >= min_length:
+            regions.append((region_start, last_text))
 
         logger.info(f"Найдено {len(regions)} регионов с текстом")
         return regions

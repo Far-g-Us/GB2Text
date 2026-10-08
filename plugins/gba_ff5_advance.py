@@ -35,6 +35,7 @@ import re
 
 from core.plugin import GamePlugin
 from core.rom import GameBoyROM
+from plugins.aliased_records import merge_terminated_records
 
 logger = logging.getLogger('gb2text.plugins.ff5_advance')
 
@@ -337,6 +338,19 @@ CHARMAP_FF5: dict[int, str] = {
     0xD290: '\u5009', 0xD291: '\u7D0D', 0xD292: '\u7389',
 }
 
+# Алиасы 1-байт/2-байт (82 шт: 'H' = 0x2B и 0xC387 и т.п.) — РАЗЛИЧАЕМ:
+# 2-байтные формы вырезаны из таблицы, decode показывает их сырыми
+# токенами '[XXXX]' (encode возвращает байты 1:1). Причина: формы НЕ
+# взаимозаменяемы — замена 2-байтной формы 1-байтной сдвигает все
+# абсолютные позиции хвоста записи и ломает suffix-указатели
+# (ff5_text_7307 vs ff5_text_1303). Control-коды FF5_CONTROL_CODES
+# не тронуты: декодер проверяет их раньше charmap.
+_single_values = {char for code, char in CHARMAP_FF5.items() if code < 0x100}
+for _code in [code for code, char in CHARMAP_FF5.items()
+              if code >= 0x100 and char in _single_values]:
+    del CHARMAP_FF5[_code]
+del _single_values, _code
+
 # FF5 Advance control codes (from DataCrystal)
 FF5_CONTROL_CODES: dict[int, str] = {
     0x0D: '[END]',
@@ -464,6 +478,7 @@ class FF5AdvancePlugin(GamePlugin):
         segments: list[dict] = []
 
         table_end = FF5_TEXT_POINTER_TABLE + FF5_TEXT_POINTER_COUNT * 4
+        table_start = FF5_TEXT_POINTER_TABLE
         if table_end > len(rom.data):  # pragma: no cover
             logger.warning(f"Таблица указателей выходит за конец ROM ({len(rom.data):#x})")  # pragma: no cover
             return segments
@@ -487,23 +502,19 @@ class FF5AdvancePlugin(GamePlugin):
                     break
             text_end += 1  # pragma: no cover
 
+            # Запись, чьё окно накрывает таблицу указателей, — это мусорный
+            # указатель, указывающий внутрь самой таблицы. Такие окна
+            # нельзя переписывать: запись уничтожит сами указатели.
+            if text_start < table_end and text_end > table_start:  # pragma: no cover
+                continue  # pragma: no cover
+
             text_len = text_end - text_start
             if text_len < 2 or text_len > FF5_MAX_SEGMENT_LEN:  # pragma: no cover
                 continue  # pragma: no cover
 
-            decoded = self._decoder.decode(rom.data, text_start, text_len)  # pragma: no cover
+            decoded = self._decoder.decode(  # pragma: no cover
+                bytes(rom.data[text_start:text_start + text_len]), 0, text_len)
             if not decoded or all(c in ' \t\n' for c in decoded):  # pragma: no cover
-                continue  # pragma: no cover
-
-            # Junk tail segments: pointers run into data/padding areas,
-            # where the decoder produces long strings of [XX] tokens. Filter out records:
-            #   - with 2+ hex tokens (valid text contains at most one leading,
-            #     e.g. '[8E][PIC_GALUF]'; binary data yields dozens of tokens);
-            #   - where clean text is less than 30% of the length (lone tokens like '[56]').
-            clean_len = len(_strip_unknown_tokens(decoded))  # pragma: no cover
-            if len(_UNKNOWN_TOKEN_RE.findall(decoded)) >= 2:  # pragma: no cover
-                continue  # pragma: no cover
-            if clean_len / len(decoded) < 0.3:  # pragma: no cover
                 continue  # pragma: no cover
 
             segments.append({  # pragma: no cover
@@ -514,11 +525,76 @@ class FF5AdvancePlugin(GamePlugin):
                 'compression': None,
                 'charmap': CHARMAP_FF5,
                 'terminators': FF5_TERMINATORS,
-                'pad_byte': 0x00,
+                # Записи FF5 идут вплотную, запасного места после
+                # разделителя нет, а 0x00 в charmap — это пробел: паддинг
+                # пробелами дописал бы их в текст. Поэтому разделителем и
+                # паддингом остаётся 0x0D, а сокращение записи, в середину
+                # которой смотрит чужой указатель, запрещено флагом
+                # has_mid_alias (см. ниже) — иначе паддинг затёр бы хвост,
+                # где начинается та самая запись.
+                'pad_byte': 0x0D,
                 'original_text': decoded,
                 'pointer_offset': ptr_offset,
                 'pointer_value': raw,
             })
+
+        # Слияние алиасов ВЫПОЛНЯЕТСЯ ДО junk-фильтра, и только потом фильтр.
+        # Иначе каноническим в группе оказывается «первый выживший», а
+        # выживание зависит от содержимого записи: перезапись сдвигает
+        # extent, фильтр начинает отбрасывать другие записи той же группы,
+        # и набор сегментов меняется между исходным и пропатченным ROM
+        # (запись просто исчезает из манифеста).
+        segments = merge_terminated_records(segments)  # pragma: no cover
+
+        # Junk tail segments: pointers run into data/padding areas, where the
+        # decoder produces long strings of [XX] tokens. Filter out records:
+        #   - with 2+ hex tokens (valid text contains at most one leading,
+        #     e.g. '[8E][PIC_GALUF]'; binary data yields dozens of tokens);
+        #   - where clean text is less than 30% of the length (lone '[56]').
+        # Решение принимается ПО КАНОНИЧЕСКОЙ записи группы, а алиасы
+        # переживают её: иначе мусорный канонический отбрасывается, а его
+        # короткий суффикс проходит фильтр и остаётся read-only записью без
+        # инжектируемого канона (текст в этом окне навсегда непереводим, а
+        # alias_of — висячая ссылка).
+        # ПРАВИЛО: фильтр не должен зависеть от длины текста. Решение
+        # принимается при обратном скане уже по ПЕРЕВОДУ, а русский перевод
+        # почти всегда короче оригинала. Порог «чистого текста меньше 30%»
+        # отсекал запись, переведённую в пару символов: 'ed' даёт 0.4 и
+        # проходит, 'e' даёт 0.25 и уходит из манифеста — запись становится
+        # непереводимой. Число неизвестных токенов перевод не меняет (набор
+        # символов тот же), поэтому только этот критерий стабилен между
+        # исходным и пропатченным ROM. То же правило в gba_ff4_advance.
+        def _is_junk(seg: dict) -> bool:  # pragma: no cover
+            decoded = seg.get('original_text') or ''
+            if not decoded or all(c in ' \t\n' for c in decoded):
+                return True
+            return len(_UNKNOWN_TOKEN_RE.findall(decoded)) >= 2
+
+        # Решение принимается ПО КАНОНИЧЕСКОЙ записи, а алиас наследует
+        # вердикт хоста и НЕ судится по своему тексту. Иначе сокращение
+        # перевода убивает алиасы: их окно лежит внутри записи хоста, и
+        # после паддинга 0x00 там одни пробелы — «пусто» -> мусор ->
+        # запись уходит из манифеста (измерено: 180 из 341 на BZ5E).
+        # То же правило в gba_ff4_advance.
+        junk_names = {  # pragma: no cover
+            seg['name'] for seg in segments
+            if not seg.get('alias_of') and _is_junk(seg)
+        }
+        segments = [  # pragma: no cover
+            seg for seg in segments
+            if seg['name'] not in junk_names
+            and seg.get('alias_of') not in junk_names
+        ]
+
+        # Помечаем хостов, в середину которых смотрит чужой указатель.
+        # Такой хост НЕЛЬЗЯ сокращать: его хвост — это отдельная запись для
+        # другого указателя, и паддинг затёр бы её, а игра показала бы в
+        # этом месте пустую строку. Инжектор по флагу refuses переводы
+        # короче оригинала.
+        aliased_hosts = {seg['alias_of'] for seg in segments if seg.get('alias_of')}  # pragma: no cover
+        for seg in segments:  # pragma: no cover
+            if seg['name'] in aliased_hosts:
+                seg['has_mid_alias'] = True
 
         logger.info(f"Извлечено {len(segments)} текстовых записей из таблицы указателей")  # pragma: no cover
         return segments  # pragma: no cover

@@ -3,7 +3,7 @@
 Проверяет: структуру манифестов (только адреса, никакого текста ROM),
 сортировку, консервативность free_after и загрузку с проверкой CRC (кеш
 по game_code+crc32). ROM-зависимые тесты помечены rom_required и скипаются
-без файлов в test_roms/.
+без файлов в test_game/.
 """
 import itertools
 import json
@@ -18,7 +18,7 @@ from core.dialogue_manifest import (
 )
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROM_DIR = os.path.join(BASE, 'test_roms')
+ROM_DIR = os.path.join(BASE, 'test_game')
 
 GAME_ROMS = {
     'BPEE': 'Pokemon - Emerald Version (USA, Europe).gba',

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import sys
 import tkinter as tk
@@ -48,7 +49,14 @@ def root():
         pytest.skip(f"Нет Tk display: {exc}")
     root.withdraw()
     yield root
-    root.destroy()
+    # gc.collect() ДО destroy(): финализатор tkinter.Variable обращается к Tcl,
+    # и если интерпретатор уже мёртв, он падает с "main thread is not in main
+    # loop" — под xdist это роняет воркер целиком.
+    gc.collect()
+    try:
+        root.destroy()
+    except tk.TclError:
+        pass
 
 
 @pytest.fixture

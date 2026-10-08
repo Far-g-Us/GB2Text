@@ -172,7 +172,8 @@ class AutoDetectCompressionHandler(CompressionHandler):
 
         handler = self.handlers.get(compression_type)
         if handler:
-            return handler.decompress(data, start)
+            out: tuple[bytes, int] = handler.decompress(data, start)
+            return out
 
         # Неизвестный тип - возвращаем как есть
         logger.warning("Неизвестный тип сжатия, возвращаю данные без распаковки")
@@ -425,15 +426,53 @@ class FFTA_LZSSHandler(CompressionHandler):  # noqa: N801 — имя с преф
                 cur += count
             literals.clear()
 
+        # Хеш-цепочка по 3-байтовым префиксам вместо брутфорса.
+        #
+        # Прежде здесь был перебор всех расстояний окна 0x4000 с посимвольным
+        # сравнением: O(окно x длина) на КАЖДУЮ позицию. На диалогах FFTA это
+        # 142 196 вызовов и 2.7 с на один набор — самый горячий spot тестов
+        # (`test_injector_dialogue_roundtrip`).
+        #
+        # Поиск по хеш-цепочке даёт ТОТ ЖЕ ответ, а не приблизительный:
+        # кандидаты перебираются от ближайшего к дальнему, и выигрывает
+        # строго более длинное совпадение (`>`), то есть при равной длине
+        # остаётся ближайшее расстояние — ровно как в брутфорсе. Пропускаются
+        # только позиции, у которых заведомо не совпадают первые 3 байта, а
+        # совпадение длиной >= 3 невозможно.
+        match_min = 3
+        chains: dict[bytes, list[int]] = {}
+        for i in range(0, max(0, n - match_min + 1)):
+            chains.setdefault(data[i:i + match_min], []).append(i)
+
         def find_best_match(start: int) -> tuple[int, int]:
             """Ищет длиннейшее совпадение в окне 0x4000. Возвращает (len, dist)."""
+            # max_len >= 1 всегда: find_best_match зовётся только при pos < n.
+            max_len = min(260, n - start)
+            if max_len < match_min:
+                # Хвост короче префикса: цепочка неприменима, дерись брутфорсом.
+                # Здесь позиция близко к концу, поэтому сравнений мало.
+                best_len = best_dist = 0
+                for d in range(1, min(start, 0x4000) + 1):
+                    src = start - d
+                    ln = 0
+                    while ln < max_len and data[src + ln] == data[start + ln]:
+                        ln += 1
+                    if ln > best_len:
+                        best_len, best_dist = ln, d
+                return best_len, best_dist
             best_len = 0
             best_dist = 0
             limit = min(start, 0x4000)
-            max_len = min(260, n - start)
-            for d in range(1, limit + 1):
-                src = start - d
-                ln = 0
+            for src in reversed(chains.get(data[start:start + match_min], ())):
+                if src >= start:
+                    # Цепочка содержит позиции по всему буферу, а совпадение
+                    # ищется ТОЛЬКО назад. Без этой проверки d уходил в
+                    # отрицательные значения и чтение вылетало за конец.
+                    continue
+                d = start - src
+                if d > limit:
+                    break
+                ln = match_min
                 while ln < max_len and data[src + ln] == data[start + ln]:
                     ln += 1
                 if ln > best_len:

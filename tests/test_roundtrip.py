@@ -1,19 +1,16 @@
 """Round-trip тесты: extract → inject → extract для core/ модулей"""
 
 import os
-import shutil
 import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import pytest
 
 from core.decoder import CharMapDecoder
 from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.rom import GameBoyROM
-
 
 # ─────────────────────────────────────────────────────────────
 # Helpers

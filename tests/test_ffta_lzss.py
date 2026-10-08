@@ -15,7 +15,7 @@ from references.ffta_lzss_myguyz import lzss_decompress_ex
 
 ROM_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "test_roms",
+    "test_game",
     "Final Fantasy Tactics Advance (USA).gba",
 )
 
@@ -44,7 +44,7 @@ def _collect_ffta_blocks(rom: bytes) -> list[int]:
 def ffta_lzss_data():
     """ROM и список смещений реальных LZSS-блоков (или skip, если ROM нет)."""
     if not os.path.exists(ROM_PATH):
-        pytest.skip("Отсутствует test_roms/Final Fantasy Tactics Advance (USA).gba")
+        pytest.skip("Отсутствует test_game/Final Fantasy Tactics Advance (USA).gba")
     with open(ROM_PATH, "rb") as f:
         rom = f.read()
     return rom, _collect_ffta_blocks(rom)

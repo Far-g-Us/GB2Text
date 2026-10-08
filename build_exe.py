@@ -430,6 +430,12 @@ def create_spec_file():
         return
 
     folders_to_include = []
+    if (gb2text_dir / "VERSION").exists():
+        folders_to_include.append("    ('VERSION', '.'),")
+    # registry.json — офлайн-запасной каталог плагинов: без него в собранном
+    # exe окно «Плагины» падало с ошибкой загрузки, когда сеть недоступна.
+    if (gb2text_dir / "registry.json").exists():
+        folders_to_include.append("    ('registry.json', '.'),")
     required_folders = ['plugins', 'locales', 'settings', 'resources', 'gui', 'core']
 
     for folder in required_folders:
@@ -437,11 +443,12 @@ def create_spec_file():
         if folder_path.exists():
             if folder == 'locales':
                 for root, _, files in os.walk(folder_path):
-                    for fname in files:
-                        full_path = Path(root) / fname
-                        rel_path = os.path.relpath(full_path, gb2text_dir)
-                        # Относительные пути: spec переносим между машинами
-                        folders_to_include.append(f"    (r'{rel_path}', r'{os.path.dirname(rel_path)}'),")
+                    for fname in sorted(files):
+                        rel_path = os.path.relpath(Path(root) / fname, gb2text_dir)
+                        rel_posix = rel_path.replace(os.sep, "/")
+                        parent_posix = os.path.dirname(rel_posix) or "."
+                        # Относительные POSIX-пути: spec переносим между машинами и ОС
+                        folders_to_include.append(f"    ('{rel_posix}', '{parent_posix}'),")
             else:
                 folders_to_include.append(f"    ('{folder}', '{folder}'),")
             print(f"✅ Найдена папка для включения: {folder}")
@@ -455,8 +462,36 @@ def create_spec_file():
 
     # Единый список и для spec-шаблона (см. HIDDEN_IMPORTS выше)
     hiddenimports_spec = ",\n        ".join(f"'{name}'" for name in HIDDEN_IMPORTS)
-    spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+
+    def render_spec(name: str, console: bool, onefile: bool) -> str:
+        if onefile:
+            exe_body = """    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],"""
+            tail = ""
+        else:
+            exe_body = """    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,"""
+            tail = f"""
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='{name}',
+)
+"""
+        return f'''# -*- mode: python ; coding: utf-8 -*-
 # Портативный spec: только относительные пути, CWD — корень проекта.
+# Сгенерировано build_exe.create_spec_file; ручные правки затрутся.
 from pathlib import Path
 
 block_cipher = None
@@ -500,20 +535,15 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    [],
-    name='GB2Text',
+{exe_body}
+    name='{name}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console={console},
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -522,24 +552,14 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+{tail}'''
 
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='GB2Text',
-)
-'''
+    for spec_name, console, onefile in (("GB2Text.spec", False, True), ("GB2Text-Debug.spec", True, False)):
+        spec_path = gb2text_dir / spec_name
+        with open(spec_path, 'w', encoding='utf-8') as spec_file:
+            spec_file.write(render_spec(spec_name[:-5], console, onefile))
 
-    spec_path = gb2text_dir / 'GB2Text.spec'
-    with open(spec_path, 'w', encoding='utf-8') as f:
-        f.write(spec_content)
-
-    print("✅ Создан файл GB2Text.spec для настройки сборки")
+    print("✅ Созданы файлы GB2Text.spec / GB2Text-Debug.spec для настройки сборки")
 
 if __name__ == "__main__":
     print("GB2Text - Создание exe файла")

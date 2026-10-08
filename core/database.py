@@ -52,15 +52,22 @@ ROM_DATABASE = {
 
 def get_segment_patterns(system: str) -> list[dict]:
     """Получает типичные паттерны текстовых сегментов для системы"""
-    return ROM_DATABASE.get(system, {}).get('text_segment_patterns', [])
+    entry = ROM_DATABASE.get(system, {})
+    patterns = entry.get('text_segment_patterns') if entry else None
+    if not isinstance(patterns, list):
+        return []
+    return [dict(p) for p in patterns if isinstance(p, dict)]
 
 def get_pointer_size(system: str) -> int:
     """Получает размер указателя для системы"""
-    size = ROM_DATABASE.get(system, {}).get('pointer_size', 2)
+    entry = ROM_DATABASE.get(system, {})
+    size = entry.get('pointer_size') if entry else None
+    if not isinstance(size, int) or isinstance(size, bool):
+        size = 2
     if size is None:
         logger.warning(f"Неизвестный размер указателя для системы {system}, используем 2 по умолчанию")  # pragma: no cover
         return 2  # pragma: no cover
-    return size
+    return int(size)
 
 
 class TranslationDatabase:
@@ -69,7 +76,10 @@ class TranslationDatabase:
     def __init__(self, db_path: str | None = None):
         """Инициализация базы данных переводов"""
         self.db_path = db_path
-        self._cache: dict[str, str | int | list] = {}
+        # Ключ — тройка (язык источника, язык перевода, исходный текст),
+        # а не строка: иначе распаковка ключа выглядит как распаковка
+        # строки, и опечатка в языке молча теряла бы перевод.
+        self._cache: dict[tuple[str, str, str], str] = {}
         self._cache_enabled = False
         self._conn = None
 
@@ -136,7 +146,7 @@ class TranslationDatabase:
             row = cursor.fetchone()  # pragma: no cover
             if row:  # pragma: no cover
                 self._cache[key] = row[0]  # pragma: no cover
-                return row[0]  # pragma: no cover
+                return str(row[0])  # pragma: no cover
         return None  # pragma: no cover
 
     def get_translations_for_source(self, source_lang: str, target_lang: str, source: str) -> list:
@@ -214,7 +224,7 @@ class TranslationDatabase:
         where = f' WHERE {" AND ".join(conditions)}' if conditions else ''  # pragma: no cover
         cursor = self._conn.cursor()  # pragma: no cover
         cursor.execute(f'SELECT COUNT(*) FROM translations{where}', params)  # pragma: no cover
-        return cursor.fetchone()[0]  # pragma: no cover
+        return int(cursor.fetchone()[0])  # pragma: no cover
 
     def close(self):
         """Закрывает соединение с базой данных"""

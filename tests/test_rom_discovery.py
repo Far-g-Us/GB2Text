@@ -1,5 +1,5 @@
 """
-Автоматическое тестирование всех ROM в test_roms/
+Автоматическое тестирование всех ROM в test_game/
 Не нужно прописывать игры — система сама находит плагин по game_id
 """
 import os
@@ -11,8 +11,8 @@ from core.rom import GameBoyROM
 
 
 def find_roms():
-    """Находит все .gba файлы в test_roms/"""
-    roms_dir = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
+    """Находит все .gba файлы в test_game/"""
+    roms_dir = os.path.join(os.path.dirname(__file__), '..', 'test_game')
     if not os.path.exists(roms_dir):
         return []
 

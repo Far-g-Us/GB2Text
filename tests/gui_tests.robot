@@ -6,7 +6,7 @@ Library            String
 
 *** Variables ***
 ${APP_PATH}        main.py
-${ROM_PATH}        test_roms/test.gb
+${ROM_PATH}        test_game/test.gb
 ${OUTPUT_DIR}     test_logs
 
 *** Test Cases ***
@@ -24,7 +24,7 @@ Test App File Exists
 
 Test Test ROM Directory
     [Documentation]    Проверяет директорию тестовых ROM
-    Directory Should Exist    test_roms
+    Directory Should Exist    test_game
 
 Test GUI Module Structure
     [Documentation]    Проверяет структуру GUI модуля

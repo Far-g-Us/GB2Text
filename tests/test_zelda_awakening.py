@@ -21,7 +21,7 @@ from plugins.zelda_awakening_common import (
     ZeldaTextDecoder,
 )
 
-ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_roms')
+ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_game')
 GB = 'Legend of Zelda, The - Link\'s Awakening (USA, Europe).gb'
 DX = 'Legend of Zelda, The - Link\'s Awakening DX (USA, Europe).gbc'
 

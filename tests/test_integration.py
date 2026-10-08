@@ -1,7 +1,7 @@
 """
-Интеграционные тесты с ROM файлами из папки test_roms
+Интеграционные тесты с ROM файлами из папки test_game
 
-Положите ROM файлы в папку test_roms для запуска этих тестов.
+Положите ROM файлы в папку test_game для запуска этих тестов.
 Поддерживаемые форматы: .gb, .gbc, .gba
 """
 import os
@@ -14,11 +14,11 @@ from core.rom import GameBoyROM
 from core.scanner import detect_multiple_languages, find_text_pointers
 from plugins.generic import GenericGBAPlugin
 
-ROM_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'test_roms')
+ROM_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'test_game')
 
 
 class TestROMDirectory:
-    """Тесты для ROM файлов в test_roms"""
+    """Тесты для ROM файлов в test_game"""
 
     @pytest.fixture
     def rom_files(self):
@@ -35,21 +35,21 @@ class TestROMDirectory:
         return files
 
     def test_rom_directory_exists(self):
-        """Тест существования папки test_roms"""
+        """Тест существования папки test_game"""
         if not os.path.exists(ROM_DIR):
             pytest.skip(f"Папка {ROM_DIR} не существует")
 
     def test_rom_files_available(self, rom_files):
         """Тест наличия ROM файлов для тестирования"""
         if not rom_files:
-            pytest.skip("Нет ROM файлов в папке test_roms")
+            pytest.skip("Нет ROM файлов в папке test_game")
 
         print(f"\nНайдены ROM файлы: {[os.path.basename(f) for f in rom_files]}")
 
     def test_load_all_roms(self, rom_files):
         """Тест загрузки всех ROM файлов"""
         if not rom_files:
-            pytest.skip("Нет ROM файлов в папке test_roms")
+            pytest.skip("Нет ROM файлов в папке test_game")
 
         for rom_path in rom_files:
             rom = GameBoyROM(rom_path)
@@ -60,7 +60,7 @@ class TestROMDirectory:
         """Тест GBA ROM файлов"""
         gba_files = [f for f in rom_files if f.endswith('.gba')]
         if not gba_files:
-            pytest.skip("Нет GBA файлов в папке test_roms")
+            pytest.skip("Нет GBA файлов в папке test_game")
 
         for rom_path in gba_files:
             rom = GameBoyROM(rom_path)
@@ -70,7 +70,7 @@ class TestROMDirectory:
         """Тест GB ROM файлов"""
         gb_files = [f for f in rom_files if f.endswith('.gb') or f.endswith('.gbc')]
         if not gb_files:
-            pytest.skip("Нет GB/GBC файлов в папке test_roms")
+            pytest.skip("Нет GB/GBC файлов в папке test_game")
 
         for rom_path in gb_files:
             rom = GameBoyROM(rom_path)
@@ -81,7 +81,7 @@ class TestROMDirectory:
         """Тест обнаружения указателей в GBA"""
         gba_files = [f for f in rom_files if f.endswith('.gba')]
         if not gba_files:
-            pytest.skip("Нет GBA файлов в папке test_roms")
+            pytest.skip("Нет GBA файлов в папке test_game")
 
         for rom_path in gba_files:
             rom = GameBoyROM(rom_path)
@@ -95,7 +95,7 @@ class TestROMDirectory:
         """Тест извлечения текста плагином"""
         gba_files = [f for f in rom_files if f.endswith('.gba')]
         if not gba_files:
-            pytest.skip("Нет GBA файлов в папке test_roms")
+            pytest.skip("Нет GBA файлов в папке test_game")
 
         for rom_path in gba_files:
             rom = GameBoyROM(rom_path)
@@ -108,7 +108,7 @@ class TestROMDirectory:
     def test_game_language_detection(self, rom_files):
         """Тест определения языка игры"""
         if not rom_files:
-            pytest.skip("Нет ROM файлов в папке test_roms")
+            pytest.skip("Нет ROM файлов в папке test_game")
 
         for rom_path in rom_files:
             rom = GameBoyROM(rom_path)
@@ -137,11 +137,11 @@ class TestROMDirectory:
     def test_text_extraction_random(self, rom_files):
         """Тест извлечения рандомной строки текста из игры"""
         if not rom_files:
-            pytest.skip("Нет ROM файлов в папке test_roms")
+            pytest.skip("Нет ROM файлов в папке test_game")
 
         gba_files = [f for f in rom_files if f.endswith('.gba')]
         if not gba_files:
-            pytest.skip("Нет GBA файлов в папке test_roms")
+            pytest.skip("Нет GBA файлов в папке test_game")
 
         for rom_path in gba_files[:2]:  # Тестируем первые 2 GBA файла
             rom = GameBoyROM(rom_path)

@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures for GB2Text tests."""
 
+import tkinter
 from pathlib import Path
 
 import pytest
@@ -21,9 +22,9 @@ def language(request):
 
 # ROM file fixtures
 @pytest.fixture
-def test_roms_dir():
+def test_game_dir():
     """Return the test ROMs directory path."""
-    return Path(__file__).parent.parent / 'test_roms'
+    return Path(__file__).parent.parent / 'test_game'
 
 
 @pytest.fixture
@@ -89,12 +90,39 @@ def gui_available():
     return os.environ.get('DISPLAY') is not None or os.name == 'nt'
 
 
+def _tcl_tk_libraries():
+    """Resolve the Tcl/Tk library dirs of the running interpreter.
+
+    Needed because `reset_test_env` repoints TEMP/TMP, and on Windows Tcl
+    locates `tk.tcl` through those variables. Without this the Tk-based GUI
+    tests skip with "Can't find a usable tk.tcl" even though Tk works.
+    """
+    try:
+        tcl = tkinter.Tcl()
+        root = tkinter.Tk()
+    except Exception:
+        return None, None
+    try:
+        return str(tcl.eval('info library')), str(root.tk.call(
+            'set', 'tk_library'))
+    finally:
+        root.destroy()
+
+
+_TCL_LIB, _TK_LIB = _tcl_tk_libraries()
+
+
 @pytest.fixture(autouse=True)
 def reset_test_env(monkeypatch, tmp_path):
     """Reset environment for each test."""
     # Set temp directory for test artifacts
     monkeypatch.setenv('TEMP', str(tmp_path))
     monkeypatch.setenv('TMP', str(tmp_path))
+    # Keep Tk working: pin the library dirs before TEMP/TMP are repointed.
+    if _TCL_LIB:
+        monkeypatch.setenv('TCL_LIBRARY', _TCL_LIB)
+    if _TK_LIB:
+        monkeypatch.setenv('TK_LIBRARY', _TK_LIB)
     return tmp_path
 
 

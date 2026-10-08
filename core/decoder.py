@@ -20,6 +20,7 @@ GB Text Extraction Framework
 """
 
 import logging
+import re
 from abc import ABC, abstractmethod
 
 # Импортируем multi_charmap для поддержки нескольких таблиц символов
@@ -34,12 +35,13 @@ try:
     MULTI_CHARMAP_AVAILABLE = True
 except ImportError:  # pragma: no cover - фолбэк отсутствия опциональной зависимости (проверен subprocess-тестом test_optional_import_fallbacks)
     MULTI_CHARMAP_AVAILABLE = False
-    CharTable = None
-    MultiCharmapSegment = None
-    EncodingDetector = None
-    get_detector = None
-    analyze_custom_encoding = None
-
+    # Опциональная зависимость отсутствует: имя подменяем на None,
+    # чтобы проверки if CharTable is None работали одинаково.
+    CharTable = None  # type: ignore[assignment, misc]
+    MultiCharmapSegment = None  # type: ignore[assignment, misc]
+    EncodingDetector = None  # type: ignore[assignment, misc]
+    get_detector = None  # type: ignore[assignment]
+    analyze_custom_encoding = None  # type: ignore[assignment]
 
 class CompressionHandler(ABC):
     """Базовый класс для обработчиков сжатия"""
@@ -52,6 +54,59 @@ class CompressionHandler(ABC):
 # Значение по умолчанию для новых экземпляров CharMapDecoder.
 # GUI-тумблер «неизвестные байты как {{XX}}» переключает этот флаг.
 DEFAULT_VERBOSE_UNKNOWN = False
+
+# Сырые байты в текстовом показе: [XX] (плагины, 1 байт). Расширение на
+# [XXXX]/{{XX}}/{XX} СОЗНАТЕЛЬНО отклонено: регрессия Golden Sun TLA
+# (pipeline_check: ведущий {12} — значимый байт Huffman-записи, его дроп
+# ломает compress_string). Остальные формы — литеральный контент:
+# энкодер либо воспроизводит их, либо честно скипает.
+# Именованные токены ([PAGE], [PLAYER], {NL}) — контент, не трогаются.
+_RAW_TOKEN = r'\[[0-9A-Fa-f]{2}\]'
+_RAW_TOKEN_RUN = re.compile(f'(?:{_RAW_TOKEN})+')
+_RAW_TOKEN_AT = re.compile(_RAW_TOKEN)
+_RAW_TOKEN_TAIL = re.compile(f'(?:{_RAW_TOKEN})+\\Z')
+
+
+def raw_token_leading_run(text: str) -> str:
+    """Ведущий прогон сырых токенов ('' если нет)."""
+    match = _RAW_TOKEN_RUN.match(text)
+    return match.group(0) if match else ''
+
+
+def raw_token_trailing_run(text: str) -> str:
+    """Хвостовой прогон сырых токенов ('' если нет)."""
+    match = _RAW_TOKEN_TAIL.search(text)
+    return match.group(0) if match else ''
+
+
+def raw_token_at(text: str, pos: int) -> str:
+    """Сырой токен строго в позиции ('' если нет)."""
+    match = _RAW_TOKEN_AT.match(text, pos)
+    return match.group(0) if match else ''
+
+
+def iter_raw_tokens(text: str):
+    """Сырые токены текста по порядку слева направо."""
+    return (match.group(0) for match in _RAW_TOKEN_AT.finditer(text))
+
+
+def is_raw_token_text_ignorable(text: str | None) -> bool:
+    """Только сырые токены/пробелы (None → False: провал декода ≠ мусор)."""
+    if not isinstance(text, str):
+        return False
+    stripped = _RAW_TOKEN_RUN.sub('', text)
+    return stripped.strip() == ''
+
+
+def remove_raw_tokens(text: str) -> str:
+    """Вырезает все сырые токены (середина тоже) — для сравнения каркаса."""
+    return _RAW_TOKEN_RUN.sub('', text)
+
+
+def strip_raw_token_tail(text: str) -> str:
+    """Срезает хвостовой прогон сырых токенов (середина не трогается)."""
+    tail = raw_token_trailing_run(text)
+    return text[:len(text) - len(tail)] if tail else text
 
 
 class CharMapDecoder:
@@ -261,10 +316,13 @@ class MultiCharMapDecoder:
         self.primary_charmap = primary_charmap or {}
 
         # Инициализируем детектор кодировок если доступен
-        if MULTI_CHARMAP_AVAILABLE and get_detector:
-            self.detector = get_detector()
-        else:
-            self.detector = None
+        # Проверяем НАЛИЧИЕ функции, а не саму функцию: проверка
+        # `and get_detector` всегда истинна для функции и скрывала бы
+        # случай «объект есть, но использовать его нельзя».
+        detector = get_detector() \
+            if MULTI_CHARMAP_AVAILABLE and get_detector is not None else None
+        self.detector: EncodingDetector | None = detector
+        if self.detector is None:
             self.logger.warning("Multi-charmap модуль недоступен, используется базовый декодер")
 
     def decode_segment(self, data: bytes, start: int, length: int,
@@ -281,7 +339,7 @@ class MultiCharMapDecoder:
         Returns:
             Декодированная строка
         """
-        if not MULTI_CHARMAP_AVAILABLE or not MultiCharmapSegment:
+        if not MULTI_CHARMAP_AVAILABLE or MultiCharmapSegment is None:
             # Fallback на базовый декодер
             return self._decode_basic(data, start, length)
 

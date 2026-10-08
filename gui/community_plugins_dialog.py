@@ -57,6 +57,8 @@ class CommunityPluginsDialog:
         self._installed: dict = {}
 
         self._callback_queue: queue.SimpleQueue = queue.SimpleQueue()
+        # Ставится событием <Destroy> окна, читается из рабочего потока.
+        self._window_dead = False
 
         self.win = tk.Toplevel(parent)
         self.win.title(owner.i18n.t("plugins.community.title"))
@@ -114,6 +116,7 @@ class CommunityPluginsDialog:
         self.tree.bind("<Double-1>", lambda _e: self._on_install())
 
         theme.apply(self.win, theme.is_dark())
+        self.win.bind("<Destroy>", self._on_window_destroy, add="+")
         self._refresh()
         try:
             self.win.after(self._CALLBACK_POLL_MS, self._poll_callbacks)
@@ -121,6 +124,20 @@ class CommunityPluginsDialog:
             logger.debug("Окно закрыто при старте поллера — пропущен")
 
     def run(self):
+        """Показ окна: блокирующий цикл Tk.
+
+        `wait_window` имеет смысл ТОЛЬКО из главного потока: из рабочего
+        потока Tk-interpreter не обслуживает сеть событий и Python бросает
+        `RuntimeError: main thread is not in main loop`. Тесты и headless-
+        режим открывают диалог из рабочего потока, и исключение уходило в
+        PytestUnhandledThreadExceptionWarning — то есть в нестабильность
+        параллельного прогона. Поэтому вне главного потока не блокируемся,
+        а просто возвращаем управление: поллинг уже запущен в __init__.
+        """
+        if threading.current_thread() is not threading.main_thread():
+            logger.debug("Окно сообщества открыто не из главного потока — "
+                         "wait_window пропущен")
+            return
         self.win.wait_window(self.win)
 
     def _measure(self, text: str) -> int:
@@ -340,17 +357,57 @@ class CommunityPluginsDialog:
         threading.Thread(target=self._do_install, args=(plugin_id,),
                          daemon=True).start()
 
+    def _on_window_destroy(self, event):
+        """Ставит флаг смерти окна.
+
+        Флаг читается из рабочего потока, поэтому он должен ставиться событием
+        Tk, а не проверкой `winfo_exists()`: после `destroy()` отложенные
+        колбэки `after` не выполняются, и поллер уже не сможет заметить окно.
+        """
+        if event.widget is self.win:
+            self._window_dead = True
+
+    def _reload_manager(self, reason: str):
+        """Пересоздаёт менеджер плагинов. Tk не трогает — безопасно из потока."""
+        try:
+            self.owner.reload_plugin_manager()
+        except Exception as exc:
+            logger.exception("Не удалось перезагрузить менеджер плагинов (%s): %s",
+                             reason, exc)
+
+    def _finish(self, done, reason: str):
+        """Доставляет результат в UI либо, если окно уже мертво, выполняет
+        только ту часть, которая не обращается к Tk.
+
+        Без этого install/uninstall, завершившийся после закрытия окна, клал
+        callback в очередь, которую уже никто не разбирал: плагин ставился, а
+        менеджер плагинов оставался старым до перезапуска GUI.
+        """
+        if self._window_dead:
+            logger.debug("Окно каталога закрыто — %s без обновления UI", reason)
+            self._reload_manager(reason)
+            return
+        self._safe_after(done)
+
+    def _report_error(self, error: str, reason: str):
+        """Показывает ошибку в UI, а после смерти окна — только в лог."""
+        if self._window_dead:
+            logger.warning("Ошибка после закрытия окна каталога (%s): %s",
+                           reason, error)
+            return
+        self._safe_after(self._on_install_error, error)
+
     def _do_install(self, plugin_id: str):
         plugin = next((p for p in self.plugins if p.get("id") == plugin_id), None)
         if plugin is None:
-            self._safe_after(self._set_busy, False)
+            self._finish(lambda: self._set_busy(False), f"install {plugin_id}")
             return
         try:
             self.registry.install(plugin)
         except Exception as exc:
-            self._safe_after(self._on_install_error, str(exc))
+            self._report_error(str(exc), f"install {plugin_id}")
             return
-        self._safe_after(self._on_install_done)
+        self._finish(self._on_install_done, f"install {plugin_id}")
 
     def _on_install_done(self):
         self.owner.reload_plugin_manager()
@@ -392,9 +449,9 @@ class CommunityPluginsDialog:
         try:
             self.registry.uninstall(plugin_id)
         except Exception as exc:
-            self._safe_after(self._on_install_error, str(exc))
+            self._report_error(str(exc), f"uninstall {plugin_id}")
             return
-        self._safe_after(self._on_uninstall_done)
+        self._finish(self._on_uninstall_done, f"uninstall {plugin_id}")
 
     def _on_uninstall_done(self):
         self._set_busy(False)

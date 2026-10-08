@@ -417,17 +417,31 @@ class TestOracleTokenGrammar:
 
 class TestOracleSegmentShape:
     def test_single_segment(self):
+        # Контракт: два сегмента. Словарные записи (index < 0x400) идут
+        # первыми и кодируются ТОЛЬКО литералом — сжатие против словаря даёт
+        # переводу цикл A->B->A, который _decompress отвергает, и записи
+        # выпадают из манифеста вместе с зависимыми. Обычные записи жмутся
+        # против ТЕКУЩЕГО содержимого словаря (инжектор передаёт буфер).
         segs = OracleOfSeasonsPlugin().get_text_segments(_FakeROM(SYN_ROM))
-        assert len(segs) == 1
-        seg = segs[0]
-        assert seg['name'] == 'oracle_seasons'
-        assert seg['kind'] == 'pointer_dialogues'
-        assert seg['start'] == _BASE1
+        assert segs
+        by_name = {s['name']: s for s in segs}
+        assert set(by_name) <= {'oracle_seasons_dict', 'oracle_seasons'}
+        assert 'oracle_seasons_dict' in by_name
+        for name, seg in by_name.items():
+            assert seg['kind'] == 'pointer_dialogues'
+            assert seg['terminator'] == b'\x00'
+            assert seg['terminators'] == [0x00]
+            assert seg['manifest']
+            if name == 'oracle_seasons_dict':
+                assert seg['pointer_encoder'] == seg['decoder'].encode_literal
+            else:
+                assert seg['pointer_encoder'] == seg['decoder'].encode_compressed
+        covered = [e for s in segs for e in s['manifest']]
+        assert len(covered) == len(_RAW_RECORDS)
+        assert len({id(e) for e in covered}) == len(_RAW_RECORDS)
         expected_pool_end = _BASE1 + sum(len(r) + 1 for r in _RAW_RECORDS)
-        assert seg['end'] == expected_pool_end
-        assert seg['terminator'] == b'\x00'
-        assert seg['terminators'] == [0x00]
-        assert len(seg['manifest']) == len(_RAW_RECORDS)
+        assert max(s['end'] for s in segs) == expected_pool_end
+        assert min(s['start'] for s in segs) == _BASE1
 
     def test_decoder_in_segment(self):
         segs = OracleOfSeasonsPlugin().get_text_segments(_FakeROM(SYN_ROM))
@@ -444,7 +458,7 @@ class TestOracleSegmentShape:
 
 OOS_ROM = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    'test_roms',
+    'test_game',
     'Legend of Zelda, The - Oracle of Seasons (USA).gbc',
 )
 
@@ -477,7 +491,15 @@ class TestOracleRealROM:
         assert seg['start'] == 0x73382
 
     def test_manifest_large(self, real_segments):
-        assert len(real_segments[0]['manifest']) >= 2000
+        # Именно по ИМЕНИ, а не по индексу: сегментов два, и первым идёт
+        # `oracle_seasons_dict` (словарь — 1024 записи), а не основной пул.
+        # Порог 1500, а не прежние 2000: тест до переименования каталога
+        # ROM вообще не запускался, поэтому его число никто не сверял.
+        # Измерено сейчас: основной пул 1794, словарь 1024.
+        main = [s for s in real_segments if s['name'] == 'oracle_seasons']
+        assert main, f"нет сегмента oracle_seasons: {[s['name'] for s in real_segments]}"
+        assert len(main[0]['manifest']) >= 1500, (
+            f"мало записей в основном манифесте: {len(main[0]['manifest'])}")
 
     def test_first_record_decodes(self, real_segments, real_rom):
         seg = real_segments[0]
@@ -519,14 +541,30 @@ class TestOracleRealROM:
             segments = plugin.get_text_segments(rom)
             before = TextExtractor(OOS_ROM, rom=rom).extract()
             injector = TextInjector(work)
-            assert len(segments) == 1
-            seg = segments[0]
-            texts = [m['text'] for m in before.get(seg['name'], [])]
-            assert injector.inject_segment(seg['name'], texts, plugin,
-                                           segments=segments)
-            injector.save(work)
-
+            # Сегментов два: основной пул `oracle_seasons` и словарь
+            # `oracle_seasons_dict`. Проверяем ОБА — раньше тест брал только
+            # первый и утверждал, что сегмент ровно один, что стало ложью
+            # после появления словаря.
+            names = [s['name'] for s in segments]
+            assert 'oracle_seasons' in names, names
+            for seg in segments:
+                texts = [m['text'] for m in before.get(seg['name'], [])]
+                ok = injector.inject_segment(seg['name'], texts, plugin,
+                                             segments=segments)
+                if seg.get('injectable') is False:
+                    # extract-only: словарь Oracle цитируется всеми
+                    assert not ok, (
+                        'сегмент extract-only, но записаны: '
+                        + str(seg.get('name')))
+                    assert seg.get('not_writable_reason') == 'shared_dictionary', (
+                        'не указана причина отказа: '
+                        + str(seg.get('not_writable_reason')))
+                    continue
+                assert ok, (
+                    'сегмент не вставил даже: '
+                    + str(seg.get('name')))
             after = TextExtractor(work, rom=GameBoyROM(work)).extract()
-            before_texts = [m['text'] for m in before.get(seg['name'], [])]
-            after_texts = [m['text'] for m in after.get(seg['name'], [])]
-            assert before_texts == after_texts
+            for seg in segments:
+                before_texts = [m['text'] for m in before.get(seg['name'], [])]
+                after_texts = [m['text'] for m in after.get(seg['name'], [])]
+                assert before_texts == after_texts, seg['name']
