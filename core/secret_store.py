@@ -130,7 +130,7 @@ class _DpapiBackend:
         try:
             decrypted = _dpapi_unprotect(base64.b64decode(encoded))
             return decrypted.decode("utf-8")
-        except (OSError, ValueError):
+        except (OSError, ValueError, AttributeError):
             logger.warning("Не удалось расшифровать секрет '%s'", name)
             return None
 

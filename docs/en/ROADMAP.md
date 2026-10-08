@@ -358,23 +358,22 @@ Wiring them up before the RE is done is not possible:
 - **The shortening round-trip is suppressed on 3 games (`_SHORTENING_SCOPE`).** `_SHORTENING_SCOPE`
   is limited to FF4/FF5/WL4 (`tests/test_realrom_pipeline.py:509`) although the
   shortening run is red on other games too. Closed within this item: Wario Land 4
-  (earlier), Golden Sun — segments emitted over machine code, and Metroid Fusion
-  — a printable `pad_byte` tail in the credits; both are anchored by
-  `tests/test_shortening_credits_defects.py`, and FFTA `CRN_*` — the chained
-  scan — by `tests/test_ffta_crn_chain.py`. Not fixed: the visible `pad_byte`
-  tail in Golden Sun credits — the pad cannot be switched to `0x00`, because the
-  credits-region
-  boundary is found by record length, not only by structure: with a NUL pad a
-  shortened record drops below `_CREDITS_MIN_RUN`, the boundary moves from
-  `0x0F0AE4` to `0x0F0AEF`, and the region collapses from 107 credits to 7.
-  Translations shorter than 5 characters also vanish from the manifest, which
-  is the same invariant rule that retired Advance Wars' ">= 2 letters" gate.
-  Fixing it means removing the length from both the boundary and the selection
-  in favour of geometry (the pointer table is 4-byte and monotonic, and the
-  text follows it). Measured by `scripts_roms/gs_credits_boundary_probe.py`.
-   Separately: Golden Sun: The Lost Age credits are now extracted, 101 records
-   at `0x1A1A10..0x1A2058` (see `plugins/gba_golden_sun_tla.py`,
-   `TLA_CREDITS_AT`).
+  (earlier), Golden Sun — segments emitted over machine code, Metroid Fusion
+  — a printable `pad_byte` tail in the credits, and FFTA `CRN_*` — the chained
+  scan — by `tests/test_ffta_crn_chain.py`. The visible `pad_byte` tail in
+  Golden Sun credits is **also closed**: the earlier claim that the pad cannot
+  be switched to `0x00` "because the credits-region boundary is found by record
+  length" turned out to be wrong — it described a side effect of segment
+  selection sharing the `_CREDITS_MIN_RUN` threshold with the density probe.
+  Done: selection got its own minimum (`_CREDITS_WALK_MIN_RUN` = 1), `_CREDITS_GAP`
+  = 0x100, the region start is pinned by per-revision constants (`_CREDITS_AT` =
+  0x0F0AE4, `TLA_CREDITS_AT` = 0x1A1A10) guarded by `_looks_like_credits`, and
+  `pad_byte` = 0x00. Measured: 109 of 109 GS credits and 101 TLA credits, loss 0,
+  `pad_visible` = 0 across the corpus. Details, including the rejected variants,
+  are in `KNOWN_ISSUES.md`. Separately: Golden Sun: The Lost Age credits are now
+  extracted, 101 records at `0x1A1A10..0x1A2058` (see
+  `plugins/gba_golden_sun_tla.py`, `TLA_CREDITS_AT`). Still open: the Metroid
+  Fusion item has no automated anchor, since no coverage for it exists.
   The Oracle and Pokémon debt is real, but its **scale is not established**: the
   measurement under-reports corruption where record matching stops being
   provable (address shift, changed record count) — see `KNOWN_ISSUES.md`

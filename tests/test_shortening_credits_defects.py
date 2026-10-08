@@ -5,7 +5,7 @@ D2. Metroid Fusion: печатаемый хвост `pad_byte` в кредита
 
 **D2 детально:** ASCII-блоки Metroid Fusion дополнены NUL — это зафиксировано в
 докстринге `MetroidFusionAsciiDecoder` — но `pad_byte` в метаданных сегмента
-объявлен не был. Generic-путь инжектора (`core/injector.py:810`) заливал окно
+объявлен не был. Generic-путь инжектора (`_resolve_pad`, `core/injector.py:34`) заливал окно
 `0x20`, и укороченная запись получала ВИДИМЫЙ хвост пробелов:
 
     'SAMUS DESIGN' -> 'SAMU' пишется как 'SAMU        '

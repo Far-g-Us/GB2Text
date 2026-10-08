@@ -37,6 +37,8 @@ cov_*.json
 cov_*.txt
 coverage_artifacts/
 
+CHANGELOG.md
+
 # Robot Framework результаты тестов
 test_logs/
 

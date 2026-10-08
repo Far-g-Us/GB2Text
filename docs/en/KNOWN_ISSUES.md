@@ -5,134 +5,24 @@ that lives in `ROADMAP.md`. The split is deliberate: an issue is done when
 the reproduction no longer reproduces, a task is done when the feature works,
 and in one list they compete for attention incorrectly.
 
-Check with `pytest tests/ -v`. A closed item moves to ROADMAP or is recorded
-as resolved here, with the reason.
+Check with `pytest tests/ -v`. A closed item **moves to `CHANGELOG.md`** and is
+deleted from here: only open defects stay in this file, so a `[x]` checkbox
+should never appear in it.
 
 - [ ] Shortening a translation breaks round-trip — measured on the local
-  corpus (32 non-stub ROMs, 74674 records; full run at
+  corpus (32 non-stub ROMs, 74777 records; full run at
   `scripts_roms/out/census_console.log`). The class "a whitespace-only
   translation is written invisibly" did **not** reproduce: there are zero such
   records, blank translations never reach the write.
-  - [x] **Visible `pad_byte` tail in the Golden Sun credits (107 records)** - closed.
-    The cause was not `pad_byte` but the two record-length criteria it fed. Both
-    now separate the region walk from the record walk:
-    - the record walk takes the minimum run length itself
-      (`_CREDITS_WALK_MIN_RUN` = 1) instead of reusing the probe length, and
-      padding stays `0x20` - the area no longer loses records;
-    - `_CREDITS_GAP` 0x40 -> 0x100, because gaps between credits grow with the
-      shortening.
-
-    With `pad_byte=0x00` the credits no longer collapse: 107 -> 41 before,
-    108 of 109 now. One record is still lost: the density scan shifts 11 bytes
-    forward and the first credit (`NINTENDO.` -> `NIN`) falls behind the boundary.
-    That is recorded as an allowed loss in `test_shortening_credits_defects.py` -
-    the collapse was 7 of 107.
-
-    Census, whole corpus (74676 records): applied 64108 (85.85 %),
-    `pad_visible` **0**, `third_value_corrupted` 0, `silent_no_write` 0,
-    `lost_record` 1, **real damage 1 (0.00 %)** against 107 (0.14 %) before.
-
-    **No invariant anchor found (hypothesis disproved).** `NINTENDO.` sits at
-    `0x0F0AE4`, but that is itself the first credits record, so the probe
-    shortens it (`NINTENDO.` -> `NIN`) and the anchor is gone on the patch.
-    What the docstring claims sits `0x94` bytes earlier is not a pointer
-    table either: the values there are `0x06010004, 0x06010008, ...` (GROM
-    addresses in 0x06010000). No translation-invariant landmark exists in this
-    ROM. The detector therefore still uses the length-dependent density
-    scan, and the region still collapses under `pad_byte=0x00`; the visible
-    tail is kept as the accepted compromise.
-
-    **Next step and its verification (both rejected).** Taking the region from
-    the fixed window does not survive `pad_byte=0x00` either: it leaves 41 of
-    107 records, because the gaps between records grow with the size of the
-    removal, so any gap walk scales with the shortening. Raising
-    `_CREDITS_GAP` from 0x40 to 0x100 is worse: on the pristine ROM it adds 2
-    false records (` and` @0x0F0BCC, `Maps` @0x0F0F2C) - continuations of
-    real credit lines.
-
-    Conclusion: no gap-threshold rule can hold the region together under 0x00
-    padding. The direction that does not have to rediscover records is to write
-    every credit to a fixed address range with explicit addresses, instead of
-    scanning for them.
-  - [x] **Latent loss of translations shorter than 5 characters** - CLOSED.
-    The `_CREDITS_MIN_RUN` = 5 threshold drove both the region walk and the
-    segment selection in `_ascii_credits_segments`, so a credit shorter than
-    5 characters was absent from the manifest. The record walk now uses its own
-    minimum (`_CREDITS_WALK_MIN_RUN` = 1), so selection follows length while the
-    region does not. Measured: translations `K`, `Ka`, `Kar` into `Maps`
-    @0x0F0F2C are written and read back. A longer translation is still refused
-    as too long, which is correct (`Karta` = 5 bytes against 4 free).
-    Anchor: `tests/test_shortening_credits_defects.py::TestGoldenSunCreditsNotMachineCode::test_short_credit_name_is_selected_and_writable`.
-
-    The region boundary deliberately keeps the same threshold: at 1 it fires
-    2 KB too early (`0x0F0339`), inside code rather than the credits.
-  - [x] **`metroid_fusion_save_data` — CLOSED: it is not text.** The block
-    looks like text (and was the only non-Golden-Sun `pad_visible` record) but
-    it is save-slot signature data: `SAVE_END`, `Metroid_USVerE004`,
-    `MetroidAGB-EUVerE004`, which the game compares byte for byte to validate a
-    save. Any edit corrupts it, and shortening touched 67 of 104 bytes
-    (measured). No pad fixes that. The segment stays visible in the manifest -
-    it is a legitimate place for a translator to look - but declares
-    `injectable=False`, so the injector refuses BEFORE writing instead of after.
-    Anchor: `tests/test_shortening_credits_defects.py::TestMetroidSaveDataIsExtractOnly`.
-    `[SPEED(2)]` or `[SPEED(1)]`. This is no longer a shift or a lost record but
-    a substituted control code. Cause not established.
-  - [x] **Tail cut by the decoder - FFTA CLOSED (7 records).** All 7 lost
-    exactly one and the same last token: a name token with byte `C8` at the very
-    end of the shortened string, right after the choice marker. After a single
-    patch the bytes were correct, but on the **second** generation (translation
-    taken from the panel, what the GUI does) the token was silently erased in
-    the ROM: 3 bytes changed, no refusal, no report entry.
-    **The cause was not compression but display.** `_strip_token_tail`
-    (`core/extractor.py:526`, `:570` -> `strip_raw_token_tail`,
-    `core/decoder.py:106-109`) strips a trailing run of raw tokens from the
-    *shown* record. Byte `0xC8` is absent from `CHARMAP_FFTA_MULTI`, decodes as
-    `[C8]`, while the choice marker is a named token; exactly `[C8]` vanished.
-    The cause previously recorded here was the shrinking segment window - that
-    is wrong, both proposed fixes were no-ops.
-    **Fix:** the existing `trailing_raw_token` gate, already present in the
-    generic path, was moved into the compressed path (`core/injector.py`,
-    `_ends_with_raw_token` + `_compressed_original_text`). A translation ending
-    with a raw token that the original did not end with is now refused with that
-    reason in `last_affix_report`, visible to both the census and the GUI.
-    Side effect: FFTA now reports **0 damage** (was 7), no record is lost and
-    the bytes of refused segments stay untouched.
-    Anchor: `tests/test_shortening_credits_defects.py::TestCompressedTrailingRawToken`.
-  - [x] **Tail cut by the decoder, 4 records (Oracle).** Closed. Cause: the Oracle
-    of Seasons dictionary translation changes text, but the dictionary itself is
-    shared: `0x02..0x05` occupy two bytes and address a slot via
-    `((b - 2) << 8) | next`, i.e. slots 0..1023. Measured on the current ROM:
-    all 1024 slots are cited, referenced by 1765 of 1794 text records (plus 17
-    nested dictionary-to-dictionary references). Decision: `oracle_seasons_dict`
-    is `injectable: False` with `not_writable_reason: 'shared_dictionary'`, so
-    Oracle text records go through the normal path. Real damage dropped to zero.
+Oracle text records go
+    through the normal path. Measured over the corpus: Oracle reports
+    `dmg=0 third=0 lost=0 pad=0` (`scripts_roms/out/census_console.log`).
   - [ ] **Oracle of Seasons dictionary is not translatable (copy-on-write).**
     The refusal above is a workaround, not a fix. Real fix: rewrite every cited
     record as self-contained text without `0x02..0x05` codes. Cost: +ROM
     (20-60 bytes per record against 2, 1765 records), does not scale to 4-32 MB
     GBA without a relocation pool. See ROADMAP.
 
-  - [x] **Remaining corruption, 2 records** (GS:TLA) - closed. The token walk for
-    `0x11` in `plugins/gba_golden_sun_tla.py` glued **all** consecutive control
-    bytes into one token, though its own docstring describes two. `11 04 11` became
-    `{11 04 11}` instead of `{11 04}{11}`. The group is now capped at two bytes, as
-    documented. The remaining record differed by grouping of text only, so
-    `readback_census_probe.py` now compares canonically normalised text (grouping
-    does not affect the bytes, so the last record was counted as damage by mistake).
-    GS:TLA: damage **0**, applied 10 471 (84.03 %).
-  - [x] **Golden Sun: The Lost Age credits are now extracted.** Closed: 101
-    credits found, previously not extracted at all. The block lies at
-    `0x1A1A10..0x1A2058` and is the same plain-ASCII shape as the GS credits, so
-    the common code `credits_region` / `ascii_credits_segments` in
-    `plugins/gba_golden_sun.py` is reused; TLA only supplies its own window and
-    prefix. Anchor: `tests/test_golden_sun_tla.py::TestTLACredits`.
-
-    One consequence measured along the way: the density scan alone does not pin
-    the region start, because padding removes printable bytes, so the scan's
-    walk jumps forward by 82 bytes. `TLA_CREDITS_AT` / `_CREDITS_AT` are
-    therefore per-revision constants with a check (`_looks_like_credits`): if no
-    dense block of credit lines follows, the scan stays in charge. Measured:
-    lost credits 5 on TLA and 1 on GS down to 0 on both.
   - [ ] **Other Oracle and Pokémon damage: scale NOT established.** Record matching
     in the probe is hybrid, and once the record count changes the window contents
     stop being provable, so the lower bound cannot be turned into a scale. The
