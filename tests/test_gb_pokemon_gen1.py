@@ -313,3 +313,21 @@ def test_other_gen1_versions_roundtrip(title, file_name):
             before_texts = [m['text'] for m in before.get(seg['name'], [])]
             after_texts = [m['text'] for m in after.get(seg['name'], [])]
             assert before_texts == after_texts
+
+
+def test_gen1_fixed_decoder_tracks_unmapped_chars():
+    decoder = Gen1FixedDecoder(CHARMAP_GEN1)
+    assert decoder.last_unmapped_chars == []
+
+    # У CHARMAP_GEN1 кириллицы нет ни одного символа, поэтому любая
+    # кириллица считается подменой, и теперь ее видно.
+    decoder.encode('ЖИВОТ')
+    assert decoder.last_unmapped_chars == ['Ж', 'И', 'В', 'О', 'Т']
+
+    decoder.encode('漢字')
+    assert decoder.last_unmapped_chars == ['Ж', 'И', 'В', 'О', 'Т', '漢', '字'], \
+        'tracker accumulates across records'
+
+    decoder.encode('A')
+    assert decoder.last_unmapped_chars == ['Ж', 'И', 'В', 'О', 'Т', '漢', '字'], \
+        'a clean record neither adds nor clears'

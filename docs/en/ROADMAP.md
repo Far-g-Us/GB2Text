@@ -201,6 +201,12 @@
 - [ ] F1 pilot on real ROMs (legally-owned): candidate-gate + inject + emulator verification, dropping the experimental status
 - [x] F2 GUI editor, MR1: “Font” tab — glyph-grid preview, PNG import, write via TextInjector (read-only without ROM, undo until save, dark theme) — code done, pilot needed
 - [x] F2 GUI editor, MR2: per-pixel glyph editing + undo/redo stacks — code done, pilot needed
+- [ ] **Glyph decision: automatic Latin lookalike picking is for tests only.** In
+  production the glyphs for a chosen game are made by hand. Automatic picking
+  (reusing the pixel data of Latin slots as «lookalikes») is fine for exercising
+  the code paths and catching regressions, but not for a finished build: it keys on
+  shape similarity rather than on knowledge of the authors, and the result is
+  recognisable but wrong. For a chosen game the glyph set is manual work.
 
 ### Playtest assistant (after F2, in order)
 - [x] `core/playtest.py`: PlaytestRunner protocol + PyBoyBackend (GB/GBC) — strictly validated input scripts, per-frame hashes, stuck/dark markers, screenshots on marks, structural diff (roundtrip only), 100% coverage on fake core — code done, pilot on a real ROM needed

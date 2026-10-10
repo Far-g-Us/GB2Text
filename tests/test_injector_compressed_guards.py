@@ -215,5 +215,51 @@ def test_segment_without_decoder_refuses(monkeypatch):
         'отказ обязан быть вызван отсутствием decoder, иначе гард не проверен')
 
 
+@pytest.mark.parametrize('encoder,reason_slug', [
+    (lambda text: b'X' * 64, 'compressed_too_long'),
+    (lambda text: 'not bytes', 'compressed_encoder_non_bytes'),
+    (lambda text: (_ for _ in ()).throw(
+        ValueError('char 0x01 not encodable after 0x03')),
+     'compressed_recompress_failed'),
+])
+def test_compressed_refusal_records_reason(encoder, reason_slug):
+    """Отказ сжатого пути обязан быть виден: причина попадает в отчёт.
+
+    Отчёт отдельный (`last_compress_report`), а не `last_affix_report`:
+    последний участвует в счёте пропусков в
+    `tests/test_realrom_pipeline.py::_inject_all`, и причина «поток не
+    представим» не должна выглядеть как «переводчик пропустил сообщение».
+    """
+    inj, seg = _compressed_inj(encoder=encoder)
+    before = bytes(inj.modified_data)
+    assert inj.inject_segment('comp', ['A'], _plugin([seg]),
+                              segments=[seg]) is False
+    assert bytes(inj.modified_data) == before
+    report = getattr(inj, 'last_compress_report', [])
+    assert len(report) == 1, report
+    entry = report[0]
+    assert entry['segment'] == 'comp'
+    assert entry['reason'].startswith(reason_slug)
+    assert entry['offset'] == seg['start']
+
+
+def test_compressed_report_is_reset_per_segment():
+    """Отчёт не должен протекать между сегментами (контракт гейта)."""
+    inj, seg = _compressed_inj(
+        encoder=lambda text: (_ for _ in ()).throw(
+            ValueError('char 0x01 not encodable after 0x03')))
+    assert inj.inject_segment('comp', ['A'], _plugin([seg]),
+                              segments=[seg]) is False
+    first = getattr(inj, 'last_compress_report', [])
+    assert [e['segment'] for e in first] == ['comp']
+    seg2 = dict(seg, name='comp2', start=seg['start'] + 16,
+                end=seg['end'] + 16)
+    inj.inject_segment('comp2', ['A'], _plugin([seg2]), segments=[seg2])
+    # Запись ПЕРВОГО сегмента не должна дожить до второго вызова.
+    assert [e['segment'] for e in getattr(inj, 'last_compress_report', [])] \
+        == ['comp2']
+
+
 if __name__ == '__main__':
     raise SystemExit(pytest.main([__file__, '-q']))
+

@@ -351,7 +351,10 @@
   "font.import.replace": "放弃未应用的更改并导入新文件？",
   "font.editor.discard": "放弃已绘制的更改？",
   "inject.affix_unknown.entry": "{segment}: 未写入，注入器原因 {reason}",
+  "inject.compressed_unknown.entry": "段落 {segment}: 无法重新编码压缩文本、未写入 ({reason})",
   "inject.overflow.line_reason": "0x{target:X}: {text}",
   "inject.overflow.title_reason": "保留原文的行",
-  "inject.overflow.summary_reason": "{count} 行保留原文：不是太长，而是译文无法在 ROM 中表示"
+  "inject.overflow.summary_reason": "{count} 行保留原文：不是太长，而是译文无法在 ROM 中表示",
+  "charmap.settings": "字符表设置",
+  "inject.compressed_unknown.more": "其他 {count} 条拒绝，按原因分组：{summary}"
 }

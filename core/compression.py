@@ -667,21 +667,6 @@ class HuffmanHandler(CompressionHandler):
         return bytes(result)
 
 
-# Константы для FE GBA Huffman
-FE_HUFFMAN_CONSTANTS = {
-    'FE7U': {
-        'tree_base': 0x08000000,  # Адрес дерева (нужно найти в ROM)
-        'tree_data': 0x08000000,
-        'text_start': 0x08000000,
-    },
-    'FE8U': {
-        'tree_base': 0x08000000,
-        'tree_data': 0x08000000,
-        'text_start': 0x08000000,
-    },
-}
-
-
 def get_compression_handler(compression_type: str) -> CompressionHandler | None:
     """
     Возвращает обработчик сжатия по типу.

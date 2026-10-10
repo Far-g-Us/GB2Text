@@ -123,6 +123,12 @@ CVAS_TERMINATORS = [0x00]
 # USA: A2CE, Japan: AGBJ, Europe: AGBE
 CVAS_GAME_CODES = ['A2CE', 'AGBJ', 'AGBE']
 
+# Причина отказа в записи, а не просто `injectable: False`. Без неё GUI
+# показывал «read_only» — то есть приписывал игре то, чего в ней нет: ROM
+# writable целиком, отказ не в правах записи, а в том, что перевод блока
+# означает перенос целого языка.
+_CVAS_LANG_BLOCK_REASON = 'lang_block_requires_font_and_slot'
+
 # Normalized translation representation: 0x06/0x0A both decode to '\n'.
 # Byte round-trip (encode(decoder(raw)) == raw) is only performed for
 # records without 0x0A; records with 0x0A are checked at the text level.
@@ -387,6 +393,7 @@ class CastlevaniaGBAPlugin(GamePlugin):
             'charmap': CHARMAP_CVAS,
             'terminators': CVAS_TERMINATORS,
             'injectable': False,
+            'not_writable_reason': _CVAS_LANG_BLOCK_REASON,
             'raw_text': raw,
             'kind': 'record',
             'lang': lang,

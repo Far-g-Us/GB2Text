@@ -16,7 +16,7 @@ jobs:
           
       - name: Lock issue if needed
         if: ${{ failure() }}
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             // Логика блокировки

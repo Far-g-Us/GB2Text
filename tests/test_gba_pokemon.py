@@ -3,6 +3,8 @@
 import os
 import shutil
 import tempfile
+import unittest
+from pathlib import Path
 
 import pytest
 
@@ -10,7 +12,13 @@ from core.extractor import TextExtractor
 from core.injector import TextInjector
 from core.plugin_manager import PluginManager
 from core.rom import GameBoyROM
-from plugins.gba_pokemon import FIXED_TABLES, PokemonFixedTextDecoder, PokemonGBAPlugin
+from plugins.gba_pokemon import (
+    CHARMAP_FIRERED,
+    FIXED_TABLES,
+    PokemonFixedTextDecoder,
+    PokemonGBAPlugin,
+    PokemonTextDecoder,
+)
 
 ROM_DIR = os.path.join(os.path.dirname(__file__), '..', 'test_game')
 US_AND_EU = {
@@ -223,3 +231,55 @@ class TestFixedTextDecoderEncode:
     def test_lowercase_falls_back_to_upper(self):
         dec = self._decoder()
         assert dec.encode('a') == bytes([0xBB])
+
+
+
+class TestUnmappedCharTracking(unittest.TestCase):
+    """Символы вне таблицы должны доходить до
+    injector.collect_unmapped_chars(), иначе подмены в пробел молчаливы.
+
+    Контракт: трекер НАКАПЛИВАЕТСЯ между вызовами encode и очищается
+    сбором на инжекторе. Раньше он сбрасывался перед каждым вызовом, и для
+    пула из 1289 записей (один декодер на весь pokemon_firered_dialogues) в
+    отчёт попадали символы только последней записи.
+    """
+
+    def test_both_decoders_track_cyrillic_and_accumulate(self):
+        for decoder in (PokemonTextDecoder(CHARMAP_FIRERED),
+                        PokemonFixedTextDecoder(CHARMAP_FIRERED)):
+            self.assertEqual(decoder.last_unmapped_chars, [])
+
+            decoder.encode('\u0416\u0418\u0412\u041e\u0422')
+            self.assertEqual(decoder.last_unmapped_chars, [],
+                             'cyrillic must not be reported as unmapped')
+
+            decoder.encode('\u6f22\u5b57')
+            self.assertEqual(decoder.last_unmapped_chars, ['\u6f22', '\u5b57'])
+
+            # Вторая плохая запись обязана добавиться, а не заменить первую.
+            decoder.encode('\u4ece')
+            self.assertEqual(decoder.last_unmapped_chars, ['\u6f22', '\u5b57', '\u4ece'],
+                             'tracker must accumulate across records')
+
+            # Чистая запись ничего не добавляет и не стирает собранное.
+            decoder.encode('\u0416\u0418\u0412\u041e\u0422')
+            self.assertEqual(decoder.last_unmapped_chars, ['\u6f22', '\u5b57', '\u4ece'])
+
+    def test_injector_collects_and_resets(self):
+        rom = Path('test_game/Pokemon - FireRed Version (USA).gba')
+        if not rom.exists():
+            self.skipTest('FireRed ROM unavailable')
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = Path(tmp) / 'rom.gba'
+            shutil.copy(rom, copy)
+            injector = TextInjector(str(copy))
+            decoder = PokemonFixedTextDecoder(CHARMAP_FIRERED)
+            segment = {'name': 't', 'start': 0x100, 'end': 0x140,
+                       'decoder': decoder, 'fixed_width': True,
+                       'pad_byte': 0x00, 'terminators': [0xFF],
+                       'charmap': CHARMAP_FIRERED}
+            injector._segment_cache[None] = [segment]
+            decoder.encode('\u6f22\u5b57')
+            self.assertEqual(injector.collect_unmapped_chars(),
+                             ['\u6f22', '\u5b57'])
+            self.assertEqual(injector.collect_unmapped_chars(), [])

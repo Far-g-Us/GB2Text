@@ -1,0 +1,23 @@
+# По умолчанию git хранит переводы строк LF, а в рабочем дереве на Windows
+# отдаёт CRLF. Без этого правила 174 из 355 отслеживаемых файлов числятся
+# изменёнными только из-за перевода строки, и коммит утаскивает ~150 файлов
+# шума вместо реальных правок.
+* text=auto eol=lf
+
+# Двоичные файлы не должны переводиться и не должны проверяться на окончание
+# строки: иначе git может решить, что они текстовые.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.gz binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.pdb binary
+*.pyc binary
+*.gba binary
+*.gbc binary
+*.gb binary
+*.nds binary

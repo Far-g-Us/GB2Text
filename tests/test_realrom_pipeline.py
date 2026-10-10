@@ -489,16 +489,32 @@ def _shorten(text: str, meta: dict | None = None) -> str:
         parts.append(match.group(0))
         pos = match.end()
     parts.append(text[pos:])
-    budget = max(1, len(text) // 3)
+    # Бюджет считается по ПРОЗЕ без отступов: у Pokemon текст хранится с
+    # ведущими пробелами (выравнивание), и при бюджете от общей длины он
+    # целиком съедался пробелами — 56 записей выглядели как «перевод стал
+    # пустым». Это артефакт преобразования, а не отказ инжектора.
+    total_core = sum(len(p.strip()) for p in parts
+                     if not (p.startswith('[') or p.startswith('{')))
+    budget = max(1, total_core // 3)
     out: list[str] = []
     used = 0
     for part in parts:
         if part.startswith('[') or part.startswith('{'):
             out.append(part)
             continue
-        take = part[:max(0, budget - used)]
-        out.append(take)
-        used += len(take)
+        core = part.strip()
+        if not core:
+            continue
+        lead = len(part) - len(part.lstrip())
+        trail = len(part) - len(part.rstrip())
+        # Отступы не тратят бюджет и сохраняются как есть. Минимум в 1 символ
+        # гарантируется ТОЛЬКО первой части прозы: иначе сокращение вырождалось
+        # бы в пустоту. Следующие части режутся как раньше (в ноль), иначе
+        # сокращение становится менее агрессивным и сдвигает все числа census.
+        keep = max(1 if used == 0 else 0, budget - used)
+        out.append(part[:lead] + core[:keep] + part[len(part) - trail:]
+                   if trail else part[:lead] + core[:keep])
+        used += keep
     # Fallback обязан быть НЕПУСТЫМ: пустой перевод у fixed-слота забивает
     # слот целиком, запись пропадает из манифеста, и тест падает не на том.
     # Первый символ оригинала представим по построению — он взят из ROM.

@@ -350,7 +350,10 @@
   "font.import.replace": "未適用の変更を破棄して新しいファイルをインポートしますか？",
   "font.editor.discard": "描画した変更を破棄しますか？",
   "inject.affix_unknown.entry": "{segment}: 書き込みません、注入側の理由 {reason}",
+  "inject.compressed_unknown.entry": "セグメント {segment}: 圧缮テキストを再編集できず、保持できません ({reason})",
   "inject.overflow.line_reason": "0x{target:X}: {text}",
   "inject.overflow.title_reason": "原文のまま残した行",
-  "inject.overflow.summary_reason": "{count} 行を原文のまま残しました。長いのではなく、ROM に表せない訳です"
+  "inject.overflow.summary_reason": "{count} 行を原文のまま残しました。長いのではなく、ROM に表せない訳です",
+  "charmap.settings": "チャーセット設定",
+  "inject.compressed_unknown.more": "その他 {count} 件の拒否（理由別）: {summary}"
 }

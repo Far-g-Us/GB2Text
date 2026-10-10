@@ -258,12 +258,19 @@ class PokemonTextDecoder:
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
+        self.last_unmapped_chars: list[str] = []
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         return _decode_pokemon_text_static(data[start:start + length], self.charmap)
 
     def encode(self, text: str, strict: bool = False) -> bytes:
-        return _encode_pokemon_text(text, self.charmap, strict)
+        # Трекер НЕ сбрасывается здесь: один декодер обслуживает много
+        # записей (для пула pokemon_*_dialogues их 1289), и сброс перед
+        # каждым вызовом оставил бы в отчёте символы только последней
+        # записи. Сбор и очистка — в
+        # TextInjector.collect_unmapped_chars().
+        return _encode_pokemon_text(text, self.charmap, strict,
+                                     self.last_unmapped_chars)
 
 
 class PokemonFixedTextDecoder:
@@ -277,6 +284,7 @@ class PokemonFixedTextDecoder:
 
     def __init__(self, charmap: dict[int, str]):
         self.charmap = charmap
+        self.last_unmapped_chars: list[str] = []
         self.logger = logging.getLogger('gb2text.plugins.pokemon_gba.fixed')
         self._reverse: dict[str, int] = {}
         for byte, char in charmap.items():
@@ -332,6 +340,7 @@ class PokemonFixedTextDecoder:
                 if strict:
                     raise ValueError(f"char {text[i]!r} not in charmap (strict)")
                 byte = self._reverse.get(' ', 0x00)
+                self.last_unmapped_chars.append(text[i])
                 self.logger.warning(
                     f"Символ '{text[i]}' не найден в таблице, заменён пробелом")
             result.append(byte)
@@ -443,7 +452,8 @@ def _build_f9_glyphs(charmap: dict[int, str]) -> list[tuple[str, int]]:
     return sorted(glyphs.items(), key=lambda kv: len(kv[0]), reverse=True)
 
 
-def _encode_pokemon_text(text: str, charmap: dict[int, str], strict: bool = False) -> bytes:
+def _encode_pokemon_text(text: str, charmap: dict[int, str], strict: bool = False,
+                      unmapped: list[str] | None = None) -> bytes:
     """Encode a Pokemon string back to raw bytes (round-trip compatible).
 
     Грамматика токенов строго соответствует выводу _decode_pokemon_text_static:
@@ -547,6 +557,8 @@ def _encode_pokemon_text(text: str, charmap: dict[int, str], strict: bool = Fals
                     if byte == 0x00 and ch != ' ':
                         if strict:
                             raise ValueError(f"char {ch!r} not in charmap (strict)")
+                        if unmapped is not None:
+                            unmapped.append(ch)
                         logger.warning(
                             f"Символ {ch!r} не найден в таблице, заменён пробелом")
                 out.append(byte)

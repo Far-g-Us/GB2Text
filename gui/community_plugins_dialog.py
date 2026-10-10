@@ -59,6 +59,7 @@ class CommunityPluginsDialog:
         self._callback_queue: queue.SimpleQueue = queue.SimpleQueue()
         # Ставится событием <Destroy> окна, читается из рабочего потока.
         self._window_dead = False
+        self._error_status: str | None = None
 
         self.win = tk.Toplevel(parent)
         self.win.title(owner.i18n.t("plugins.community.title"))
@@ -264,6 +265,7 @@ class CommunityPluginsDialog:
         """Загружает registry в фоновом потоке и обновляет таблицу."""
         if self._busy:
             return
+        self._error_status = None
         self._set_busy(True)
         self.status_var.set(self.owner.i18n.t("plugins.community.fetching"))
         threading.Thread(target=self._load_registry, daemon=True).start()
@@ -308,6 +310,14 @@ class CommunityPluginsDialog:
         if keep:
             self.tree.selection_set(keep)
         self._set_busy(False)
+        if self._error_status:
+            # Ошибка установки важнее счётчика каталога: загрузка каталога
+            # идёт отдельным запросом и может завершиться позже ошибки,
+            # затерев её надписью «всего» или «каталог пуст». На Python 3.12
+            # порядок выполнения отложенных вызовов отличался от 3.11, и
+            # тест на это напоролся. Ошибка снимается новым действием
+            # пользователя (см. _on_install) или ручным обновлением.
+            return
         if not plugins:
             self.status_var.set(self.owner.i18n.t("plugins.community.empty"))
         else:
@@ -325,6 +335,7 @@ class CommunityPluginsDialog:
         return None
 
     def _on_install(self):
+        self._error_status = None
         if self._busy:
             return
         plugin = self._selected_plugin()
@@ -417,6 +428,7 @@ class CommunityPluginsDialog:
 
     def _on_install_error(self, error: str):
         self._set_busy(False)
+        self._error_status = error
         self.status_var.set(error)
         messagebox.showerror(
             self.owner.i18n.t("error.title"),
