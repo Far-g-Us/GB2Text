@@ -125,7 +125,7 @@ Leave static game-specific configuration files in `plugins/config/` out of the r
 - Japanese (Katakana/Hiragana)
 - Russian (Cyrillic)
 
-Configure the encoding in the Settings tab of the GUI. 
+The encoding is detected from the ROM and its plugin; there is no manual encoding switch.
 
 ## 🤖 Agent API / Automation
 
@@ -160,6 +160,13 @@ Full contract, security design, and examples: **[API_AGENTS.md](API_AGENTS.md)**
 - No circumventing copyright protection mechanisms
 - No infringing intellectual property rights of game developers/publishers 
   
+### ⚠️ Known issues
+
+What is currently broken or does not work yet, with the measurement behind it:
+see [KNOWN_ISSUES.md](KNOWN_ISSUES.md). Kept separate from the roadmap on
+purpose — an issue is done when the reproduction stops reproducing, a task is
+done when the feature works.
+
 ### 🤝 Contributing 
 
 Please read our [CONTRIBUTING](CONTRIBUTING.md)  for details on our code of conduct and the process for submitting pull requests. 

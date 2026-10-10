@@ -398,6 +398,7 @@ class TextInjector:
         # читает GUI, а не census, поэтому протечка была безвредной, но
         # ровно этим же сдвигом отчёт пришёл бы не в тот сегмент.
         self.last_affix_report = []
+        self.last_compress_report = []
         self.last_spellcheck_report = []
         self.last_fit_report = []
         self.last_relocate_report = []
@@ -463,20 +464,45 @@ class TextInjector:
             pad_byte = _resolve_pad(segment, 0x00)
 
             trans_bytes = None
+            recompress_reason = None
             try:
                 trans_bytes = enc(translation)
             except (ValueError, KeyError, IndexError, TypeError) as e:
+                # Huffman-дерево Golden Sun кодирует только те пары
+                # (предыдущий байт, байт), которые встречаются в игре.
+                # Сокращение переносит control-коды в новый контекст, и
+                # пара может не иметь кода — это не ошибка перевода, но
+                # отказ обязан быть виден, как и остальные гейты.
+                recompress_reason = f'compressed_recompress_failed: {e}'
                 self.logger.debug(f"Could not recompress: {e}")
             if trans_bytes is not None and not isinstance(trans_bytes, (bytes, bytearray)):
                 self.logger.debug("Compressor returned non-bytes, skipping")
                 trans_bytes = None
+                recompress_reason = 'compressed_encoder_non_bytes'
             if trans_bytes is not None and len(trans_bytes) > original_length:
+                too_long_len = len(trans_bytes)
                 self.logger.debug(
-                    f"Translation too long ({len(trans_bytes)} > "
+                    f"Translation too long ({too_long_len} > "
                     f"{original_length}), skipping")
                 trans_bytes = None
+                recompress_reason = ('compressed_too_long: '
+                                     f'{too_long_len}>{original_length}')
 
             if trans_bytes is None:
+                if recompress_reason is not None:
+                    # Отдельный отчёт, НЕ last_affix_report: подсчёт в
+                    # tests/test_realrom_pipeline.py::_inject_all трактует
+                    # любую запись отчёта с адресом как «сообщение пропущено»
+                    # и сверяет с бюджетом. Здесь причина другая — поток не
+                    # представим, — и смешивать эти два класса нельзя.
+                    recompress_report: list = getattr(
+                        self, 'last_compress_report', None) or []
+                    self.last_compress_report = recompress_report
+                    recompress_report.append({'segment': segment_name,
+                                              'index': 0,
+                                              'offset': segment['start'],
+                                              'room': original_length,
+                                              'reason': recompress_reason})
                 if not skip_long:
                     return False
                 self.logger.info(
@@ -950,6 +976,7 @@ class TextInjector:
         # census, читающий отчёты после каждого вызова,
         # отнёс бы их к текущему сегменту.
         self.last_affix_report = []
+        self.last_compress_report = []
         meta = plugin.get_pointer_table_meta() if hasattr(plugin, 'get_pointer_table_meta') else None
         if not meta or not isinstance(meta, dict):
             return False
@@ -1147,6 +1174,7 @@ class TextInjector:
         # census, читающий отчёты после каждого вызова,
         # отнёс бы их к текущему сегменту.
         self.last_affix_report = []
+        self.last_compress_report = []
         meta = plugin.get_pointer_table_meta() if hasattr(plugin, 'get_pointer_table_meta') else None
         if not meta or not isinstance(meta, dict):
             return False
@@ -1780,6 +1808,7 @@ class TextInjector:
         # именно в этот отчёт. Раньше он не сбрасывался на этом пути, и
         # отчёт предыдущего сегмента протекал бы в следующий.
         self.last_affix_report = []
+        self.last_compress_report = []
         if decoder is None:
             return False
         manifest = segment.get('manifest') or []

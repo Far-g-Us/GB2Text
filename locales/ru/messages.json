@@ -350,7 +350,10 @@
   "font.import.replace": "Отбросить неприменённые изменения и импортировать новый файл?",
   "font.editor.discard": "Отбросить нарисованные изменения?",
   "inject.affix_unknown.entry": "{segment}: не записано, причина инжектора {reason}",
+  "inject.compressed_unknown.entry": "Сегмент {segment}: не записан, сжатый текст не перекодируется (причина: {reason})",
   "inject.overflow.line_reason": "0x{target:X}: {text}",
   "inject.overflow.title_reason": "Строки оставлены оригиналом",
-  "inject.overflow.summary_reason": "{count} строк оставлено оригиналом: перевод не представим в ROM, а не слишком длинный"
+  "inject.overflow.summary_reason": "{count} строк оставлено оригиналом: перевод не представим в ROM, а не слишком длинный",
+  "charmap.settings": "Настройки таблицы символов",
+  "inject.compressed_unknown.more": "Ещё {count} отказов, сгруппировано по причине: {summary}"
 }

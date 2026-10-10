@@ -211,6 +211,7 @@ class Gen1FixedDecoder:
         self.logger = logging.getLogger('gb2text.plugins.pokemon_gen1.fixed')
         self._reverse = {v: k for k, v in charmap.items()}
         self._tokens = sorted(self._reverse, key=len, reverse=True)
+        self.last_unmapped_chars: list[str] = []
 
     def decode(self, data: bytes, start: int, length: int) -> str:
         result: list[str] = []
@@ -248,12 +249,15 @@ class Gen1FixedDecoder:
             if matched:
                 continue
             ch = text[i]
-            byte = self._reverse.get(ch) or self._reverse.get(ch.upper())
+            byte = self._reverse.get(ch)
+            if byte is None:
+                byte = self._reverse.get(ch.upper())
             if byte is None:  # pragma: no branch
                 byte = self._reverse.get(' ')
                 if byte is None:  # pragma: no branch
                     raise ValueError(  # pragma: no cover
                         f"No replacement byte for symbol {ch!r}")
+                self.last_unmapped_chars.append(ch)
                 self.logger.warning(
                     f"Symbol {ch!r} not found, replaced with space")
             out.append(byte)

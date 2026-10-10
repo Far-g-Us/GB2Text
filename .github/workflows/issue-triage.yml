@@ -9,7 +9,7 @@ jobs:
     steps:
       - name: Classify issue type
         id: classifier
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const { title, body } = context.payload.issue;
@@ -46,7 +46,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send response
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
             const bugMsg = "### Спасибо за отчет об ошибке!\n\nДля диагностики укажите:\n1. Хэш SHA-256 ROM-файла\n2. Адрес памяти где возникает ошибка\n3. Версия игры (USA/EUR/JPN)\n\nНе прикладывайте ROM файлы - это нарушает авторские права.";

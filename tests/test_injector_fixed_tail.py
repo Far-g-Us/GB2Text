@@ -132,6 +132,7 @@ def _injector(seg: dict) -> TextInjector:
                  'last_overlap_report', 'last_spellcheck_report',
                  'last_fit_report', 'last_unmapped_chars',
                  'last_affix_report', 'last_mid_alias_report',
+                 'last_compress_report',
                  'last_align_report'):
         setattr(inj, attr, [] if attr != 'last_align_report' else {})
     inj.rom.data[BASE:END] = SLOT
@@ -218,12 +219,17 @@ def test_substituted_char_is_not_refused():
     разный дефект, и лечится он не здесь.
 
     ВАЖНО, чего этот тест НЕ утверждает: что подстановку сообщает
-    `last_unmapped_chars`. У `PokemonFixedTextDecoder` и `Gen1FixedDecoder`
-    (plugins/gba_pokemon.py, plugins/gb_pokemon_gen1.py) при `strict=False`
-    неотображаемый символ молча заменяется пробелом, а атрибута
-    `last_unmapped_chars` у них нет вообще — то есть по факту такой перевод
-    пишется в слот пустыми и НИКАК не сообщается. Это открытый долг, см.
-    ROADMAP. Тест фиксирует узость критерия, а не исправность отчётности.
+    `last_unmapped_chars`. Этот отчётный путь проверяется отдельно, в
+    `tests/test_gba_pokemon.py::TestUnmappedCharTracking` (у всех трёх
+    кодировщиков атрибут есть, заполняется и сбрасывается между вызовами).
+    Здесь фиксируется другое: сам критерий отказа подстановку не ловит, потому
+    что она не меняет длину. Тест фиксирует узость критерия, а не исправность
+    отчётности.
+
+    Известное ограничение: трекер наполняется по вызовам `encode`, поэтому для
+    сегмента, где один декодер обслуживает много записей (например
+    `pokemon_*_dialogues`), в отчёт попадают символы последней записи. Пока
+    это не починено, см. KNOWN_ISSUES.
     """
     class _SubstitutingDecoder:
         def decode(self, data, start, length):

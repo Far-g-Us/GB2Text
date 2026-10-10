@@ -46,6 +46,10 @@ except ImportError:  # pragma: no cover
 # Инициализация логгера
 logger = logging.getLogger('gb2text.gui')
 
+# Сколько отказов сжатого пути показывать в отчёте до сводки по причинам.
+# Сам список в `last_compress_report` не обрезается: его читает census.
+COMPRESS_REPORT_PREVIEW = 200
+
 from core import secret_store
 from core.constants import DEFAULT_WINDOW_HEIGHT, DEFAULT_WINDOW_WIDTH
 from core.encoding import (
@@ -1115,31 +1119,27 @@ class GBTextExtractorGUI:
         lang_combo.current(1)  # Русский по умолчанию
 
         # Настройки кодировки
-        encoding_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("encoding.type"), padding=theme.SPACING["MD"])
+        encoding_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("charmap.settings"), padding=theme.SPACING["MD"])
         encoding_frame.pack(fill="x", expand=False, pady=theme.SPACING["MD"])
 
-        ttk.Label(encoding_frame, text=self.i18n.t("encoding.type")).grid(row=0, column=0, sticky="w", padx=(0, theme.SPACING["MD"]), pady=theme.SPACING["SM"])
-
+        # Переключатель кодировки убран из настроек: charset определяет
+        # плагин и автоопределением. Переменная остаётся и всегда равна "auto": от неё зависит
+        # выбор charmap (`_build_charmap`) и язык источника, то есть внутреннее
+        # состояние, а не пользовательская настройка.
         self.encoding_type = tk.StringVar(value="auto")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("auto.detect"), variable=self.encoding_type, value="auto").grid(row=0, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("english"), variable=self.encoding_type, value="en").grid(row=1, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("japanese"), variable=self.encoding_type, value="ja").grid(row=2, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("russian"), variable=self.encoding_type, value="ru").grid(row=3, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text=self.i18n.t("chinese"), variable=self.encoding_type, value="zh").grid(row=4, column=1, sticky="w")
-        ttk.Radiobutton(encoding_frame, text="Shift-JIS (GBA)", variable=self.encoding_type, value="shiftjis").grid(row=5, column=1, sticky="w")
-        self._sync_verbose_unknown_flag()
         ttk.Checkbutton(
             encoding_frame,
             text=self.i18n.t("verbose.unknown"),
             variable=self.verbose_unknown_var,
             command=self._on_toggle_verbose_unknown,
-        ).grid(row=6, column=1, sticky="w", pady=(theme.SPACING["XS"], 0))
+        ).grid(row=0, column=0, sticky="w", pady=(theme.SPACING["XS"], 0))
+        self._sync_verbose_unknown_flag()
 
         ttk.Button(
             encoding_frame,
             text=self.i18n.t("tbl.editor.open"),
             command=self._open_charmap_editor,
-        ).grid(row=7, column=1, sticky="w", pady=(theme.SPACING["SM"], 0))
+        ).grid(row=1, column=0, sticky="w", pady=(theme.SPACING["SM"], 0))
 
         # Тема оформления
         theme_frame = ttk.LabelFrame(settings_frame, text=self.i18n.t("settings.theme"), padding=theme.SPACING["MD"])
@@ -4304,6 +4304,51 @@ class GBTextExtractorGUI:
                 'free_after': room if isinstance(room, int) else 0,
                 'kind': 'reason',
                 'text': self.i18n.t(key).format(**fields),
+            })
+        # Отказы сжатого пути (Golden Sun / TLA / FFTA): перевод не удалось
+        # перекодировать, потому что деревья Huffman игры кодируют только те
+        # пары байтов, что встречаются в данных, а сокращение переносит
+        # control-код в новый контекст. Отдельный отчёт инжектора, потому что
+        # `last_affix_report` участвует в счёте пропусков в тест-харнессе.
+        compress = getattr(self.text_injector, 'last_compress_report', []) or []
+        # Отчёт сжатого пути может быть большим: по census это 5559 записей
+        # на корпусе, и каждая строка в виджете — это отдельный элемент.
+        # Показываем начало и сворачиваем хвост в сводку по причинам; сами
+        # данные в `last_compress_report` не трогаем, их читает census.
+        shown = compress[:COMPRESS_REPORT_PREVIEW]
+        for item in shown:
+            if not isinstance(item, dict):
+                continue
+            target = item.get('offset', 0)
+            room = item.get('room', 0)
+            reason = item.get('reason')
+            report.append({
+                'target': target if isinstance(target, int) else 0,
+                'length': 0,
+                'free_after': room if isinstance(room, int) else 0,
+                'kind': 'reason',
+                'text': self.i18n.t('inject.compressed_unknown.entry').format(
+                    segment=item.get('segment', '?'),
+                    reason=reason if isinstance(reason, str) else '?'),
+            })
+        rest = compress[COMPRESS_REPORT_PREVIEW:]
+        if rest:
+            counts: dict[str, int] = {}
+            for item in rest:
+                if not isinstance(item, dict):
+                    continue
+                reason = item.get('reason')
+                key = reason if isinstance(reason, str) else '?'
+                counts[key] = counts.get(key, 0) + 1
+            summary = ', '.join(f'{k} ({v})' for k, v in
+                                sorted(counts.items(), key=lambda kv: -kv[1]))
+            report.append({
+                'target': 0,
+                'length': 0,
+                'free_after': 0,
+                'kind': 'reason',
+                'text': self.i18n.t('inject.compressed_unknown.more').format(
+                    count=len(rest), summary=summary),
             })
         return report
 

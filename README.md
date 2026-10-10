@@ -54,6 +54,15 @@ If you want a translation to Russian, use the `ru` version of any document.
 ### 🇺🇸 [English](docs/en/ROADMAP.md)
 ### 🇷🇺 [Русский](ROADMAP.md)
 
+## ⚠️ Known issues
+
+What is currently broken or does not work yet, with the measurement behind it.
+Kept separate from the roadmap on purpose: an issue is done when the
+reproduction stops reproducing, a task is done when the feature works.
+
+### 🇺🇸 [English](docs/en/KNOWN_ISSUES.md)
+### 🇷🇺 [Русский](KNOWN_ISSUES.md)
+
 ## 🌍 Contributing
 
 ### 🇺🇸 [English](docs/en/CONTRIBUTING.md)

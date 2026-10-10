@@ -247,5 +247,66 @@ class TestGUIConstants(unittest.TestCase):
         self.assertTrue(DEFAULT_WINDOW_HEIGHT > 0)
 
 
+
+class TestCompressReportPreview(unittest.TestCase):
+    """Отчёт сжатого пути не должен заваливать GUI.
+
+    По census список отказов доходит до 5559 записей на корпусе, а каждая
+    строка в виджете отчёта — отдельный элемент. Показывается начало, хвост
+    сворачивается в сводку по причинам; сами данные в
+    `last_compress_report` не обрезаются, их читает census.
+    """
+
+    def _collect(self, count):
+        from gui.main_window import COMPRESS_REPORT_PREVIEW, GBTextExtractorGUI
+
+        injector = MagicMock()
+        injector.last_compress_report = [
+            {'segment': f's{i}', 'index': 0, 'offset': i, 'room': 10,
+             'reason': 'compressed_too_long' if i % 2 else 'other'}
+            for i in range(count)
+        ]
+        window = GBTextExtractorGUI.__new__(GBTextExtractorGUI)
+        window.text_injector = injector
+        window.i18n = MagicMock()
+        window.i18n.t = lambda key: {
+            'inject.compressed_unknown.entry': '{segment}: {reason}',
+            'inject.compressed_unknown.more': '{count} more: {summary}',
+        }.get(key, key)
+        return GBTextExtractorGUI._collect_overflow_report(window), count, COMPRESS_REPORT_PREVIEW
+
+    def test_short_report_is_untouched(self):
+        report, count, preview = self._collect(5)
+        self.assertLess(count, preview)
+        self.assertEqual(len(report), count)
+        self.assertNotIn('{count} more', report[-1]['text'])
+
+    def test_preview_cap_and_summary(self):
+        from gui.main_window import COMPRESS_REPORT_PREVIEW
+
+        count = COMPRESS_REPORT_PREVIEW + 25
+        report, _, _ = self._collect(count)
+        self.assertEqual(len(report), COMPRESS_REPORT_PREVIEW + 1)
+        tail = report[-1]['text']
+        self.assertIn('25 more', tail)
+        # Причины хвоста сгруппированы, а не вывалены по одной.
+        self.assertIn('other', tail)
+        self.assertIn('compressed_too_long', tail)
+
+    def test_data_is_not_truncated_in_injector(self):
+        """Обрезка — только отображение; сам отчёт инжектора полон."""
+        from gui.main_window import COMPRESS_REPORT_PREVIEW
+
+        count = COMPRESS_REPORT_PREVIEW * 3
+        injector = MagicMock()
+        entries = [{'segment': 's', 'index': 0, 'offset': 0, 'room': 1,
+                    'reason': 'r'} for _ in range(count)]
+        injector.last_compress_report = entries
+        report, _, _ = self._collect(count)
+        self.assertLess(len(report), count)
+        self.assertEqual(len(entries), count)
+
+
+
 if __name__ == '__main__':
     unittest.main()
